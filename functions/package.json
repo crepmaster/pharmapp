@@ -8,8 +8,8 @@
     "build": "tsc",
     "serve": "firebase emulators:start --only functions",
     "deploy": "firebase deploy --only functions"
-  },
-  "dependencies": {
+  } ,
+    "dependencies": {
     "firebase-admin": "^12.5.0",
     "firebase-functions": "^5.1.0"
   },
