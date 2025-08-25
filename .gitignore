@@ -1,0 +1,23 @@
+﻿# Node / Functions
+functions/node_modules/
+functions/lib/
+functions/.runtimeconfig.json
+functions/*.log
+npm-debug.log*
+yarn-error.log*
+
+# Firebase
+.firebase/
+firebase-debug.log
+
+# Local secrets
+.env
+.env.*
+*.secret
+serviceAccount*.json
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
