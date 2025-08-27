@@ -396,12 +396,29 @@ export const exchangeCapture = onRequest({ region: "europe-west1" }, async (req,
       }]);
     }
 
+    if (saleAmount && saleAmount < 0) {
+      return sendValidationError(res, [{
+        field: "saleAmount",
+        message: "saleAmount must be non-negative",
+        code: "INVALID_AMOUNT"
+      }]);
+    }
+
     if (sellerId && validators.userId(sellerId, "sellerId")) {
       return sendValidationError(res, [validators.userId(sellerId, "sellerId")!]);
     }
 
     if (buyerId && validators.userId(buyerId, "buyerId")) {
       return sendValidationError(res, [validators.userId(buyerId, "buyerId")!]);
+    }
+
+    // Validate that if saleAmount > 0, both seller and buyer must be provided
+    if (saleAmount > 0 && (!sellerId || !buyerId)) {
+      return sendValidationError(res, [{
+        field: saleAmount > 0 && !sellerId ? "sellerId" : "buyerId",
+        message: "Both sellerId and buyerId are required when saleAmount > 0",
+        code: "REQUIRED_FOR_SALE"
+      }]);
     }
 
     await withIdempotency(`capture:${exchangeId}`, async () => {
@@ -449,7 +466,46 @@ export const exchangeCapture = onRequest({ region: "europe-west1" }, async (req,
 
         // ----- WRITES AFTER ALL READS -----
         
-        // Release holds from A and B
+        // Process the pharmaceutical sale transaction if saleAmount is provided
+        let buyerRef: FirebaseFirestore.DocumentReference | null = null;
+        let sellerRef: FirebaseFirestore.DocumentReference | null = null;
+        
+        if (saleAmount > 0 && sellerId && buyerId) {
+          // Validate that we have the required parties for a sale
+          if (sellerId === buyerId) {
+            throw BusinessErrors.EXCHANGE_INVALID_STATUS("invalid", "seller and buyer cannot be the same");
+          }
+          
+          buyerRef = db.collection("wallets").doc(buyerId);
+          sellerRef = db.collection("wallets").doc(sellerId);
+          
+          // Read buyer wallet to check if they have sufficient funds
+          const buyerSnap = await tx.get(buyerRef);
+          const buyerWallet = buyerSnap.data() as any;
+          
+          if (!buyerWallet) throw BusinessErrors.WALLET_NOT_FOUND(buyerId);
+          if ((buyerWallet.available ?? 0) < saleAmount) {
+            throw BusinessErrors.INSUFFICIENT_FUNDS(`Buyer ${buyerId} needs ${saleAmount} but only has ${buyerWallet.available ?? 0} available`);
+          }
+          
+          // Transfer sale amount from buyer to seller
+          tx.update(buyerRef, {
+            available: FieldValue.increment(-saleAmount),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+          
+          // Create seller wallet if it doesn't exist, then credit them
+          const sellerSnap = await tx.get(sellerRef);
+          if (!sellerSnap.exists) {
+            tx.set(sellerRef, walletInit(currency), { merge: true });
+          }
+          tx.update(sellerRef, {
+            available: FieldValue.increment(saleAmount),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        }
+        
+        // Release courier fee holds from A and B
         tx.update(aRef, {
           held: FieldValue.increment(-aHold),
           updatedAt: FieldValue.serverTimestamp(),
@@ -459,7 +515,7 @@ export const exchangeCapture = onRequest({ region: "europe-west1" }, async (req,
           updatedAt: FieldValue.serverTimestamp(),
         });
 
-        // Create or update courier wallet and pay them
+        // Create or update courier wallet and pay them the courier fee
         if (!courierSnap.exists) {
           tx.set(courierRef, walletInit(currency), { merge: true });
         }
@@ -481,6 +537,7 @@ export const exchangeCapture = onRequest({ region: "europe-west1" }, async (req,
 
         // Create ledger entries
         const ledgerEntries = [
+          // Courier fee hold releases
           {
             userId: aId,
             type: "hold_release",
@@ -490,6 +547,7 @@ export const exchangeCapture = onRequest({ region: "europe-west1" }, async (req,
             to: "courier",
             exchangeId,
             courierId,
+            description: "Courier fee payment (party A)",
             createdAt: FieldValue.serverTimestamp(),
           },
           {
@@ -501,8 +559,10 @@ export const exchangeCapture = onRequest({ region: "europe-west1" }, async (req,
             to: "courier",
             exchangeId,
             courierId,
+            description: "Courier fee payment (party B)",
             createdAt: FieldValue.serverTimestamp(),
           },
+          // Courier payment
           {
             userId: courierId,
             type: "courier_payment",
@@ -511,9 +571,42 @@ export const exchangeCapture = onRequest({ region: "europe-west1" }, async (req,
             from: "exchange",
             to: "wallet",
             exchangeId,
+            description: "Courier service fee",
             createdAt: FieldValue.serverTimestamp(),
           }
         ];
+
+        // Add pharmaceutical sale transaction ledger entries if sale occurred
+        if (saleAmount > 0 && sellerId && buyerId) {
+          ledgerEntries.push(
+            // Buyer payment
+            {
+              userId: buyerId,
+              type: "pharmaceutical_purchase",
+              amount: saleAmount,
+              currency,
+              from: "wallet",
+              to: "seller",
+              exchangeId,
+              sellerId: sellerId,
+              description: "Pharmaceutical purchase payment",
+              createdAt: FieldValue.serverTimestamp(),
+            } as any,
+            // Seller receipt
+            {
+              userId: sellerId,
+              type: "pharmaceutical_sale",
+              amount: saleAmount,
+              currency,
+              from: "buyer",
+              to: "wallet",
+              exchangeId,
+              buyerId: buyerId,
+              description: "Pharmaceutical sale receipt",
+              createdAt: FieldValue.serverTimestamp(),
+            } as any
+          );
+        }
 
         ledgerEntries.forEach(entry => {
           const ledgerRef = db.collection("ledger").doc();

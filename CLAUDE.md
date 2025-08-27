@@ -46,7 +46,7 @@ This is a Firebase-based pharmacy application with Cloud Functions for payment p
 
 **Exchange Flow**
 1. `createExchangeHold` - Holds 50/50 split of courier fee from both parties
-2. `exchangeCapture` - Releases holds and pays courier (incomplete implementation)
+2. `exchangeCapture` - Releases holds, pays courier, and processes pharmaceutical sale transaction
 3. `exchangeCancel` - Returns held funds to participants
 4. Scheduled job expires holds after 6 hours
 
@@ -71,4 +71,10 @@ PowerShell script (`scripts/test-cloudrun.ps1`) provides comprehensive testing:
 - TypeScript compiled to `functions/lib/` directory
 - All endpoints deployed to `europe-west1` region
 - Scheduled functions use `Africa/Douala` timezone
-- Exchange capture logic is incomplete (line 334 in index.ts)
+
+## Testing
+
+- **Unit Tests**: `npm test` - 51 passing tests covering validation, exchange logic, and business rules
+- **Test Files**: Located in `functions/src/__tests__/`
+- **Coverage**: Complete coverage of utility functions, validation, and exchange business logic
+- **Integration Tests**: Available with Firebase emulator setup (see `functions/src/__tests__/README.md`)
