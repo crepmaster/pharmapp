@@ -327,8 +327,12 @@ export const createExchangeHold = onRequest({ region: "europe-west1" }, async (r
 
         if (!a) throw BusinessErrors.WALLET_NOT_FOUND(aId);
         if (!b) throw BusinessErrors.WALLET_NOT_FOUND(bId);
-        if ((a.available ?? 0) < halfA) throw BusinessErrors.INSUFFICIENT_FUNDS(`User ${aId} needs ${halfA} but only has ${a.available ?? 0} available`);
-        if ((b.available ?? 0) < halfB) throw BusinessErrors.INSUFFICIENT_FUNDS(`User ${bId} needs ${halfB} but only has ${b.available ?? 0} available`);
+        if ((a.available ?? 0) < halfA) {
+          throw BusinessErrors.INSUFFICIENT_FUNDS(`User ${aId} needs ${halfA} but only has ${a.available ?? 0} available`);
+        }
+        if ((b.available ?? 0) < halfB) {
+          throw BusinessErrors.INSUFFICIENT_FUNDS(`User ${bId} needs ${halfB} but only has ${b.available ?? 0} available`);
+        }
 
         // WRITES
         tx.update(aRef, {
@@ -435,7 +439,7 @@ export const exchangeCapture = onRequest({ region: "europe-west1" }, async (req,
           throw BusinessErrors.EXCHANGE_INVALID_STATUS(exchange.status, "hold_active");
         }
 
-        const { aId, bId, holds, currency, courierFee } = exchange;
+        const { aId, bId, holds, currency } = exchange;
         const aHold = Number(holds?.a ?? 0);
         const bHold = Number(holds?.b ?? 0);
         const totalHeld = aHold + bHold;

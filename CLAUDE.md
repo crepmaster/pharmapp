@@ -13,7 +13,12 @@ This is a Firebase-based pharmacy application with Cloud Functions for payment p
 - `cd functions && npm run serve` - Start Firebase emulator for functions
 - `cd functions && npm run deploy` - Deploy functions to Firebase
 
-### Testing
+### Testing & Quality
+- `cd functions && npm test` - Run comprehensive unit test suite (69 tests)
+- `cd functions && npm run test:watch` - Run tests in watch mode during development
+- `cd functions && npm run test:coverage` - Generate test coverage reports
+- `cd functions && npm run validate` - Full validation (typecheck + lint + tests)
+- `cd functions && npm run validate:quick` - Fast validation (typecheck + lint)
 - `pwsh ./scripts/test-cloudrun.ps1 -RunDemo` - Run full demo flow (topups, webhooks, exchanges)
 - `pwsh ./scripts/test-cloudrun.ps1 -TestHealth` - Health check
 - `pwsh ./scripts/test-cloudrun.ps1 -GetWallet pharmacy_A` - Check wallet balance
@@ -72,9 +77,31 @@ PowerShell script (`scripts/test-cloudrun.ps1`) provides comprehensive testing:
 - All endpoints deployed to `europe-west1` region
 - Scheduled functions use `Africa/Douala` timezone
 
-## Testing
+## Testing & Quality Automation
 
-- **Unit Tests**: `npm test` - 51 passing tests covering validation, exchange logic, and business rules
-- **Test Files**: Located in `functions/src/__tests__/`
-- **Coverage**: Complete coverage of utility functions, validation, and exchange business logic
-- **Integration Tests**: Available with Firebase emulator setup (see `functions/src/__tests__/README.md`)
+### Unit Testing Framework
+- **Jest with TypeScript**: Complete testing setup with ES modules support
+- **69 passing tests** covering all business logic, validation, and utility functions
+- **Mock-based approach**: No Firebase emulator required for unit tests
+- **Test files**: Located in `functions/src/__tests__/`
+- **Coverage reports**: Available via `npm run test:coverage`
+
+### Code Quality Tools
+- **ESLint**: TypeScript linting with Firebase Functions best practices
+- **TypeScript**: Strict type checking with `tsc --noEmit`
+- **Pre-commit hooks**: Automatic validation on git commits via Husky
+- **Continuous validation**: `validate:quick` runs before builds
+
+### Test Structure
+- `validation.test.ts` - Input validation and error handling
+- `exchange-capture-unit.test.ts` - Pharmaceutical exchange business logic  
+- `payments-unit.test.ts` - Payment processing validation
+- `idempotency-unit.test.ts` - Webhook idempotency mechanisms
+- `exchange.test.ts` - Exchange hold/cancel workflows
+- `unit-tests.test.ts` - Core utility functions
+
+### Quality Workflows
+1. **Development**: Use `npm run test:watch` for continuous testing
+2. **Pre-commit**: Husky automatically runs `validate:quick` 
+3. **CI/CD Ready**: All tests pass and can be integrated into deployment pipelines
+4. **Integration Testing**: PowerShell demo script validates end-to-end workflows

@@ -119,7 +119,7 @@ describe('Unit Tests - No Emulator Required', () => {
         method: 'POST',
         headers: { 'content-type': 'application/json' }
       };
-      const mockRes = {
+      const _mockRes = {
         status: jest.fn().mockReturnThis(),
         send: jest.fn()
       };

@@ -157,7 +157,8 @@ export const BusinessErrors = {
   INSUFFICIENT_FUNDS: (detail: string) => new AppError("INSUFFICIENT_FUNDS", "Insufficient funds", 409, detail),
   WALLET_NOT_FOUND: (userId: string) => new AppError("WALLET_NOT_FOUND", `Wallet not found for user ${userId}`, 404),
   EXCHANGE_NOT_FOUND: (exchangeId: string) => new AppError("EXCHANGE_NOT_FOUND", `Exchange ${exchangeId} not found`, 404),
-  EXCHANGE_INVALID_STATUS: (status: string, expected: string) => new AppError("EXCHANGE_INVALID_STATUS", `Exchange status is ${status}, expected ${expected}`, 409),
+  EXCHANGE_INVALID_STATUS: (status: string, expected: string) => 
+    new AppError("EXCHANGE_INVALID_STATUS", `Exchange status is ${status}, expected ${expected}`, 409),
   WEBHOOK_UNAUTHORIZED: () => new AppError("WEBHOOK_UNAUTHORIZED", "Invalid webhook token", 401),
   IDEMPOTENCY_CONFLICT: () => new AppError("IDEMPOTENCY_CONFLICT", "Operation already processed", 409, { retryable: false })
 };
