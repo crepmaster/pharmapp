@@ -113,7 +113,7 @@ function Show-Wallet {
     $currency  = $f.currency.stringValue
     Write-Host ("{0}: available={1} held={2} {3}" -f $UserId,$available,$held,$currency) -ForegroundColor Cyan
   } catch {
-    Write-Warning "wallet $UserId: not found or unauthorized"
+    Write-Warning "wallet ${UserId}: not found or unauthorized"
   }
 }
 
@@ -131,16 +131,16 @@ function Step-TopupIntent {
   param([string]$UserId, [int]$Amount, [string]$Method="mtn_momo", [string]$Currency="XAF", [string]$Msisdn=$null)
   $body = @{ userId=$UserId; method=$Method; amount=$Amount; currency=$Currency; msisdn=$Msisdn }
   $r = Invoke-JsonPost -Uri $TopupUrl -BodyObject $body
-  $pid = (ConvertFrom-Json $r.Content).paymentId
-  Write-Host "  paymentId: $pid" -ForegroundColor Green
-  return $pid
+  $paymentId = (ConvertFrom-Json $r.Content).paymentId
+  Write-Host "  paymentId: $paymentId" -ForegroundColor Green
+  return $paymentId
 }
 
 function Step-SimulateMoMoWebhook {
   param([string]$PaymentId, [int]$Amount, [string]$Currency="XAF", [string]$TxnId=(New-UniqueTxn "momo"))
   $token = Get-Secret "MOMO_CALLBACK_TOKEN"
   $body  = @{ paymentId=$PaymentId; financialTransactionId=$TxnId; amount=$Amount; currency=$Currency }
-  $r = Invoke-JsonPost -Uri "$MomoWebhookUrl?token=$token" -BodyObject $body
+  $r = Invoke-JsonPost -Uri "${MomoWebhookUrl}?token=${token}" -BodyObject $body
   Write-Host "  momo webhook -> $($r.StatusCode) (txn:$TxnId)" -ForegroundColor Green
   return $TxnId
 }
@@ -149,7 +149,7 @@ function Step-SimulateOrangeWebhook {
   param([string]$PaymentId, [int]$Amount, [string]$Currency="XAF", [string]$TxnId=(New-UniqueTxn "orange"))
   $token = Get-Secret "ORANGE_CALLBACK_TOKEN"
   $body  = @{ paymentId=$PaymentId; transactionId=$TxnId; amount=$Amount; currency=$Currency }
-  $r = Invoke-JsonPost -Uri "$OrangeWebhookUrl?token=$token" -BodyObject $body
+  $r = Invoke-JsonPost -Uri "${OrangeWebhookUrl}?token=${token}" -BodyObject $body
   Write-Host "  orange webhook -> $($r.StatusCode) (txn:$TxnId)" -ForegroundColor Green
   return $TxnId
 }
@@ -233,8 +233,8 @@ if ($TestHealth) { Step-Health | Out-Host; return }
 if ($RunDemo) { Run-Demo; return }
 
 if ($TopupUser -and $Amount) {
-  $pid = Step-TopupIntent -UserId $TopupUser -Amount $Amount
-  Write-Host "paymentId: $pid"
+  $paymentId = Step-TopupIntent -UserId $TopupUser -Amount $Amount
+  Write-Host "paymentId: $paymentId"
   return
 }
 

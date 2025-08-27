@@ -10,6 +10,7 @@ import crypto from "node:crypto";
 // 👉 helpers (déjà dans src/lib)
 import { withIdempotency } from "./lib/idempotency.js";
 import { cancelExchangeTx } from "./lib/exchange.js";
+import { validateFields, validators, sendValidationError, sendError, BusinessErrors, AppError } from "./lib/validation.js";
 // 👉 expose aussi la tâche planifiée
 export { expireExchangeHolds } from "./scheduled.js";
 
@@ -51,22 +52,50 @@ export const health = onRequest({ region: "europe-west1", cors: true }, (_req, r
 
 // ---------- Create Top-up Intent ----------
 export const topupIntent = onRequest({ region: "europe-west1" }, async (req, res) => {
-  if (requireJson(req, res)) return;
-  const { userId, method, amount, currency = "XAF", msisdn = null } = req.body ?? {};
-  if (!userId || !method || !amount) {
-    res.status(400).send("missing fields");
-    return;
+  try {
+    if (requireJson(req, res)) return;
+    const { userId, method, amount, currency = "XAF", msisdn = null } = req.body ?? {};
+
+    // Validate input
+    const errors = validateFields({ userId, method, amount, currency }, {
+      userId: validators.required,
+      method: (v, f) => validators.required(v, f) || validators.string(v, f, { minLength: 3, maxLength: 20 }),
+      amount: (v, f) => validators.required(v, f) || validators.amount(v, f),
+      currency: validators.currency
+    });
+
+    if (errors.length > 0) {
+      return sendValidationError(res, errors);
+    }
+
+    // Validate payment method
+    const validMethods = ["mtn_momo", "orange_money"];
+    if (!validMethods.includes(method)) {
+      return sendValidationError(res, [{
+        field: "method",
+        message: `Method must be one of: ${validMethods.join(", ")}`,
+        code: "INVALID_METHOD"
+      }]);
+    }
+
+    // Validate userId format
+    const userIdError = validators.userId(userId, "userId");
+    if (userIdError) {
+      return sendValidationError(res, [userIdError]);
+    }
+
+    const doc = db.collection("payments").doc();
+    await doc.set({
+      userId, method, amount: Number(amount), currency, msisdn,
+      status: "pending",
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    res.status(201).json({ paymentId: doc.id, status: "pending" });
+  } catch (error: any) {
+    sendError(res, error);
   }
-
-  const doc = db.collection("payments").doc();
-  await doc.set({
-    userId, method, amount, currency, msisdn,
-    status: "pending",
-    createdAt: FieldValue.serverTimestamp(),
-    updatedAt: FieldValue.serverTimestamp(),
-  });
-
-  res.status(201).json({ paymentId: doc.id, status: "pending" });
 });
 
 // ---------- Webhook helper ----------
@@ -92,8 +121,7 @@ async function handleWebhook(opts: {
   const got = getInboundToken(req);
   const expected = String(expectedToken ?? "").trim();
   if (!expected || got !== expected) {
-    res.status(401).send("unauthorized");
-    return;
+    throw BusinessErrors.WEBHOOK_UNAUTHORIZED();
   }
 
   const body = typeof req.body === "object" ? req.body : {};
@@ -202,8 +230,11 @@ export const momoWebhook = onRequest(
           currency: b?.currency ?? "XAF",
         }),
       });
-    } catch (e) {
-      logger.error("momo webhook error", e);
+    } catch (error: any) {
+      if (error instanceof AppError && error.code === "WEBHOOK_UNAUTHORIZED") {
+        return sendError(res, error);
+      }
+      logger.error("momo webhook error", error);
       res.status(200).send("ok");
     }
   }
@@ -231,8 +262,11 @@ export const orangeWebhook = onRequest(
           currency: b?.currency ?? "XAF",
         }),
       });
-    } catch (e) {
-      logger.error("orange webhook error", e);
+    } catch (error: any) {
+      if (error instanceof AppError && error.code === "WEBHOOK_UNAUTHORIZED") {
+        return sendError(res, error);
+      }
+      logger.error("orange webhook error", error);
       res.status(200).send("ok");
     }
   }
@@ -242,20 +276,44 @@ export const orangeWebhook = onRequest(
 
 // 1) HOLD 50/50
 export const createExchangeHold = onRequest({ region: "europe-west1" }, async (req, res) => {
-  if (requireJson(req, res)) return;
-
-  const { exchangeId, aId, bId, courierFee, currency = "XAF", idempotencyKey } = req.body ?? {};
-  if (!aId || !bId || !courierFee || courierFee <= 0) {
-    res.status(400).send("missing/invalid fields");
-    return;
-  }
-
-  const holdKey = `hold:${exchangeId ?? idempotencyKey ?? `${aId}:${bId}:${courierFee}:${currency}`}`;
-  const halfA = Math.floor(Number(courierFee) / 2);
-  const halfB = Number(courierFee) - halfA;
-  const exId = exchangeId ?? db.collection("exchanges").doc().id;
-
   try {
+    if (requireJson(req, res)) return;
+
+    const { exchangeId, aId, bId, courierFee, currency = "XAF", idempotencyKey } = req.body ?? {};
+
+    // Validate required fields
+    const errors = validateFields({ aId, bId, courierFee, currency }, {
+      aId: (v, f) => validators.required(v, f) || validators.userId(v, f),
+      bId: (v, f) => validators.required(v, f) || validators.userId(v, f),
+      courierFee: (v, f) => validators.required(v, f) || validators.amount(v, f),
+      currency: validators.currency
+    });
+
+    if (errors.length > 0) {
+      return sendValidationError(res, errors);
+    }
+
+    // Business validation
+    if (aId === bId) {
+      return sendValidationError(res, [{
+        field: "bId",
+        message: "User A and User B cannot be the same",
+        code: "IDENTICAL_USERS"
+      }]);
+    }
+
+    if (exchangeId && typeof exchangeId !== "string") {
+      return sendValidationError(res, [{
+        field: "exchangeId",
+        message: "exchangeId must be a string",
+        code: "INVALID_TYPE"
+      }]);
+    }
+
+    const holdKey = `hold:${exchangeId ?? idempotencyKey ?? `${aId}:${bId}:${courierFee}:${currency}`}`;
+    const halfA = Math.floor(Number(courierFee) / 2);
+    const halfB = Number(courierFee) - halfA;
+    const exId = exchangeId ?? db.collection("exchanges").doc().id;
     await withIdempotency(holdKey, async () => {
       await db.runTransaction(async (tx) => {
         const aRef = db.collection("wallets").doc(aId);
@@ -267,9 +325,10 @@ export const createExchangeHold = onRequest({ region: "europe-west1" }, async (r
         const a = aSnap.data() as any | undefined;
         const b = bSnap.data() as any | undefined;
 
-        if (!a || !b) throw new Error("wallets missing");
-        if ((a.available ?? 0) < halfA) throw new Error("A insufficient funds");
-        if ((b.available ?? 0) < halfB) throw new Error("B insufficient funds");
+        if (!a) throw BusinessErrors.WALLET_NOT_FOUND(aId);
+        if (!b) throw BusinessErrors.WALLET_NOT_FOUND(bId);
+        if ((a.available ?? 0) < halfA) throw BusinessErrors.INSUFFICIENT_FUNDS(`User ${aId} needs ${halfA} but only has ${a.available ?? 0} available`);
+        if ((b.available ?? 0) < halfB) throw BusinessErrors.INSUFFICIENT_FUNDS(`User ${bId} needs ${halfB} but only has ${b.available ?? 0} available`);
 
         // WRITES
         tx.update(aRef, {
@@ -306,70 +365,196 @@ export const createExchangeHold = onRequest({ region: "europe-west1" }, async (r
     });
 
     res.status(200).json({ ok: true, status: "hold_active", exchangeId: exId });
-  } catch (err: any) {
-    const msg = String(err?.message ?? "");
-    if (msg.includes("insufficient")) {
-      res.status(409).json({ ok: false, code: "INSUFFICIENT_FUNDS", detail: msg });
-    } else if (msg.includes("wallets missing")) {
-      res.status(404).json({ ok: false, code: "WALLET_NOT_FOUND", detail: msg });
-    } else {
-      res.status(500).json({ ok: false, code: "INTERNAL", detail: msg });
-    }
+  } catch (error: any) {
+    sendError(res, error);
   }
 });
 
 // 2) CAPTURE (payer le coursier)
 export const exchangeCapture = onRequest({ region: "europe-west1" }, async (req, res) => {
-  if (requireJson(req, res)) return;
-
-  const { exchangeId, courierId, saleAmount = 0, sellerId, buyerId } = req.body ?? {};
-  if (!exchangeId || !courierId) {
-    res.status(400).send("missing fields");
-    return;
-  }
-
   try {
+    if (requireJson(req, res)) return;
+
+    const { exchangeId, courierId, saleAmount = 0, sellerId, buyerId } = req.body ?? {};
+
+    // Validate required fields
+    const errors = validateFields({ exchangeId, courierId }, {
+      exchangeId: validators.required,
+      courierId: (v, f) => validators.required(v, f) || validators.userId(v, f)
+    });
+
+    if (errors.length > 0) {
+      return sendValidationError(res, errors);
+    }
+
+    // Validate optional fields
+    if (saleAmount && typeof saleAmount !== "number") {
+      return sendValidationError(res, [{
+        field: "saleAmount",
+        message: "saleAmount must be a number",
+        code: "INVALID_TYPE"
+      }]);
+    }
+
+    if (sellerId && validators.userId(sellerId, "sellerId")) {
+      return sendValidationError(res, [validators.userId(sellerId, "sellerId")!]);
+    }
+
+    if (buyerId && validators.userId(buyerId, "buyerId")) {
+      return sendValidationError(res, [validators.userId(buyerId, "buyerId")!]);
+    }
+
     await withIdempotency(`capture:${exchangeId}`, async () => {
-      // … (ta logique de capture actuelle : tout lire puis tout écrire)
-      // pour rester concis ici, on suppose que ta version qui fonctionne
-      // déjà est conservée.
-      // (si tu veux, je peux la remettre intégrale aussi)
+      await db.runTransaction(async (tx) => {
+        const exRef = db.collection("exchanges").doc(exchangeId);
+        const courierRef = db.collection("wallets").doc(courierId);
+
+        // ----- READS FIRST -----
+        const exSnap = await tx.get(exRef);
+        if (!exSnap.exists) throw BusinessErrors.EXCHANGE_NOT_FOUND(exchangeId);
+        
+        const exchange = exSnap.data() as any;
+        if (exchange.status !== "hold_active") {
+          throw BusinessErrors.EXCHANGE_INVALID_STATUS(exchange.status, "hold_active");
+        }
+
+        const { aId, bId, holds, currency, courierFee } = exchange;
+        const aHold = Number(holds?.a ?? 0);
+        const bHold = Number(holds?.b ?? 0);
+        const totalHeld = aHold + bHold;
+
+        // Get wallet references and snapshots
+        const aRef = db.collection("wallets").doc(aId);
+        const bRef = db.collection("wallets").doc(bId);
+        
+        const [aSnap, bSnap, courierSnap] = await Promise.all([
+          tx.get(aRef),
+          tx.get(bRef), 
+          tx.get(courierRef)
+        ]);
+
+        const aWallet = aSnap.data() as any;
+        const bWallet = bSnap.data() as any;
+
+        // Validate held amounts
+        if (!aWallet) throw BusinessErrors.WALLET_NOT_FOUND(aId);
+        if (!bWallet) throw BusinessErrors.WALLET_NOT_FOUND(bId);
+        
+        if ((aWallet.held ?? 0) < aHold) {
+          throw BusinessErrors.INSUFFICIENT_FUNDS(`User ${aId} has insufficient held funds: needs ${aHold}, has ${aWallet.held ?? 0}`);
+        }
+        if ((bWallet.held ?? 0) < bHold) {
+          throw BusinessErrors.INSUFFICIENT_FUNDS(`User ${bId} has insufficient held funds: needs ${bHold}, has ${bWallet.held ?? 0}`);
+        }
+
+        // ----- WRITES AFTER ALL READS -----
+        
+        // Release holds from A and B
+        tx.update(aRef, {
+          held: FieldValue.increment(-aHold),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        tx.update(bRef, {
+          held: FieldValue.increment(-bHold),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+
+        // Create or update courier wallet and pay them
+        if (!courierSnap.exists) {
+          tx.set(courierRef, walletInit(currency), { merge: true });
+        }
+        tx.update(courierRef, {
+          available: FieldValue.increment(totalHeld),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+
+        // Update exchange status
+        tx.update(exRef, {
+          status: "completed",
+          courierId,
+          completedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+          ...(saleAmount && { saleAmount }),
+          ...(sellerId && { sellerId }),
+          ...(buyerId && { buyerId }),
+        });
+
+        // Create ledger entries
+        const ledgerEntries = [
+          {
+            userId: aId,
+            type: "hold_release",
+            amount: aHold,
+            currency,
+            from: "held",
+            to: "courier",
+            exchangeId,
+            courierId,
+            createdAt: FieldValue.serverTimestamp(),
+          },
+          {
+            userId: bId,
+            type: "hold_release", 
+            amount: bHold,
+            currency,
+            from: "held",
+            to: "courier",
+            exchangeId,
+            courierId,
+            createdAt: FieldValue.serverTimestamp(),
+          },
+          {
+            userId: courierId,
+            type: "courier_payment",
+            amount: totalHeld,
+            currency,
+            from: "exchange",
+            to: "wallet",
+            exchangeId,
+            createdAt: FieldValue.serverTimestamp(),
+          }
+        ];
+
+        ledgerEntries.forEach(entry => {
+          const ledgerRef = db.collection("ledger").doc();
+          tx.set(ledgerRef, entry);
+        });
+      });
     });
     res.status(200).json({ ok: true, status: "completed" });
-  } catch (err: any) {
-    const msg = String(err?.message ?? "");
-    if (msg.includes("insufficient")) {
-      res.status(409).json({ ok: false, code: "INSUFFICIENT_FUNDS", detail: msg });
-    } else if (msg.includes("exchange not found")) {
-      res.status(404).json({ ok: false, code: "EXCHANGE_NOT_FOUND" });
-    } else {
-      res.status(500).json({ ok: false, code: "INTERNAL", detail: msg });
-    }
+  } catch (error: any) {
+    sendError(res, error);
   }
 });
 
 // 3) CANCEL (rend les holds)
 export const exchangeCancel = onRequest({ region: "europe-west1" }, async (req, res) => {
-  if (requireJson(req, res)) return;
-  const { exchangeId } = req.body ?? {};
-  if (!exchangeId) {
-    res.status(400).send("missing exchangeId");
-    return;
-  }
-
   try {
+    if (requireJson(req, res)) return;
+    const { exchangeId } = req.body ?? {};
+
+    // Validate required field
+    if (!exchangeId) {
+      return sendValidationError(res, [{
+        field: "exchangeId",
+        message: "exchangeId is required",
+        code: "REQUIRED"
+      }]);
+    }
+
+    if (typeof exchangeId !== "string") {
+      return sendValidationError(res, [{
+        field: "exchangeId",
+        message: "exchangeId must be a string",
+        code: "INVALID_TYPE"
+      }]);
+    }
+
     await withIdempotency(`cancel:${exchangeId}`, async () => {
       await cancelExchangeTx(exchangeId);
     });
     res.status(200).json({ ok: true, status: "canceled" });
-  } catch (err: any) {
-    const msg = String(err?.message ?? "");
-    if (msg.includes("insufficient")) {
-      res.status(409).json({ ok: false, code: "INSUFFICIENT_FUNDS", detail: msg });
-    } else if (msg.includes("exchange not found")) {
-      res.status(404).json({ ok: false, code: "EXCHANGE_NOT_FOUND" });
-    } else {
-      res.status(500).json({ ok: false, code: "INTERNAL", detail: msg });
-    }
+  } catch (error: any) {
+    sendError(res, error);
   }
 });

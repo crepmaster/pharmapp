@@ -11,6 +11,11 @@
   ],
   "fieldOverrides": [
     {
+      "collectionGroup": "idempotency",
+      "fieldPath": "at",
+      "ttl": true
+    },
+    {
       "collectionGroup": "webhook_logs",
       "fieldPath": "expireAt",
       "ttl": true
