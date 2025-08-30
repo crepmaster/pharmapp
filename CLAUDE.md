@@ -154,3 +154,50 @@ Each app follows standard Flutter architecture:
 - Updated Firebase packages for better web compatibility
 - Simple versions created for initial testing
 - Full Firebase integration ready to restore
+
+## 🔄 Post-Reboot Quick Start Commands
+
+After rebooting, use these commands to quickly resume development:
+
+### Test Both Apps on Chrome (Immediate):
+```bash
+# Terminal 1 - Pharmacy App
+cd pharmacy_app && flutter run -d chrome lib/main_simple.dart
+
+# Terminal 2 - Courier App  
+cd courier_app && flutter run -d chrome lib/main_simple.dart
+```
+
+### Mobile Device Testing:
+```bash
+# Check connected devices
+flutter devices
+
+# Run on physical device
+flutter run -d [device-id]
+
+# Run on Genymotion (after setup)
+flutter run -d [genymotion-ip]:5555
+```
+
+### Restore Full Firebase Integration:
+```bash
+# Pharmacy app with Firebase
+cd pharmacy_app && cp pubspec_firebase.yaml pubspec.yaml && flutter pub get
+flutter run -d chrome  # or device
+
+# Test Firebase connection in main.dart
+```
+
+### Development Workflow:
+1. **Primary Development**: Chrome browser (fast hot reload)
+2. **Mobile Testing**: Physical device or Genymotion
+3. **Backend Testing**: Firebase integration on any platform
+4. **Final Testing**: Multiple devices for compatibility
+
+## 📋 Next Session Tasks:
+- [ ] Complete Genymotion setup and test
+- [ ] Connect physical Android device via USB
+- [ ] Restore full Firebase integration
+- [ ] Test authentication and database connectivity
+- [ ] Begin feature development on medicine exchange workflows
