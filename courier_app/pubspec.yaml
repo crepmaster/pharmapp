@@ -35,7 +35,7 @@ dependencies:
   geolocator: ^10.1.0
 
   # QR Scanning (Courier specific) 
-  qr_code_scanner: ^1.0.1
+  mobile_scanner: ^3.5.6
   
   # Camera (Courier specific)
   camera: ^0.10.5+5

@@ -537,4 +537,12 @@ class EssentialAfricanMedicines {
       m.africanClassification.ageGroups.contains('pregnant_women')
     ).toList();
   }
+
+  // Compatibility alias for UI
+  static List<Medicine> get allMedicines => medicines;
+}
+
+// Compatibility class for UI
+class EssentialMedicines {
+  static List<Medicine> get allMedicines => EssentialAfricanMedicines.medicines;
 }

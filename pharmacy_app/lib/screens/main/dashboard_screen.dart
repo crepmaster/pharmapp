@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../blocs/auth_bloc.dart';
+import '../../services/payment_service.dart';
+import '../inventory/inventory_browser_screen.dart';
+import '../exchanges/proposals_screen.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -58,7 +62,7 @@ class DashboardScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Welcome Card
+                  // Welcome Card with Wallet
                   Card(
                     elevation: 2,
                     child: Padding(
@@ -99,6 +103,100 @@ class DashboardScreen extends StatelessWidget {
                               ),
                             ],
                           ),
+                          const SizedBox(height: 16),
+                          
+                          // Wallet Balance Section
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[50],
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.grey[200]!),
+                            ),
+                            child: FutureBuilder<Map<String, dynamic>>(
+                              future: PaymentService.getWalletBalance(
+                                userId: FirebaseAuth.instance.currentUser!.uid,
+                              ),
+                              builder: (context, snapshot) {
+                                if (snapshot.connectionState == ConnectionState.waiting) {
+                                  return const Row(
+                                    children: [
+                                      Icon(Icons.account_balance_wallet, color: Colors.grey),
+                                      SizedBox(width: 8),
+                                      Text('Loading wallet...'),
+                                    ],
+                                  );
+                                }
+                                
+                                if (snapshot.hasError) {
+                                  return Row(
+                                    children: [
+                                      const Icon(Icons.error_outline, color: Colors.red),
+                                      const SizedBox(width: 8),
+                                      Text('Wallet error: ${snapshot.error}'),
+                                    ],
+                                  );
+                                }
+                                
+                                final wallet = snapshot.data ?? {};
+                                final available = wallet['available'] ?? 0;
+                                final held = wallet['held'] ?? 0;
+                                
+                                return Column(
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            const Icon(Icons.account_balance_wallet, 
+                                                     color: Color(0xFF1976D2)),
+                                            const SizedBox(width: 8),
+                                            Text('Wallet Balance',
+                                                 style: TextStyle(fontWeight: FontWeight.w600)),
+                                          ],
+                                        ),
+                                        TextButton.icon(
+                                          onPressed: () => _showTopUpDialog(context),
+                                          icon: const Icon(Icons.add),
+                                          label: const Text('Top Up'),
+                                          style: TextButton.styleFrom(
+                                            foregroundColor: const Color(0xFF1976D2),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text('Available', 
+                                                 style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                                            Text('${(available / 100).toStringAsFixed(0)} XAF',
+                                                 style: const TextStyle(fontWeight: FontWeight.bold)),
+                                          ],
+                                        ),
+                                        Column(
+                                          crossAxisAlignment: CrossAxisAlignment.end,
+                                          children: [
+                                            Text('Held', 
+                                                 style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                                            Text('${(held / 100).toStringAsFixed(0)} XAF',
+                                                 style: TextStyle(color: Colors.orange[700], 
+                                                                  fontWeight: FontWeight.bold)),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                          ),
+                          
                           const SizedBox(height: 8),
                           Text(
                             'Ready to manage your pharmacy inventory and exchanges',
@@ -138,23 +236,38 @@ class DashboardScreen extends StatelessWidget {
                         Icons.inventory_2,
                         Colors.blue,
                         () {
-                          // TODO: Navigate to inventory
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const InventoryBrowserScreen(),
+                            ),
+                          );
                         },
                       ),
                       _buildActionCard(
-                        'New Exchange',
-                        Icons.swap_horiz,
+                        'Browse Medicines',
+                        Icons.search,
                         Colors.green,
                         () {
-                          // TODO: Navigate to create exchange
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const InventoryBrowserScreen(),
+                            ),
+                          );
                         },
                       ),
                       _buildActionCard(
-                        'Active Orders',
-                        Icons.shopping_cart,
+                        'Proposals',
+                        Icons.assignment,
                         Colors.orange,
                         () {
-                          // TODO: Navigate to orders
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const ProposalsScreen(),
+                            ),
+                          );
                         },
                       ),
                       _buildActionCard(
@@ -257,6 +370,120 @@ class DashboardScreen extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  void _showTopUpDialog(BuildContext context) {
+    final amountController = TextEditingController();
+    final phoneController = TextEditingController();
+    String selectedMethod = 'MTN_MOMO';
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Top Up Wallet'),
+          content: StatefulBuilder(
+            builder: (BuildContext context, StateSetter setState) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<String>(
+                    value: selectedMethod,
+                    decoration: const InputDecoration(
+                      labelText: 'Payment Method',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'MTN_MOMO', child: Text('MTN MoMo')),
+                      DropdownMenuItem(value: 'ORANGE_MONEY', child: Text('Orange Money')),
+                    ],
+                    onChanged: (value) {
+                      setState(() {
+                        selectedMethod = value!;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: phoneController,
+                    decoration: const InputDecoration(
+                      labelText: 'Phone Number',
+                      hintText: '+237 6XX XXX XXX',
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: TextInputType.phone,
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: amountController,
+                    decoration: const InputDecoration(
+                      labelText: 'Amount (XAF)',
+                      hintText: 'Minimum: 100 XAF',
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: TextInputType.number,
+                  ),
+                ],
+              );
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final amount = int.tryParse(amountController.text);
+                if (amount == null || amount < 100) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Amount must be at least 100 XAF')),
+                  );
+                  return;
+                }
+
+                if (phoneController.text.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Phone number is required')),
+                  );
+                  return;
+                }
+
+                Navigator.pop(context);
+
+                try {
+                  final result = await PaymentService.createTopup(
+                    userId: FirebaseAuth.instance.currentUser!.uid,
+                    amountXAF: amount,
+                    method: selectedMethod,
+                    phoneNumber: phoneController.text,
+                  );
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Top-up initiated: ${result['status'] ?? 'Processing'}'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Top-up failed: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1976D2),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Top Up'),
+            ),
+          ],
+        );
+      },
     );
   }
 }
