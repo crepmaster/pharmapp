@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter create:*)",
+      "Bash(flutter pub:*)",
+      "Bash(flutter run:*)",
+      "Bash(adb:*)",
+      "Bash(emulator:*)",
+      "Bash(flutter emulators:*)",
+      "Bash(flutter:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
