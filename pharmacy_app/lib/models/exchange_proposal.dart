@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:equatable/equatable.dart';
+import '../services/exchange_service.dart';
 
 // Medicine Purchase Proposal Model
 // Simple proposal system: Multiple buyers can propose on same medicine
@@ -161,6 +162,79 @@ class ExchangeProposal extends Equatable {
   bool get isPending => status == ProposalStatus.pending && !isExpired;
   bool get canBeAccepted => isPending;
   bool get canBeRejected => isPending;
+
+  // Backend integration methods
+  Future<String> acceptProposal() async {
+    if (!canBeAccepted) {
+      throw Exception('Proposal cannot be accepted in current state');
+    }
+
+    // Calculate courier fee (split 50/50 between pharmacies)
+    final courierFeeXAF = (deliveryInfo?.deliveryFee ?? 5000).toInt();
+    
+    // Create exchange hold in backend
+    final exchangeId = await ExchangeService.createHold(
+      pharmacyAId: fromPharmacyId,
+      pharmacyBId: toPharmacyId,
+      courierFeeXAF: courierFeeXAF,
+    );
+
+    // Update proposal status in Firestore
+    await FirebaseFirestore.instance
+        .collection('exchange_proposals')
+        .doc(id)
+        .update({
+      'status': ProposalStatus.accepted.toString().split('.').last,
+      'exchangeId': exchangeId,
+      'updatedAt': Timestamp.now(),
+    });
+
+    return exchangeId;
+  }
+
+  Future<void> rejectProposal(String reason) async {
+    if (!canBeRejected) {
+      throw Exception('Proposal cannot be rejected in current state');
+    }
+
+    await FirebaseFirestore.instance
+        .collection('exchange_proposals')
+        .doc(id)
+        .update({
+      'status': ProposalStatus.rejected.toString().split('.').last,
+      'rejectionReason': reason,
+      'updatedAt': Timestamp.now(),
+    });
+  }
+
+  Future<void> completeDelivery(String exchangeId) async {
+    // Capture the exchange in backend (complete payment)
+    await ExchangeService.captureExchange(exchangeId: exchangeId);
+
+    // Update proposal status
+    await FirebaseFirestore.instance
+        .collection('exchange_proposals')
+        .doc(id)
+        .update({
+      'status': ProposalStatus.completed.toString().split('.').last,
+      'updatedAt': Timestamp.now(),
+    });
+  }
+
+  Future<void> cancelExchange(String exchangeId, String reason) async {
+    // Cancel exchange hold in backend (refund held amounts)
+    await ExchangeService.cancelExchange(exchangeId: exchangeId);
+
+    // Update proposal status
+    await FirebaseFirestore.instance
+        .collection('exchange_proposals')
+        .doc(id)
+        .update({
+      'status': ProposalStatus.cancelled.toString().split('.').last,
+      'rejectionReason': reason,
+      'updatedAt': Timestamp.now(),
+    });
+  }
 }
 
 // Proposal offer details

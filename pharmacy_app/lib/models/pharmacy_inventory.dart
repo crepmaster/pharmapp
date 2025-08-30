@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:equatable/equatable.dart';
+import 'medicine.dart';
+import '../data/essential_medicines.dart';
 
 // Pharmacy Inventory Item Model
 // Represents medicines a pharmacy has AVAILABLE FOR EXCHANGE/SALE
@@ -113,6 +115,40 @@ class PharmacyInventoryItem extends Equatable {
     );
   }
 
+  // Create factory for adding new medicine to inventory
+  factory PharmacyInventoryItem.create({
+    required String pharmacyId,
+    required Medicine medicine,
+    required int totalQuantity,
+    required DateTime expirationDate,
+    String batchNumber = '',
+    String notes = '',
+  }) {
+    final now = DateTime.now();
+    
+    return PharmacyInventoryItem(
+      id: '', // Will be set by Firestore
+      medicineId: medicine.id,
+      pharmacyId: pharmacyId,
+      availableQuantity: totalQuantity,
+      batch: BatchInfo(
+        lotNumber: batchNumber,
+        expirationDate: expirationDate,
+      ),
+      availabilitySettings: AvailabilitySettings(
+        availableForExchange: true,
+        minExchangeQuantity: 1,
+        maxExchangeQuantity: totalQuantity,
+      ),
+      tracking: notes.isNotEmpty ? TrackingInfo(
+        lastInventoryCount: now,
+        notes: notes,
+      ) : null,
+      createdAt: now,
+      updatedAt: now,
+    );
+  }
+
   Map<String, dynamic> toFirestore() {
     return {
       'medicineId': medicineId,
@@ -172,6 +208,23 @@ class PharmacyInventoryItem extends Equatable {
       availabilitySettings.availableForExchange && 
       !isExpired && 
       availableQuantity > 0;
+
+  // UI Compatibility Getters - Static medicine lookup from essential medicines
+  Medicine? get medicine {
+    try {
+      final medicines = EssentialMedicines.allMedicines;
+      for (final med in medicines) {
+        if (med.id == medicineId) return med;
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+  
+  DateTime? get expirationDate => batch.expirationDate;
+  String get batchNumber => batch.lotNumber;
+  String get notes => tracking?.notes ?? '';
 }
 
 // Stock information
@@ -422,15 +475,17 @@ class TrackingInfo extends Equatable {
   final DateTime lastInventoryCount;
   final List<MovementRecord> movements;
   final List<InventoryAlert> alerts;
+  final String notes;
 
   const TrackingInfo({
     required this.lastInventoryCount,
     this.movements = const [],
     this.alerts = const [],
+    this.notes = '',
   });
 
   @override
-  List<Object?> get props => [lastInventoryCount, movements, alerts];
+  List<Object?> get props => [lastInventoryCount, movements, alerts, notes];
 
   factory TrackingInfo.fromMap(Map<String, dynamic> map) {
     return TrackingInfo(
@@ -441,6 +496,7 @@ class TrackingInfo extends Equatable {
       alerts: (map['alerts'] as List?)
           ?.map((a) => InventoryAlert.fromMap(a))
           .toList() ?? [],
+      notes: map['notes'] ?? '',
     );
   }
 
@@ -449,6 +505,7 @@ class TrackingInfo extends Equatable {
       'lastInventoryCount': Timestamp.fromDate(lastInventoryCount),
       'movements': movements.map((m) => m.toMap()).toList(),
       'alerts': alerts.map((a) => a.toMap()).toList(),
+      'notes': notes,
     };
   }
 
@@ -456,11 +513,13 @@ class TrackingInfo extends Equatable {
     DateTime? lastInventoryCount,
     List<MovementRecord>? movements,
     List<InventoryAlert>? alerts,
+    String? notes,
   }) {
     return TrackingInfo(
       lastInventoryCount: lastInventoryCount ?? this.lastInventoryCount,
       movements: movements ?? this.movements,
       alerts: alerts ?? this.alerts,
+      notes: notes ?? this.notes,
     );
   }
 }

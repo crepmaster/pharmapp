@@ -126,6 +126,38 @@ class Medicine extends Equatable {
       isActive: isActive ?? this.isActive,
     );
   }
+
+  // UI Compatibility Getters
+  String get name => names.brandNames.isNotEmpty ? names.brandNames.first : names.commonName;
+  String get genericName => names.genericName;
+  String get strength => formulations.strength;
+  String get form => formulations.dosageForm;
+  String get category => _categoryToString(africanClassification.category);
+
+  static String _categoryToString(MedicineCategory category) {
+    switch (category) {
+      case MedicineCategory.antimalarials:
+        return 'Antimalarials';
+      case MedicineCategory.antibiotics:
+        return 'Antibiotics';
+      case MedicineCategory.antiretrovirals:
+        return 'Antiretrovirals';
+      case MedicineCategory.maternalHealth:
+        return 'Maternal Health';
+      case MedicineCategory.pediatric:
+        return 'Pediatric Care';
+      case MedicineCategory.cardiovascular:
+        return 'Cardiovascular';
+      case MedicineCategory.diabetes:
+        return 'Diabetes';
+      case MedicineCategory.painManagement:
+        return 'Pain Management';
+      case MedicineCategory.respiratory:
+        return 'Respiratory';
+      case MedicineCategory.gastrointestinal:
+        return 'Gastrointestinal';
+    }
+  }
 }
 
 // Medicine Names (including local languages)
