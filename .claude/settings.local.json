@@ -7,7 +7,9 @@
       "Bash(adb:*)",
       "Bash(emulator:*)",
       "Bash(flutter emulators:*)",
-      "Bash(flutter:*)"
+      "Bash(flutter:*)",
+      "Bash(cp:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": []
