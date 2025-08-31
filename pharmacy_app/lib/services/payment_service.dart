@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class PaymentService {
-  static const String functionsUrl = 'https://us-central1-mediexchange.cloudfunctions.net';
+  static const String functionsUrl = 'https://europe-west1-mediexchange.cloudfunctions.net';
   
   static Future<Map<String, dynamic>> createTopup({
     required String userId,
