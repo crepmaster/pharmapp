@@ -125,25 +125,58 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     AuthSignInRequested event,
     Emitter<AuthState> emit,
   ) async {
+    print('🔑 AuthBloc: Starting login for ${event.email}');
     emit(AuthLoading());
 
     try {
-      await AuthService.signIn(
+      print('🔑 AuthBloc: Calling Firebase signIn...');
+      final result = await AuthService.signIn(
         email: event.email,
         password: event.password,
       );
+      print('🔑 AuthBloc: Firebase signIn result: ${result?.user?.email}');
 
+      print('🔑 AuthBloc: Getting pharmacy data...');
       final pharmacyData = await AuthService.getPharmacyData();
+      print('🔑 AuthBloc: Pharmacy data: ${pharmacyData != null ? 'found' : 'not found'}');
+      
       if (pharmacyData != null) {
         final pharmacyUser = PharmacyUser.fromMap(
           pharmacyData,
           AuthService.currentUser!.uid,
         );
+        print('✅ AuthBloc: Login successful for ${pharmacyUser.email}');
         emit(AuthAuthenticated(user: pharmacyUser));
       } else {
-        emit(const AuthError(message: 'Pharmacy profile not found'));
+        print('❌ AuthBloc: Pharmacy profile not found - creating basic profile');
+        // Create a basic pharmacy profile for existing Firebase users
+        try {
+          await AuthService.createPharmacyProfile(
+            email: AuthService.currentUser!.email!,
+            pharmacyName: 'Pharmacy Profile (Update Required)',
+            phoneNumber: 'Please update',
+            address: 'Please update your address',
+          );
+          
+          // Try to get the newly created profile
+          final newPharmacyData = await AuthService.getPharmacyData();
+          if (newPharmacyData != null) {
+            final pharmacyUser = PharmacyUser.fromMap(
+              newPharmacyData,
+              AuthService.currentUser!.uid,
+            );
+            print('✅ AuthBloc: Created basic profile for ${pharmacyUser.email}');
+            emit(AuthAuthenticated(user: pharmacyUser));
+          } else {
+            emit(const AuthError(message: 'Failed to create pharmacy profile'));
+          }
+        } catch (e) {
+          print('❌ AuthBloc: Failed to create basic profile - $e');
+          emit(AuthError(message: 'Unable to access pharmacy profile. Please contact support.'));
+        }
       }
     } catch (e) {
+      print('❌ AuthBloc: Login error - $e');
       emit(AuthError(message: e.toString()));
     }
   }
@@ -152,9 +185,11 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     AuthSignUpRequested event,
     Emitter<AuthState> emit,
   ) async {
+    print('📝 AuthBloc: Starting registration for ${event.email}');
     emit(AuthLoading());
 
     try {
+      print('📝 AuthBloc: Calling Firebase signUp...');
       await AuthService.signUp(
         email: event.email,
         password: event.password,
@@ -162,16 +197,25 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         phoneNumber: event.phoneNumber,
         address: event.address,
       );
+      print('📝 AuthBloc: Firebase signUp successful');
 
+      print('📝 AuthBloc: Getting pharmacy data after signup...');
       final pharmacyData = await AuthService.getPharmacyData();
+      print('📝 AuthBloc: Signup pharmacy data: ${pharmacyData != null ? 'found' : 'not found'}');
+      
       if (pharmacyData != null) {
         final pharmacyUser = PharmacyUser.fromMap(
           pharmacyData,
           AuthService.currentUser!.uid,
         );
+        print('✅ AuthBloc: Registration successful for ${pharmacyUser.email}');
         emit(AuthAuthenticated(user: pharmacyUser));
+      } else {
+        print('❌ AuthBloc: Registration failed - pharmacy data not found');
+        emit(const AuthError(message: 'Registration completed but profile not found'));
       }
     } catch (e) {
+      print('❌ AuthBloc: Registration error - $e');
       emit(AuthError(message: e.toString()));
     }
   }

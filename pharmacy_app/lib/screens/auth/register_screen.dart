@@ -48,8 +48,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
               SnackBar(
                 content: Text(state.message),
                 backgroundColor: Colors.red,
+                duration: const Duration(seconds: 5),
               ),
             );
+          } else if (state is AuthAuthenticated) {
+            // Show success message and navigate back
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Welcome ${state.user.pharmacyName}! Account created successfully.'),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+            // The AuthWrapper in main.dart will automatically navigate to DashboardScreen
           }
         },
         builder: (context, state) {
