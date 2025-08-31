@@ -68,7 +68,6 @@ class _ProposalsScreenState extends State<ProposalsScreen>
       stream: FirebaseFirestore.instance
           .collection('exchange_proposals')
           .where('toPharmacyId', isEqualTo: currentUserId)
-          .orderBy('createdAt', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -79,9 +78,10 @@ class _ProposalsScreenState extends State<ProposalsScreen>
           return Center(child: Text('Error: ${snapshot.error}'));
         }
 
-        final proposals = snapshot.data?.docs.map((doc) {
+        final proposals = (snapshot.data?.docs.map((doc) {
           return ExchangeProposal.fromFirestore(doc);
-        }).toList() ?? [];
+        }).toList() ?? [])
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt)); // Sort by newest first
 
         if (proposals.isEmpty) {
           return _buildEmptyState(
@@ -112,7 +112,6 @@ class _ProposalsScreenState extends State<ProposalsScreen>
       stream: FirebaseFirestore.instance
           .collection('exchange_proposals')
           .where('fromPharmacyId', isEqualTo: currentUserId)
-          .orderBy('createdAt', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -123,9 +122,10 @@ class _ProposalsScreenState extends State<ProposalsScreen>
           return Center(child: Text('Error: ${snapshot.error}'));
         }
 
-        final proposals = snapshot.data?.docs.map((doc) {
+        final proposals = (snapshot.data?.docs.map((doc) {
           return ExchangeProposal.fromFirestore(doc);
-        }).toList() ?? [];
+        }).toList() ?? [])
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt)); // Sort by newest first
 
         if (proposals.isEmpty) {
           return _buildEmptyState(
