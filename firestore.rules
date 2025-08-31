@@ -45,5 +45,11 @@ service cloud.firestore {
       allow create: if isAuthenticated(); // System creates deliveries
       allow update: if isAuthenticated(); // Couriers and pharmacies can update status
     }
+
+    match /medicines/{id} {
+      allow read: if isAuthenticated(); // All users can read medicine database
+      allow create: if isAuthenticated(); // Pharmacies can create custom medicines
+      allow update: if isAuthenticated(); // Allow updates to medicine info
+    }
   }
 }
