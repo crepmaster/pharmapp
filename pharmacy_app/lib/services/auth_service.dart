@@ -50,12 +50,19 @@ class AuthService {
     required String password,
   }) async {
     try {
-      return await _auth.signInWithEmailAndPassword(
+      print('🔥 AuthService: Attempting Firebase signIn for $email');
+      final result = await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
+      print('✅ AuthService: Firebase signIn successful');
+      return result;
     } on FirebaseAuthException catch (e) {
+      print('❌ AuthService: Firebase Auth Error - Code: ${e.code}, Message: ${e.message}');
       throw _handleAuthException(e);
+    } catch (e) {
+      print('❌ AuthService: Unexpected error during signIn - $e');
+      rethrow;
     }
   }
 
@@ -73,14 +80,50 @@ class AuthService {
     }
   }
 
-  // Get pharmacy data
-  static Future<Map<String, dynamic>?> getPharmacyData() async {
-    if (currentUser == null) return null;
+  // Create pharmacy profile for existing Firebase users
+  static Future<void> createPharmacyProfile({
+    required String email,
+    required String pharmacyName,
+    required String phoneNumber,
+    required String address,
+  }) async {
+    if (currentUser == null) {
+      throw 'No authenticated user found';
+    }
 
     try {
-      final doc = await _firestore.collection('pharmacies').doc(currentUser!.uid).get();
-      return doc.data();
+      print('🏥 AuthService: Creating pharmacy profile for ${currentUser!.uid}');
+      await _firestore.collection('pharmacies').doc(currentUser!.uid).set({
+        'email': email,
+        'pharmacyName': pharmacyName,
+        'phoneNumber': phoneNumber,
+        'address': address,
+        'role': 'pharmacy',
+        'createdAt': FieldValue.serverTimestamp(),
+        'isActive': true,
+      });
+      print('✅ AuthService: Pharmacy profile created successfully');
     } catch (e) {
+      print('❌ AuthService: Error creating pharmacy profile - $e');
+      throw 'Failed to create pharmacy profile: $e';
+    }
+  }
+
+  // Get pharmacy data
+  static Future<Map<String, dynamic>?> getPharmacyData() async {
+    if (currentUser == null) {
+      print('❌ AuthService: No current user for pharmacy data');
+      return null;
+    }
+
+    try {
+      print('📛 AuthService: Getting pharmacy data for ${currentUser!.uid}');
+      final doc = await _firestore.collection('pharmacies').doc(currentUser!.uid).get();
+      final data = doc.data();
+      print('📛 AuthService: Pharmacy data ${data != null ? 'found' : 'not found'}');
+      return data;
+    } catch (e) {
+      print('❌ AuthService: Error getting pharmacy data - $e');
       throw 'Failed to load pharmacy data: $e';
     }
   }
@@ -92,6 +135,10 @@ class AuthService {
         return 'No user found with this email address.';
       case 'wrong-password':
         return 'Incorrect password.';
+      case 'invalid-login-credentials':
+      case 'INVALID_LOGIN_CREDENTIALS':
+      case 'invalid-credential':
+        return 'Invalid email or password. Please check your credentials.';
       case 'email-already-in-use':
         return 'An account already exists with this email address.';
       case 'weak-password':
@@ -100,8 +147,10 @@ class AuthService {
         return 'Please enter a valid email address.';
       case 'user-disabled':
         return 'This account has been disabled.';
+      case 'too-many-requests':
+        return 'Too many failed attempts. Please try again later.';
       default:
-        return 'Authentication error: ${e.message}';
+        return 'Authentication error: ${e.message ?? 'Unknown error'}';
     }
   }
 }

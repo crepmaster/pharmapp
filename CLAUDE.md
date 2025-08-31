@@ -342,13 +342,48 @@ Complete medicine database and proposal-based exchange system implemented!
 - **Payment Integration**: Mobile money + wallet system ✅
 - **Real-time Updates**: Firebase-powered live data ✅
 
+## ✅ Phase 2F Complete: Authentication & Error Handling Improvements (2025-08-31)
+
+### 🔧 **Major Technical Improvements:**
+- ✅ **Firebase Project Consolidation**: Merged `nowastemed` and `mediexchange` configurations
+- ✅ **Enhanced Authentication Flow**: Added comprehensive debug logging throughout login/registration
+- ✅ **Fixed Registration Auto-Login**: Registration now automatically logs users in with success messages
+- ✅ **Improved Error Handling**: Better error messages for invalid credentials and network issues
+- ✅ **Wallet Service Integration**: Updated PaymentService and ExchangeService to use consolidated `mediexchange` project
+- ✅ **User-Friendly Error UI**: Replaced technical errors with clear explanations for missing backend services
+
+### 🐛 **Issues Resolved:**
+- **INVALID_LOGIN_CREDENTIALS Error**: Now properly handled with user-friendly messages
+- **Registration Silent Failures**: Fixed missing success feedback and auto-login
+- **Wallet Service Errors**: Graceful handling when Firebase Functions not deployed
+- **Firebase Project Mismatch**: Consolidated authentication and backend to single `mediexchange` project
+
+### 📦 **Files Enhanced (2025-08-31):**
+- `pharmacy_app/lib/blocs/auth_bloc.dart` - Added comprehensive debug logging and automatic profile creation
+- `pharmacy_app/lib/services/auth_service.dart` - Enhanced error handling and profile creation methods
+- `pharmacy_app/lib/screens/auth/login_screen.dart` - Improved error display with visual indicators
+- `pharmacy_app/lib/screens/auth/register_screen.dart` - Added success messages and auto-login flow
+- `pharmacy_app/lib/screens/main/dashboard_screen.dart` - Better wallet error handling with clear explanations
+- `pharmacy_app/lib/services/payment_service.dart` - Updated to use `mediexchange` project
+- `pharmacy_app/lib/services/exchange_service.dart` - Updated to use `mediexchange` project
+
+### 🎯 **Current Status: AUTHENTICATION FULLY FUNCTIONAL**
+- **Complete Login/Registration Flow**: Working with proper error handling and success feedback
+- **Debug Logging**: Comprehensive tracking of authentication states and errors
+- **Error Resilience**: App handles network issues and missing services gracefully
+- **Ready for Backend Deployment**: Mobile app configured for `mediexchange` Firebase project
+
 ## 🎯 Next Development Priorities:
-- [ ] **Phase 3A: Courier Mobile App Features**
+- [ ] **Phase 3A: Backend Functions Deployment**
+  - [ ] Upgrade Firebase project to Blaze plan
+  - [ ] Deploy wallet and exchange functions to `mediexchange` project
+  - [ ] Test complete payment integration flow
+- [ ] **Phase 3B: Courier Mobile App Features**
   - [ ] GPS-based order assignment and routing
   - [ ] QR code scanning for delivery verification  
   - [ ] Camera integration for delivery proof
   - [ ] Real-time location tracking during deliveries
-- [ ] **Phase 3B: Advanced Features**
+- [ ] **Phase 3C: Advanced Features**
   - [ ] Push notifications for proposal updates
   - [ ] Medicine expiration batch alerts
   - [ ] Analytics dashboard for pharmacies

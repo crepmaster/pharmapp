@@ -129,12 +129,52 @@ class DashboardScreen extends StatelessWidget {
                                 }
                                 
                                 if (snapshot.hasError) {
-                                  return Row(
-                                    children: [
-                                      const Icon(Icons.error_outline, color: Colors.red),
-                                      const SizedBox(width: 8),
-                                      Text('Wallet error: ${snapshot.error}'),
-                                    ],
+                                  print('💰 Dashboard: Wallet error - ${snapshot.error}');
+                                  return Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.orange.shade50,
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: Colors.orange.shade200),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Icon(Icons.warning_amber_rounded, 
+                                                 color: Colors.orange.shade700, size: 18),
+                                            const SizedBox(width: 8),
+                                            Text('Wallet Service Unavailable',
+                                                 style: TextStyle(
+                                                   color: Colors.orange.shade700,
+                                                   fontWeight: FontWeight.w600,
+                                                 )),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Backend functions not deployed yet. Wallet will be available once cloud functions are set up.',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.orange.shade600,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Row(
+                                          children: [
+                                            const Icon(Icons.account_balance_wallet, 
+                                                     color: Colors.grey, size: 16),
+                                            const SizedBox(width: 4),
+                                            Text('Balance: Not available',
+                                                 style: TextStyle(
+                                                   fontSize: 12,
+                                                   color: Colors.grey.shade600,
+                                                 )),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
                                   );
                                 }
                                 

@@ -31,16 +31,49 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       body: BlocConsumer<AuthBloc, AuthState>(
         listener: (context, state) {
+          print('🔄 Login Screen - Auth State Changed: ${state.runtimeType}');
           if (state is AuthError) {
+            print('❌ Login Error: ${state.message}');
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(state.message),
                 backgroundColor: Colors.red,
+                duration: const Duration(seconds: 5),
               ),
             );
+          } else if (state is AuthAuthenticated) {
+            print('✅ Login Success: ${state.user.email}');
+          } else if (state is AuthLoading) {
+            print('⏳ Login in progress...');
           }
         },
         builder: (context, state) {
+          // Show error state directly in the UI
+          Widget? errorWidget;
+          if (state is AuthError) {
+            errorWidget = Container(
+              margin: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                border: Border.all(color: Colors.red.shade200),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.error_outline, color: Colors.red.shade700),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      state.message,
+                      style: TextStyle(color: Colors.red.shade700),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+          
           return SafeArea(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24.0),
@@ -50,6 +83,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const SizedBox(height: 60),
+                    
+                    // Error display
+                    if (errorWidget != null) errorWidget,
                     
                     // Logo and Title
                     const Icon(
@@ -150,12 +186,16 @@ class _LoginScreenState extends State<LoginScreen> {
                       isLoading: state is AuthLoading,
                       onPressed: () {
                         if (_formKey.currentState!.validate()) {
+                          final email = _emailController.text.trim();
+                          print('🔑 Attempting login with email: $email');
                           context.read<AuthBloc>().add(
                             AuthSignInRequested(
-                              email: _emailController.text.trim(),
+                              email: email,
                               password: _passwordController.text,
                             ),
                           );
+                        } else {
+                          print('❌ Form validation failed');
                         }
                       },
                     ),
