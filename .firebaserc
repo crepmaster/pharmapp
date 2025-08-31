@@ -1,6 +1,7 @@
 {
   "projects": {
-    "dev": "nowastemed"
+    "dev": "nowastemed",
+    "prod": "mediexchange"
   },
   "targets": {},
   "etags": {}

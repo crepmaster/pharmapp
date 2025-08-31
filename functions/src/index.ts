@@ -50,6 +50,34 @@ export const health = onRequest({ region: "europe-west1", cors: true }, (_req, r
   res.status(200).send("ok");
 });
 
+// ---------- Get Wallet Balance ----------
+export const getWallet = onRequest({ region: "europe-west1", cors: true }, async (req, res) => {
+  try {
+    const userId = req.query?.userId as string | undefined;
+    
+    if (!userId) {
+      res.status(400).json({ error: "userId is required" });
+      return;
+    }
+
+    // Get or create wallet
+    const walletRef = db.collection("wallets").doc(userId);
+    const walletDoc = await walletRef.get();
+    
+    if (!walletDoc.exists) {
+      // Create wallet if it doesn't exist
+      const initialWallet = walletInit();
+      await walletRef.set(initialWallet);
+      res.status(200).json(initialWallet);
+    } else {
+      res.status(200).json(walletDoc.data());
+    }
+  } catch (error: any) {
+    logger.error("getWallet error", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ---------- Create Top-up Intent ----------
 export const topupIntent = onRequest({ region: "europe-west1" }, async (req, res) => {
   try {
