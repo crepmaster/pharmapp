@@ -5,6 +5,7 @@ import '../../models/medicine.dart';
 import '../../models/pharmacy_inventory.dart';
 import '../../data/essential_medicines.dart';
 import '../../services/inventory_service.dart';
+import 'create_custom_medicine_screen.dart';
 
 class AddMedicineScreen extends StatefulWidget {
   const AddMedicineScreen({super.key});
@@ -101,12 +102,25 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
                             
                             // Medicine selection
                             if (selectedMedicine == null) ...[
-                              const Text(
-                                'Choose from essential medicines:',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.grey,
-                                ),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    'Choose from essential medicines:',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                  TextButton.icon(
+                                    onPressed: _createCustomMedicine,
+                                    icon: const Icon(Icons.add_circle_outline),
+                                    label: const Text('Create New'),
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: const Color(0xFF1976D2),
+                                    ),
+                                  ),
+                                ],
                               ),
                               const SizedBox(height: 8),
                               SizedBox(
@@ -445,6 +459,28 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
       setState(() {
         isLoading = false;
       });
+    }
+  }
+
+  Future<void> _createCustomMedicine() async {
+    final result = await Navigator.push<Medicine>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const CreateCustomMedicineScreen(),
+      ),
+    );
+    
+    if (result != null) {
+      setState(() {
+        selectedMedicine = result;
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${result.name} created and selected!'),
+          backgroundColor: Colors.green,
+        ),
+      );
     }
   }
 
