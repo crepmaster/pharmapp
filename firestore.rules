@@ -26,7 +26,7 @@ service cloud.firestore {
 
     match /pharmacy_inventory/{id} {
       allow read: if isAuthenticated(); // All authenticated users can read inventory (for browsing)
-      allow create: if isAuthenticated() && resource.data.pharmacyId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.pharmacyId == request.auth.uid;
       allow update, delete: if isAuthenticated() && resource.data.pharmacyId == request.auth.uid;
     }
 
