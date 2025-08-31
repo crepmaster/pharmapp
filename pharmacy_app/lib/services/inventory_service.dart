@@ -73,20 +73,26 @@ class InventoryService {
       return Stream.value([]);
     }
 
+    // Simplified query - only use one inequality filter to avoid index requirements
     Query query = _firestore
         .collection('pharmacy_inventory')
-        .where('pharmacyId', isNotEqualTo: user.uid) // Exclude own inventory
         .where('availabilitySettings.availableForExchange', isEqualTo: true)
-        .where('availableQuantity', isGreaterThan: 0);
+        .orderBy('createdAt', descending: true);
 
     return query
-        .orderBy('pharmacyId') // Required for inequality filters
-        .orderBy('createdAt', descending: true)
         .snapshots()
         .map((snapshot) {
       var items = snapshot.docs
           .map((doc) => PharmacyInventoryItem.fromFirestore(doc))
-          .where((item) => !item.isExpired) // Filter out expired items
+          .where((item) {
+            // Filter out own inventory
+            if (item.pharmacyId == user.uid) return false;
+            // Filter out expired items
+            if (item.isExpired) return false;
+            // Filter out items with no available quantity
+            if (item.availableQuantity <= 0) return false;
+            return true;
+          })
           .toList();
 
       // Apply category filter
