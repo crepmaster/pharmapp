@@ -51,7 +51,7 @@ class DefaultFirebaseOptions {
     appId: '1:850077575356:web:67c7130629f17dd57708b9',
     messagingSenderId: '850077575356',
     projectId: 'mediexchange',
-    authDomain: 'mediexchange-76872.firebaseapp.com',
+    authDomain: 'mediexchange.firebaseapp.com',
     storageBucket: 'mediexchange.firebasestorage.app',
   );
 
