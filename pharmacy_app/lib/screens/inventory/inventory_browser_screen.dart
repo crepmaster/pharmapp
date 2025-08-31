@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../models/medicine.dart';
 import '../../models/pharmacy_inventory.dart';
 import '../../data/essential_medicines.dart';
+import '../../services/inventory_service.dart';
 import 'add_medicine_screen.dart';
 import '../exchanges/create_proposal_screen.dart';
 
@@ -133,17 +134,8 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
   }
 
   Widget _buildMyInventory() {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
-    if (userId == null) {
-      return const Center(child: Text('Please log in to view inventory'));
-    }
-
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('pharmacy_inventory')
-          .where('pharmacyId', isEqualTo: userId)
-          .orderBy('createdAt', descending: true)
-          .snapshots(),
+    return StreamBuilder<List<PharmacyInventoryItem>>(
+      stream: InventoryService.getMyInventory(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -153,9 +145,8 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
           return Center(child: Text('Error: ${snapshot.error}'));
         }
 
-        final items = snapshot.data?.docs.map((doc) {
-          return PharmacyInventoryItem.fromFirestore(doc);
-        }).where((item) {
+        final allItems = snapshot.data ?? [];
+        final items = allItems.where((item) {
           // Apply filters
           final medicine = item.medicine;
           if (medicine == null) return false;
@@ -171,7 +162,7 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
           }
           
           return true;
-        }).toList() ?? [];
+        }).toList();
 
         if (items.isEmpty) {
           return Center(
@@ -222,13 +213,11 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
   }
 
   Widget _buildAvailableMedicines() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('pharmacy_inventory')
-          .where('availableQuantity', isGreaterThan: 0)
-          .orderBy('availableQuantity')
-          .orderBy('expirationDate')
-          .snapshots(),
+    return StreamBuilder<List<PharmacyInventoryItem>>(
+      stream: InventoryService.getAvailableMedicines(
+        categoryFilter: selectedCategory,
+        searchQuery: searchQuery.isEmpty ? null : searchQuery,
+      ),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -238,29 +227,7 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
           return Center(child: Text('Error: ${snapshot.error}'));
         }
 
-        final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-        final items = snapshot.data?.docs.map((doc) {
-          return PharmacyInventoryItem.fromFirestore(doc);
-        }).where((item) {
-          // Exclude own inventory
-          if (item.pharmacyId == currentUserId) return false;
-          
-          // Apply filters
-          final medicine = item.medicine;
-          if (medicine == null) return false;
-          
-          if (searchQuery.isNotEmpty &&
-              !medicine.name.toLowerCase().contains(searchQuery.toLowerCase()) &&
-              !medicine.genericName.toLowerCase().contains(searchQuery.toLowerCase())) {
-            return false;
-          }
-          
-          if (selectedCategory != 'All' && medicine.category != selectedCategory) {
-            return false;
-          }
-          
-          return true;
-        }).toList() ?? [];
+        final items = snapshot.data ?? [];
 
         if (items.isEmpty) {
           return Center(

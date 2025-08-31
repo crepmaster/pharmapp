@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../models/medicine.dart';
 import '../../models/pharmacy_inventory.dart';
 import '../../data/essential_medicines.dart';
+import '../../services/inventory_service.dart';
 
 class AddMedicineScreen extends StatefulWidget {
   const AddMedicineScreen({super.key});
@@ -417,23 +418,13 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
     });
 
     try {
-      final userId = FirebaseAuth.instance.currentUser?.uid;
-      if (userId == null) {
-        throw Exception('User not logged in');
-      }
-
-      final inventoryItem = PharmacyInventoryItem.create(
-        pharmacyId: userId,
+      await InventoryService.addMedicineToInventory(
         medicine: selectedMedicine!,
-        totalQuantity: int.parse(quantityController.text),
+        quantity: int.parse(quantityController.text),
         expirationDate: expirationDate!,
         batchNumber: batchController.text.trim(),
         notes: notesController.text.trim(),
       );
-
-      await FirebaseFirestore.instance
-          .collection('pharmacy_inventory')
-          .add(inventoryItem.toFirestore());
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
