@@ -2,10 +2,48 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{db}/documents {
     function isAdmin() { return request.auth.token.role == 'admin'; }
+    function isAuthenticated() { return request.auth != null; }
+    function isOwner(userId) { return request.auth != null && request.auth.uid == userId; }
 
+    // Backend-only collections (write restricted to cloud functions)
     match /webhook_logs/{id} { allow write: if false; allow read: if isAdmin(); }
     match /payments/{id}     { allow write: if false; allow read: if isAdmin(); }
     match /ledger/{id}       { allow write: if false; allow read: if isAdmin(); }
-    match /wallets/{id}      { allow write: if false; allow read: if isAdmin() || request.auth != null; }
+    match /wallets/{id}      { allow write: if false; allow read: if isAdmin() || isAuthenticated(); }
+    match /exchanges/{id}    { allow write: if false; allow read: if isAdmin() || isAuthenticated(); }
+    match /idempotency/{id}  { allow write: if false; allow read: if isAdmin(); }
+
+    // Mobile app collections
+    match /pharmacies/{userId} {
+      allow read, write: if isOwner(userId);
+      allow read: if isAuthenticated(); // Other pharmacies can read basic profile info
+    }
+
+    match /couriers/{userId} {
+      allow read, write: if isOwner(userId);
+      allow read: if isAuthenticated(); // Pharmacies can read courier profiles
+    }
+
+    match /pharmacy_inventory/{id} {
+      allow read: if isAuthenticated(); // All authenticated users can read inventory (for browsing)
+      allow create: if isAuthenticated() && resource.data.pharmacyId == request.auth.uid;
+      allow update, delete: if isAuthenticated() && resource.data.pharmacyId == request.auth.uid;
+    }
+
+    match /exchange_proposals/{id} {
+      allow read: if isAuthenticated(); // All authenticated users can read proposals
+      allow create: if isAuthenticated(); // Authenticated users can create proposals
+      allow update: if isAuthenticated() && (
+        resource.data.proposingPharmacyId == request.auth.uid || // Proposer can update
+        resource.data.receivingPharmacyId == request.auth.uid    // Receiver can accept/reject
+      );
+      allow delete: if isAuthenticated() && resource.data.proposingPharmacyId == request.auth.uid;
+    }
+
+    match /deliveries/{id} {
+      allow read: if isAuthenticated(); // All users can read delivery info
+      allow create: if isAuthenticated(); // System creates deliveries
+      allow update: if isAuthenticated(); // Couriers and pharmacies can update status
+    }
   }
 }
