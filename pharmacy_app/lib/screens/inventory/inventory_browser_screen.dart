@@ -1,9 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import '../../models/medicine.dart';
 import '../../models/pharmacy_inventory.dart';
-import '../../data/essential_medicines.dart';
 import '../../services/inventory_service.dart';
 import 'add_medicine_screen.dart';
 import '../exchanges/create_proposal_screen.dart';

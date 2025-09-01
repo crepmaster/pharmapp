@@ -1,11 +1,13 @@
 import 'package:equatable/equatable.dart';
+import 'location_data.dart';
 
 class PharmacyUser extends Equatable {
   final String uid;
   final String email;
   final String pharmacyName;
   final String phoneNumber;
-  final String address;
+  final String address; // Legacy field - kept for backward compatibility
+  final PharmacyLocationData? locationData; // New global location system
   final bool isActive;
   final DateTime? createdAt;
 
@@ -15,6 +17,7 @@ class PharmacyUser extends Equatable {
     required this.pharmacyName,
     required this.phoneNumber,
     required this.address,
+    this.locationData,
     this.isActive = true,
     this.createdAt,
   });
@@ -26,6 +29,9 @@ class PharmacyUser extends Equatable {
       pharmacyName: map['pharmacyName'] ?? '',
       phoneNumber: map['phoneNumber'] ?? '',
       address: map['address'] ?? '',
+      locationData: map['locationData'] != null 
+          ? PharmacyLocationData.fromMap(map['locationData']) 
+          : null,
       isActive: map['isActive'] ?? true,
       createdAt: map['createdAt']?.toDate(),
     );
@@ -37,10 +43,30 @@ class PharmacyUser extends Equatable {
       'pharmacyName': pharmacyName,
       'phoneNumber': phoneNumber,
       'address': address,
+      'locationData': locationData?.toMap(),
       'isActive': isActive,
       'role': 'pharmacy',
     };
   }
+
+  /// Get the best available location description for display
+  String get bestLocationDescription {
+    if (locationData != null) {
+      return locationData!.bestLocationDescription;
+    }
+    return address; // Fallback to legacy address
+  }
+
+  /// Get location info for courier navigation
+  String get courierNavigationInfo {
+    if (locationData != null) {
+      return locationData!.courierNavigationInfo;
+    }
+    return 'Legacy address: $address';
+  }
+
+  /// Check if pharmacy has GPS coordinates
+  bool get hasGPSLocation => locationData?.coordinates != null;
 
   @override
   List<Object?> get props => [
@@ -49,6 +75,7 @@ class PharmacyUser extends Equatable {
         pharmacyName,
         phoneNumber,
         address,
+        locationData,
         isActive,
         createdAt,
       ];
