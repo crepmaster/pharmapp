@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../blocs/auth_bloc.dart';
+import '../../services/courier_location_service.dart';
+import '../../services/delivery_service.dart';
+import '../deliveries/available_orders_screen.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -170,7 +173,12 @@ class DashboardScreen extends StatelessWidget {
                         Icons.local_shipping,
                         Colors.blue,
                         () {
-                          // TODO: Navigate to available orders
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const AvailableOrdersScreen(),
+                            ),
+                          );
                         },
                       ),
                       _buildActionCard(

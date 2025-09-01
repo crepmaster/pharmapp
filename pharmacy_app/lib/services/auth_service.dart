@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../models/location_data.dart';
 
 class AuthService {
   static final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -18,6 +19,7 @@ class AuthService {
     required String pharmacyName,
     required String phoneNumber,
     required String address,
+    PharmacyLocationData? locationData,
   }) async {
     try {
       final credential = await _auth.createUserWithEmailAndPassword(
@@ -27,7 +29,7 @@ class AuthService {
 
       // Create pharmacy profile in Firestore
       if (credential.user != null) {
-        await _firestore.collection('pharmacies').doc(credential.user!.uid).set({
+        final data = {
           'email': email,
           'pharmacyName': pharmacyName,
           'phoneNumber': phoneNumber,
@@ -35,7 +37,14 @@ class AuthService {
           'role': 'pharmacy',
           'createdAt': FieldValue.serverTimestamp(),
           'isActive': true,
-        });
+        };
+
+        // Add location data if provided
+        if (locationData != null) {
+          data['locationData'] = locationData.toMap();
+        }
+
+        await _firestore.collection('pharmacies').doc(credential.user!.uid).set(data);
       }
 
       return credential;
@@ -86,6 +95,7 @@ class AuthService {
     required String pharmacyName,
     required String phoneNumber,
     required String address,
+    PharmacyLocationData? locationData,
   }) async {
     if (currentUser == null) {
       throw 'No authenticated user found';
@@ -93,7 +103,7 @@ class AuthService {
 
     try {
       print('🏥 AuthService: Creating pharmacy profile for ${currentUser!.uid}');
-      await _firestore.collection('pharmacies').doc(currentUser!.uid).set({
+      final data = {
         'email': email,
         'pharmacyName': pharmacyName,
         'phoneNumber': phoneNumber,
@@ -101,11 +111,53 @@ class AuthService {
         'role': 'pharmacy',
         'createdAt': FieldValue.serverTimestamp(),
         'isActive': true,
-      });
+      };
+
+      // Add location data if provided
+      if (locationData != null) {
+        data['locationData'] = locationData.toMap();
+      }
+
+      await _firestore.collection('pharmacies').doc(currentUser!.uid).set(data);
       print('✅ AuthService: Pharmacy profile created successfully');
     } catch (e) {
       print('❌ AuthService: Error creating pharmacy profile - $e');
       throw 'Failed to create pharmacy profile: $e';
+    }
+  }
+
+  // Update pharmacy profile
+  static Future<void> updatePharmacyProfile({
+    required String pharmacyName,
+    required String phoneNumber,
+    required String address,
+    PharmacyLocationData? locationData,
+  }) async {
+    if (currentUser == null) {
+      throw 'No authenticated user found';
+    }
+
+    try {
+      print('🏥 AuthService: Updating pharmacy profile for ${currentUser!.uid}');
+      final data = {
+        'pharmacyName': pharmacyName,
+        'phoneNumber': phoneNumber,
+        'address': address,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      // Add location data if provided, remove if null
+      if (locationData != null) {
+        data['locationData'] = locationData.toMap();
+      } else {
+        data['locationData'] = FieldValue.delete();
+      }
+
+      await _firestore.collection('pharmacies').doc(currentUser!.uid).update(data);
+      print('✅ AuthService: Pharmacy profile updated successfully');
+    } catch (e) {
+      print('❌ AuthService: Error updating pharmacy profile - $e');
+      throw 'Failed to update pharmacy profile: $e';
     }
   }
 

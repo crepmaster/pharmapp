@@ -3,6 +3,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../blocs/auth_bloc.dart';
 import '../../widgets/auth_text_field.dart';
 import '../../widgets/auth_button.dart';
+import '../../models/location_data.dart';
+import '../../services/location_service.dart';
+import '../location/location_picker_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -19,8 +22,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _pharmacyNameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
+  
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
+  
+  PharmacyLocationData? _selectedLocationData;
 
   @override
   void dispose() {
@@ -31,6 +37,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _phoneController.dispose();
     _addressController.dispose();
     super.dispose();
+  }
+
+  // Location helper methods
+  Future<void> _openLocationPicker() async {
+    final result = await Navigator.of(context).push<PharmacyLocationData>(
+      MaterialPageRoute(
+        builder: (context) => LocationPickerScreen(
+          initialLocationData: _selectedLocationData,
+          title: 'Select Pharmacy Location',
+          subtitle: 'Choose your precise location for better delivery service',
+        ),
+      ),
+    );
+    
+    if (result != null) {
+      setState(() {
+        _selectedLocationData = result;
+      });
+    }
   }
 
   @override
@@ -155,7 +180,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     // Address
                     AuthTextField(
                       controller: _addressController,
-                      label: 'Pharmacy Address',
+                      label: 'Pharmacy Address (Legacy)',
                       prefixIcon: Icons.location_on,
                       maxLines: 2,
                       validator: (value) {
@@ -164,6 +189,108 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         }
                         return null;
                       },
+                    ),
+                    
+                    const SizedBox(height: 24),
+                    
+                    // Enhanced Location Section
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey[300]!),
+                        borderRadius: BorderRadius.circular(12),
+                        color: Colors.grey[50],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.map,
+                                color: Color(0xFF1976D2),
+                                size: 24,
+                              ),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'Enhanced Location (Recommended)',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF1976D2),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Select your exact location using an interactive map for precise delivery',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          
+                          // Location Picker Button
+                          ElevatedButton.icon(
+                            onPressed: _openLocationPicker,
+                            icon: _selectedLocationData != null
+                                ? const Icon(Icons.check_circle)
+                                : const Icon(Icons.map),
+                            label: Text(_selectedLocationData != null 
+                                ? 'Location Selected ✓' 
+                                : 'Select on Map'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _selectedLocationData != null 
+                                  ? Colors.green 
+                                  : const Color(0xFF1976D2),
+                              foregroundColor: Colors.white,
+                              minimumSize: const Size(double.infinity, 48),
+                            ),
+                          ),
+                          
+                          // Location Summary
+                          if (_selectedLocationData != null) ...[
+                            const SizedBox(height: 12),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.green[50],
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.green[200]!),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Selected Location:',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.green[700],
+                                    ),
+                                  ),
+                                  Text(
+                                    _selectedLocationData!.bestLocationDescription,
+                                    style: TextStyle(
+                                      color: Colors.green[700],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'GPS: ${_selectedLocationData!.coordinates.latitude.toStringAsFixed(6)}, ${_selectedLocationData!.coordinates.longitude.toStringAsFixed(6)}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontFamily: 'monospace',
+                                      color: Colors.green[600],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
                     
                     const SizedBox(height: 16),
@@ -239,6 +366,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               pharmacyName: _pharmacyNameController.text.trim(),
                               phoneNumber: _phoneController.text.trim(),
                               address: _addressController.text.trim(),
+                              locationData: _selectedLocationData,
                             ),
                           );
                         }

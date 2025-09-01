@@ -5,6 +5,7 @@ import '../../blocs/auth_bloc.dart';
 import '../../services/payment_service.dart';
 import '../inventory/inventory_browser_screen.dart';
 import '../exchanges/proposals_screen.dart';
+import '../profile/profile_screen.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -20,7 +21,13 @@ class DashboardScreen extends StatelessWidget {
           PopupMenuButton(
             icon: const Icon(Icons.more_vert),
             onSelected: (value) {
-              if (value == 'logout') {
+              if (value == 'profile') {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const ProfileScreen(),
+                  ),
+                );
+              } else if (value == 'logout') {
                 context.read<AuthBloc>().add(AuthSignOutRequested());
               }
             },

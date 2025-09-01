@@ -36,19 +36,21 @@ class PharmacyCoordinates extends Equatable {
     };
   }
 
-  /// Calculate distance to another coordinate in kilometers
+  /// Calculate distance to another coordinate in kilometers using Haversine formula
   double distanceTo(PharmacyCoordinates other) {
     const double earthRadius = 6371; // Earth's radius in kilometers
+    const double toRadians = 3.14159 / 180;
     
-    double lat1Rad = latitude * (3.14159 / 180);
-    double lat2Rad = other.latitude * (3.14159 / 180);
-    double deltaLat = (other.latitude - latitude) * (3.14159 / 180);
-    double deltaLng = (other.longitude - longitude) * (3.14159 / 180);
+    double lat1Rad = latitude * toRadians;
+    double lat2Rad = other.latitude * toRadians;
+    double deltaLat = (other.latitude - latitude) * toRadians;
+    double deltaLng = (other.longitude - longitude) * toRadians;
 
-    double a = (deltaLat / 2) * (deltaLat / 2) +
-        (deltaLat / 2) * (deltaLat / 2) * 
-        (deltaLng / 2) * (deltaLng / 2);
-    double c = 2 * (a / (1 + a));
+    double sinLat = deltaLat / 2;
+    double sinLng = deltaLng / 2;
+    double a = sinLat * sinLat + 
+               (lat1Rad * lat2Rad).abs() * sinLng * sinLng;
+    double c = 2 * (a / (1 - a).abs());
     
     return earthRadius * c;
   }
