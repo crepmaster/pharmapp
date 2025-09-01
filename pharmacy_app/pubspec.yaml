@@ -32,6 +32,8 @@ dependencies:
   # Location Services (Global GPS/Address system)
   geolocator: ^10.1.0
   location: ^5.0.3
+  google_maps_flutter: ^2.5.0
+  google_maps_flutter_web: ^0.5.4
   
   # Utilities  
   intl: ^0.18.1

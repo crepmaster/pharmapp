@@ -2,13 +2,14 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import '../services/auth_service.dart';
 import '../models/pharmacy_user.dart';
+import '../models/location_data.dart';
 
 // Events
 abstract class AuthEvent extends Equatable {
   const AuthEvent();
 
   @override
-  List<Object> get props => [];
+  List<Object?> get props => [];
 }
 
 class AuthStarted extends AuthEvent {}
@@ -23,7 +24,7 @@ class AuthSignInRequested extends AuthEvent {
   });
 
   @override
-  List<Object> get props => [email, password];
+  List<Object?> get props => [email, password];
 }
 
 class AuthSignUpRequested extends AuthEvent {
@@ -32,6 +33,7 @@ class AuthSignUpRequested extends AuthEvent {
   final String pharmacyName;
   final String phoneNumber;
   final String address;
+  final PharmacyLocationData? locationData;
 
   const AuthSignUpRequested({
     required this.email,
@@ -39,10 +41,11 @@ class AuthSignUpRequested extends AuthEvent {
     required this.pharmacyName,
     required this.phoneNumber,
     required this.address,
+    this.locationData,
   });
 
   @override
-  List<Object> get props => [email, password, pharmacyName, phoneNumber, address];
+  List<Object?> get props => [email, password, pharmacyName, phoneNumber, address, locationData];
 }
 
 class AuthSignOutRequested extends AuthEvent {}
@@ -196,6 +199,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         pharmacyName: event.pharmacyName,
         phoneNumber: event.phoneNumber,
         address: event.address,
+        locationData: event.locationData,
       );
       print('📝 AuthBloc: Firebase signUp successful');
 
