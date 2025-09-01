@@ -44,7 +44,8 @@
       "Bash(grep:*)",
       "Read(D:\\Projects\\pharmapp/**)",
       "Read(D:\\Projects\\pharmapp/**)",
-      "Bash(firebase deploy:*)"
+      "Bash(firebase deploy:*)",
+      "Bash(./gradlew:*)"
     ],
     "deny": [],
     "ask": []
