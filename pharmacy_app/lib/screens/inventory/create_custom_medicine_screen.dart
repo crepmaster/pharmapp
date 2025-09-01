@@ -161,7 +161,7 @@ class _CreateCustomMedicineScreenState extends State<CreateCustomMedicineScreen>
               
               // Category Dropdown
               DropdownButtonFormField<MedicineCategory>(
-                value: selectedCategory,
+                initialValue: selectedCategory,
                 decoration: const InputDecoration(
                   labelText: 'Medicine Category',
                   border: OutlineInputBorder(),
@@ -184,7 +184,7 @@ class _CreateCustomMedicineScreenState extends State<CreateCustomMedicineScreen>
               
               // Dosage Form Dropdown
               DropdownButtonFormField<String>(
-                value: selectedDosageForm,
+                initialValue: selectedDosageForm,
                 decoration: const InputDecoration(
                   labelText: 'Dosage Form',
                   border: OutlineInputBorder(),
@@ -207,7 +207,7 @@ class _CreateCustomMedicineScreenState extends State<CreateCustomMedicineScreen>
               
               // Route of Administration
               DropdownButtonFormField<String>(
-                value: selectedRouteOfAdmin,
+                initialValue: selectedRouteOfAdmin,
                 decoration: const InputDecoration(
                   labelText: 'Route of Administration',
                   border: OutlineInputBorder(),
@@ -381,8 +381,8 @@ class _CreateCustomMedicineScreenState extends State<CreateCustomMedicineScreen>
         searchTerms: SearchTerms(
           generic: [genericNameController.text.trim().toLowerCase()],
           brands: [brandNameController.text.trim().toLowerCase()],
-          local: [],
-          conditions: [],
+          local: const [],
+          conditions: const [],
         ),
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),

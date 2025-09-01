@@ -103,7 +103,7 @@ class DashboardScreen extends StatelessWidget {
                                 onChanged: (bool value) {
                                   // TODO: Implement availability toggle
                                 },
-                                activeColor: const Color(0xFF4CAF50),
+                                activeThumbColor: const Color(0xFF4CAF50),
                               ),
                             ],
                           ),
@@ -124,7 +124,7 @@ class DashboardScreen extends StatelessWidget {
                                 ),
                               ),
                               const Spacer(),
-                              Icon(
+                              const Icon(
                                 Icons.star,
                                 size: 16,
                                 color: Colors.amber,

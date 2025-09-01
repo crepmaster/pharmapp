@@ -265,7 +265,7 @@ class _ProposalsScreenState extends State<ProposalsScreen>
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text('Quantity:'),
+                          const Text('Quantity:'),
                           Text('${proposal.details.requestedQuantity} units'),
                         ],
                       ),
@@ -273,7 +273,7 @@ class _ProposalsScreenState extends State<ProposalsScreen>
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text('Price per unit:'),
+                          const Text('Price per unit:'),
                           Text('${proposal.details.offeredPrice} ${proposal.details.currency}'),
                         ],
                       ),

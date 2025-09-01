@@ -130,6 +130,20 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
           ),
         ],
       ),
+      floatingActionButton: showMyInventory 
+          ? FloatingActionButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const AddMedicineScreen(),
+                  ),
+                );
+              },
+              backgroundColor: const Color(0xFF1976D2),
+              child: const Icon(Icons.add, color: Colors.white),
+            )
+          : null,
     );
   }
 
@@ -367,7 +381,7 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
                     const SizedBox(width: 6),
                     Text(
                       isExpired 
-                          ? 'Expired ${(-daysUntilExpiry!)} days ago'
+                          ? 'Expired ${(-daysUntilExpiry)} days ago'
                           : isExpiringSoon 
                               ? 'Expires in $daysUntilExpiry days'
                               : 'Expires: ${item.expirationDate!.day}/${item.expirationDate!.month}/${item.expirationDate!.year}',
