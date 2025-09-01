@@ -32,19 +32,19 @@ class EssentialAfricanMedicines {
           packType: 'blister',
         ),
       ),
-      marketInfo: MarketInfo(
+      marketInfo: const MarketInfo(
         registeredCountries: ['Kenya', 'Uganda', 'Tanzania', 'Nigeria', 'Ghana'],
-        manufacturers: const [
+        manufacturers: [
           ManufacturerInfo(name: 'Novartis', country: 'Switzerland', type: 'international'),
           ManufacturerInfo(name: 'Beta Healthcare', country: 'Kenya', type: 'local'),
         ],
-        pricing: const PricingInfo(
+        pricing: PricingInfo(
           averagePrice: 8.50,
           currency: 'USD',
           minPrice: 6.00,
           maxPrice: 12.00,
         ),
-        availability: const AvailabilityInfo(
+        availability: AvailabilityInfo(
           commonlyAvailable: true,
           seasonalAvailability: 'rainy_season',
           stockoutRisk: StockoutRisk.medium,
@@ -93,20 +93,20 @@ class EssentialAfricanMedicines {
           packType: 'bottle',
         ),
       ),
-      marketInfo: MarketInfo(
+      marketInfo: const MarketInfo(
         registeredCountries: ['Kenya', 'Uganda', 'Tanzania', 'Nigeria', 'Ghana', 'South Africa'],
-        manufacturers: const [
+        manufacturers: [
           ManufacturerInfo(name: 'GSK', country: 'UK', type: 'international'),
           ManufacturerInfo(name: 'Cosmos Pharmaceuticals', country: 'Kenya', type: 'local'),
           ManufacturerInfo(name: 'Medreich', country: 'India', type: 'generic'),
         ],
-        pricing: const PricingInfo(
+        pricing: PricingInfo(
           averagePrice: 3.50,
           currency: 'USD',
           minPrice: 2.00,
           maxPrice: 6.00,
         ),
-        availability: const AvailabilityInfo(
+        availability: AvailabilityInfo(
           commonlyAvailable: true,
           stockoutRisk: StockoutRisk.low,
         ),
@@ -154,19 +154,19 @@ class EssentialAfricanMedicines {
           packType: 'bottle',
         ),
       ),
-      marketInfo: MarketInfo(
+      marketInfo: const MarketInfo(
         registeredCountries: ['Kenya', 'Uganda', 'Tanzania', 'Nigeria', 'South Africa'],
-        manufacturers: const [
+        manufacturers: [
           ManufacturerInfo(name: 'Cipla', country: 'India', type: 'generic'),
           ManufacturerInfo(name: 'Aurobindo', country: 'India', type: 'generic'),
         ],
-        pricing: const PricingInfo(
+        pricing: PricingInfo(
           averagePrice: 25.00,
           currency: 'USD',
           minPrice: 18.00,
           maxPrice: 35.00,
         ),
-        availability: const AvailabilityInfo(
+        availability: AvailabilityInfo(
           commonlyAvailable: true,
           stockoutRisk: StockoutRisk.low, // Usually well-supplied due to donor programs
         ),
@@ -214,19 +214,19 @@ class EssentialAfricanMedicines {
           packType: 'bottle',
         ),
       ),
-      marketInfo: MarketInfo(
+      marketInfo: const MarketInfo(
         registeredCountries: ['Kenya', 'Uganda', 'Tanzania', 'Nigeria', 'Ghana'],
-        manufacturers: const [
+        manufacturers: [
           ManufacturerInfo(name: 'Abbott', country: 'USA', type: 'international'),
           ManufacturerInfo(name: 'Universal Corporation', country: 'Kenya', type: 'local'),
         ],
-        pricing: const PricingInfo(
+        pricing: PricingInfo(
           averagePrice: 2.50,
           currency: 'USD',
           minPrice: 1.50,
           maxPrice: 4.00,
         ),
-        availability: const AvailabilityInfo(
+        availability: AvailabilityInfo(
           commonlyAvailable: true,
           stockoutRisk: StockoutRisk.low,
         ),
@@ -275,19 +275,19 @@ class EssentialAfricanMedicines {
           packType: 'bottle',
         ),
       ),
-      marketInfo: MarketInfo(
+      marketInfo: const MarketInfo(
         registeredCountries: ['Kenya', 'Uganda', 'Tanzania', 'Nigeria', 'Ghana', 'South Africa'],
-        manufacturers: const [
+        manufacturers: [
           ManufacturerInfo(name: 'GSK', country: 'UK', type: 'international'),
           ManufacturerInfo(name: 'Dawa Pharmaceuticals', country: 'Kenya', type: 'local'),
         ],
-        pricing: const PricingInfo(
+        pricing: PricingInfo(
           averagePrice: 3.00,
           currency: 'USD',
           minPrice: 2.00,
           maxPrice: 5.00,
         ),
-        availability: const AvailabilityInfo(
+        availability: AvailabilityInfo(
           commonlyAvailable: true,
           stockoutRisk: StockoutRisk.low,
         ),
@@ -335,20 +335,20 @@ class EssentialAfricanMedicines {
           packType: 'blister',
         ),
       ),
-      marketInfo: MarketInfo(
+      marketInfo: const MarketInfo(
         registeredCountries: ['Kenya', 'Uganda', 'Tanzania', 'Nigeria', 'Ghana'],
-        manufacturers: const [
+        manufacturers: [
           ManufacturerInfo(name: 'Abbott', country: 'USA', type: 'international'),
           ManufacturerInfo(name: 'Reckitt Benckiser', country: 'UK', type: 'international'),
           ManufacturerInfo(name: 'Beta Healthcare', country: 'Kenya', type: 'local'),
         ],
-        pricing: const PricingInfo(
+        pricing: PricingInfo(
           averagePrice: 4.00,
           currency: 'USD',
           minPrice: 2.50,
           maxPrice: 6.00,
         ),
-        availability: const AvailabilityInfo(
+        availability: AvailabilityInfo(
           commonlyAvailable: true,
           stockoutRisk: StockoutRisk.low,
         ),
@@ -396,19 +396,19 @@ class EssentialAfricanMedicines {
           packType: 'sachet',
         ),
       ),
-      marketInfo: MarketInfo(
+      marketInfo: const MarketInfo(
         registeredCountries: ['Kenya', 'Uganda', 'Tanzania', 'Nigeria', 'Ghana', 'Chad'],
-        manufacturers: const [
+        manufacturers: [
           ManufacturerInfo(name: 'WHO/UNICEF', country: 'International', type: 'international'),
           ManufacturerInfo(name: 'Shelys Pharmaceuticals', country: 'Kenya', type: 'local'),
         ],
-        pricing: const PricingInfo(
+        pricing: PricingInfo(
           averagePrice: 0.15,
           currency: 'USD',
           minPrice: 0.10,
           maxPrice: 0.25,
         ),
-        availability: const AvailabilityInfo(
+        availability: AvailabilityInfo(
           commonlyAvailable: true,
           stockoutRisk: StockoutRisk.low,
         ),
@@ -457,19 +457,19 @@ class EssentialAfricanMedicines {
           packType: 'inhaler',
         ),
       ),
-      marketInfo: MarketInfo(
+      marketInfo: const MarketInfo(
         registeredCountries: ['Kenya', 'Uganda', 'Tanzania', 'Nigeria', 'South Africa'],
-        manufacturers: const [
+        manufacturers: [
           ManufacturerInfo(name: 'GSK', country: 'UK', type: 'international'),
           ManufacturerInfo(name: 'Cipla', country: 'India', type: 'generic'),
         ],
-        pricing: const PricingInfo(
+        pricing: PricingInfo(
           averagePrice: 8.00,
           currency: 'USD',
           minPrice: 5.00,
           maxPrice: 12.00,
         ),
-        availability: const AvailabilityInfo(
+        availability: AvailabilityInfo(
           commonlyAvailable: true,
           stockoutRisk: StockoutRisk.medium,
         ),

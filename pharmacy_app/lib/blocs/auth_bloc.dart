@@ -172,7 +172,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           }
         } catch (e) {
           print('❌ AuthBloc: Failed to create basic profile - $e');
-          emit(AuthError(message: 'Unable to access pharmacy profile. Please contact support.'));
+          emit(const AuthError(message: 'Unable to access pharmacy profile. Please contact support.'));
         }
       }
     } catch (e) {

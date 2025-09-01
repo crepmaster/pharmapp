@@ -258,7 +258,7 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
                                 Expanded(
                                   flex: 1,
                                   child: DropdownButtonFormField<String>(
-                                    value: selectedCurrency,
+                                    initialValue: selectedCurrency,
                                     decoration: const InputDecoration(
                                       labelText: 'Currency',
                                       border: OutlineInputBorder(),

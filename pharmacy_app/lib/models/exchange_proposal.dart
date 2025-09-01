@@ -87,7 +87,7 @@ class ExchangeProposal extends Equatable {
       status: ProposalStatus.pending,
       createdAt: now,
       updatedAt: now,
-      expiresAt: now.add(Duration(hours: 48)), // 48h to respond
+      expiresAt: now.add(const Duration(hours: 48)), // 48h to respond
     );
   }
 

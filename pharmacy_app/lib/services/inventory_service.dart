@@ -54,12 +54,16 @@ class InventoryService {
     return _firestore
         .collection('pharmacy_inventory')
         .where('pharmacyId', isEqualTo: user.uid)
-        .orderBy('createdAt', descending: true)
         .snapshots()
         .map((snapshot) {
-      return snapshot.docs
+      var items = snapshot.docs
           .map((doc) => PharmacyInventoryItem.fromFirestore(doc))
           .toList();
+      
+      // Sort by creation date (most recent first) in client-side
+      items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      
+      return items;
     });
   }
 
@@ -73,11 +77,10 @@ class InventoryService {
       return Stream.value([]);
     }
 
-    // Simplified query - only use one inequality filter to avoid index requirements
+    // Simple query without orderBy to avoid index issues
     Query query = _firestore
         .collection('pharmacy_inventory')
-        .where('availabilitySettings.availableForExchange', isEqualTo: true)
-        .orderBy('createdAt', descending: true);
+        .where('availabilitySettings.availableForExchange', isEqualTo: true);
 
     return query
         .snapshots()
@@ -115,6 +118,9 @@ class InventoryService {
                  medicine.category.toLowerCase().contains(query);
         }).toList();
       }
+
+      // Sort by creation date (most recent first) in client-side
+      items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
       return items;
     });

@@ -154,7 +154,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     
                     // Vehicle Type Dropdown
                     DropdownButtonFormField<String>(
-                      value: _selectedVehicleType,
+                      initialValue: _selectedVehicleType,
                       decoration: InputDecoration(
                         labelText: 'Vehicle Type',
                         prefixIcon: const Icon(Icons.motorcycle),

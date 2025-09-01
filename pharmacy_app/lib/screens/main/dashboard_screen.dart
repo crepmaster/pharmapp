@@ -187,11 +187,11 @@ class DashboardScreen extends StatelessWidget {
                                     Row(
                                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                       children: [
-                                        Row(
+                                        const Row(
                                           children: [
-                                            const Icon(Icons.account_balance_wallet, 
+                                            Icon(Icons.account_balance_wallet, 
                                                      color: Color(0xFF1976D2)),
-                                            const SizedBox(width: 8),
+                                            SizedBox(width: 8),
                                             Text('Wallet Balance',
                                                  style: TextStyle(fontWeight: FontWeight.w600)),
                                           ],
@@ -267,9 +267,10 @@ class DashboardScreen extends StatelessWidget {
                   GridView.count(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
+                    crossAxisCount: 4,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                    childAspectRatio: 1.2,
                     children: [
                       _buildActionCard(
                         'Inventory',
@@ -388,23 +389,25 @@ class DashboardScreen extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(8),
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(8.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
                 icon,
-                size: 36,
+                size: 20,
                 color: color,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 4),
               Text(
                 title,
                 style: const TextStyle(
-                  fontSize: 14,
+                  fontSize: 11,
                   fontWeight: FontWeight.w600,
                 ),
                 textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
             ],
           ),
@@ -429,7 +432,7 @@ class DashboardScreen extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   DropdownButtonFormField<String>(
-                    value: selectedMethod,
+                    initialValue: selectedMethod,
                     decoration: const InputDecoration(
                       labelText: 'Payment Method',
                       border: OutlineInputBorder(),
