@@ -19,34 +19,46 @@ class AdminAuthService {
     required String email,
     required String password,
   }) async {
+    print('🔐 Admin login attempt for: $email');
     try {
+      print('📊 Checking admin document in Firestore...');
       // First verify this email is an admin
       final adminDoc = await _firestore
           .collection(_adminsCollection)
           .where('email', isEqualTo: email)
           .where('isActive', isEqualTo: true)
           .get();
+      print('📊 Admin doc query result: ${adminDoc.docs.length} documents found');
 
       if (adminDoc.docs.isEmpty) {
+        print('❌ No admin document found for email: $email');
         throw Exception('Access denied. Admin account not found.');
       }
 
+      print('✅ Admin document found, proceeding with Firebase Auth...');
       // Authenticate with Firebase Auth
       final credential = await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
+      print('✅ Firebase Auth successful for user: ${credential.user?.uid}');
 
       if (credential.user != null) {
+        print('🕐 Updating last login time...');
         // Update last login time
         await _updateLastLogin(credential.user!.uid);
         
+        print('👤 Getting admin user data...');
         // Get admin user data
-        return await getAdminUser(credential.user!.uid);
+        final adminUser = await getAdminUser(credential.user!.uid);
+        print('✅ Admin login complete: ${adminUser?.email}');
+        return adminUser;
       }
 
+      print('❌ Firebase Auth returned null user');
       return null;
     } on FirebaseAuthException catch (e) {
+      print('🔥 Firebase Auth Exception: ${e.code} - ${e.message}');
       String message = 'Authentication failed';
       
       switch (e.code) {
@@ -69,8 +81,10 @@ class AdminAuthService {
           message = e.message ?? 'Authentication failed';
       }
       
+      print('❌ Throwing exception: $message');
       throw Exception(message);
     } catch (e) {
+      print('💥 General exception during login: $e');
       throw Exception(e.toString());
     }
   }

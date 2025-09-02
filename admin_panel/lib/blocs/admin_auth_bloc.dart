@@ -116,20 +116,27 @@ class AdminAuthBloc extends Bloc<AdminAuthEvent, AdminAuthState> {
     AdminAuthLoginRequested event,
     Emitter<AdminAuthState> emit,
   ) async {
+    print('🎯 BLoC: Login requested for ${event.email}');
     emit(AdminAuthLoading());
+    print('🎯 BLoC: Loading state emitted');
 
     try {
+      print('🎯 BLoC: Calling auth service...');
       final adminUser = await _authService.signInWithEmailAndPassword(
         email: event.email,
         password: event.password,
       );
+      print('🎯 BLoC: Auth service returned: ${adminUser?.email ?? 'null'}');
 
       if (adminUser != null) {
+        print('🎯 BLoC: Emitting authenticated state');
         emit(AdminAuthAuthenticated(adminUser: adminUser));
       } else {
+        print('🎯 BLoC: Emitting error - null admin user');
         emit(const AdminAuthError(message: 'Failed to authenticate admin'));
       }
     } catch (e) {
+      print('🎯 BLoC: Caught exception: $e');
       emit(AdminAuthError(message: e.toString()));
     }
   }
