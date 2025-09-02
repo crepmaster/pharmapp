@@ -1,13 +1,13 @@
 import 'dart:async';
-import 'package:geolocator/geolocator.dart';
+import 'package:geolocator/geolocator.dart' as geolocator;
 import 'package:location/location.dart';
 import 'dart:math';
 
 class CourierLocationService {
   static Location _location = Location();
   static StreamSubscription<LocationData>? _locationSubscription;
-  static Position? _currentPosition;
-  static StreamController<Position>? _positionController;
+  static geolocator.Position? _currentPosition;
+  static StreamController<geolocator.Position>? _positionController;
 
   // Get current location permission status
   static Future<bool> hasLocationPermission() async {
@@ -34,15 +34,15 @@ class CourierLocationService {
   }
 
   // Get current position once
-  static Future<Position?> getCurrentPosition() async {
+  static Future<geolocator.Position?> getCurrentPosition() async {
     try {
       if (!await hasLocationPermission()) {
         print('📍 CourierLocationService: Location permission denied');
         return null;
       }
 
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
+      final position = await geolocator.Geolocator.getCurrentPosition(
+        desiredAccuracy: geolocator.LocationAccuracy.high,
       );
       
       _currentPosition = position;
@@ -55,18 +55,18 @@ class CourierLocationService {
   }
 
   // Start real-time location tracking (for active deliveries)
-  static Future<Stream<Position>?> startLocationTracking() async {
+  static Future<Stream<geolocator.Position>?> startLocationTracking() async {
     try {
       if (!await hasLocationPermission()) {
         print('📍 CourierLocationService: Location permission denied for tracking');
         return null;
       }
 
-      _positionController = StreamController<Position>.broadcast();
+      _positionController = StreamController<geolocator.Position>.broadcast();
 
       _locationSubscription = _location.onLocationChanged.listen((LocationData locationData) {
         if (locationData.latitude != null && locationData.longitude != null) {
-          final position = Position(
+          final position = geolocator.Position(
             longitude: locationData.longitude!,
             latitude: locationData.latitude!,
             timestamp: DateTime.now(),
@@ -102,14 +102,14 @@ class CourierLocationService {
   }
 
   // Get last known position
-  static Position? get lastKnownPosition => _currentPosition;
+  static geolocator.Position? get lastKnownPosition => _currentPosition;
 
   // Calculate distance between two points (in kilometers)
   static double calculateDistance(
     double lat1, double lon1,
     double lat2, double lon2,
   ) {
-    return Geolocator.distanceBetween(lat1, lon1, lat2, lon2) / 1000; // Convert to km
+    return geolocator.Geolocator.distanceBetween(lat1, lon1, lat2, lon2) / 1000; // Convert to km
   }
 
   // Calculate estimated delivery time based on distance (assuming 25 km/h average speed)
@@ -129,7 +129,7 @@ class CourierLocationService {
   static bool isNearLocation(double targetLat, double targetLng, {double radiusMeters = 100.0}) {
     if (_currentPosition == null) return false;
     
-    final distance = Geolocator.distanceBetween(
+    final distance = geolocator.Geolocator.distanceBetween(
       _currentPosition!.latitude,
       _currentPosition!.longitude,
       targetLat,
@@ -143,7 +143,7 @@ class CourierLocationService {
   static double getBearingToLocation(double targetLat, double targetLng) {
     if (_currentPosition == null) return 0.0;
     
-    return Geolocator.bearingBetween(
+    return geolocator.Geolocator.bearingBetween(
       _currentPosition!.latitude,
       _currentPosition!.longitude,
       targetLat,
