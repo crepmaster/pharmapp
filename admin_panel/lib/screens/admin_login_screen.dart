@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../blocs/admin_auth_bloc.dart';
+import '../services/admin_auth_service.dart';
 
 class AdminLoginScreen extends StatefulWidget {
   const AdminLoginScreen({super.key});
@@ -24,13 +25,57 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
   }
 
   void _submit() {
+    print('📝 Form submission started');
     if (_formKey.currentState!.validate()) {
+      final email = _emailController.text.trim();
+      final password = _passwordController.text;
+      print('📝 Form validated. Email: $email, Password length: ${password.length}');
+      
       context.read<AdminAuthBloc>().add(
         AdminAuthLoginRequested(
-          email: _emailController.text.trim(),
-          password: _passwordController.text,
+          email: email,
+          password: password,
         ),
       );
+      print('📝 Login event added to BLoC');
+    } else {
+      print('📝 Form validation failed');
+    }
+  }
+
+  Future<void> _createTestAdmin(BuildContext context) async {
+    try {
+      // Import required services
+      final authService = AdminAuthService();
+      
+      await authService.createAdminUser(
+        email: 'admin@mediexchange.com',
+        displayName: 'Test Admin',
+        role: 'super_admin',
+      );
+      
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Test admin created! Check your email for password reset.'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 5),
+          ),
+        );
+        
+        // Auto-fill the form
+        _emailController.text = 'admin@mediexchange.com';
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to create admin: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
     }
   }
 
@@ -63,12 +108,31 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                 child: BlocConsumer<AdminAuthBloc, AdminAuthState>(
                   listener: (context, state) {
                     if (state is AdminAuthError) {
+                      print('Admin auth error: ${state.message}'); // Debug log
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(state.message),
                           backgroundColor: Colors.red,
+                          duration: const Duration(seconds: 5),
+                          action: SnackBarAction(
+                            label: 'Dismiss',
+                            onPressed: () {
+                              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                            },
+                            textColor: Colors.white,
+                          ),
                         ),
                       );
+                    } else if (state is AdminAuthAuthenticated) {
+                      print('Admin successfully authenticated: ${state.adminUser.email}'); // Debug log
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Welcome, ${state.adminUser.displayName}!'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    } else if (state is AdminAuthLoading) {
+                      print('Admin auth loading...'); // Debug log
                     }
                   },
                   builder: (context, state) {
@@ -227,6 +291,22 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                             ),
                           ),
 
+                          const SizedBox(height: 24),
+
+                          // Development helper - Create test admin
+                          if (!isLoading) ...[
+                            const Divider(),
+                            const SizedBox(height: 16),
+                            TextButton.icon(
+                              onPressed: () => _createTestAdmin(context),
+                              icon: const Icon(Icons.person_add),
+                              label: const Text('Create Test Admin (Dev Only)'),
+                              style: TextButton.styleFrom(
+                                foregroundColor: Colors.orange,
+                              ),
+                            ),
+                          ],
+                          
                           const SizedBox(height: 24),
                           
                           // Footer info

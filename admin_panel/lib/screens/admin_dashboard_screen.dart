@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../blocs/admin_auth_bloc.dart';
 import '../models/admin_user.dart';
 import 'pharmacy_management_screen.dart';
@@ -187,8 +188,71 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 }
 
-class DashboardHomeScreen extends StatelessWidget {
+class DashboardHomeScreen extends StatefulWidget {
   const DashboardHomeScreen({super.key});
+
+  @override
+  State<DashboardHomeScreen> createState() => _DashboardHomeScreenState();
+}
+
+class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
+  int totalPharmacies = 0;
+  int activeSubscriptions = 0;
+  int pendingApprovals = 0;
+  double monthlyRevenue = 0.0;
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDashboardData();
+  }
+
+  Future<void> _loadDashboardData() async {
+    print('🔄 Loading dashboard data...');
+    try {
+      final firestore = FirebaseFirestore.instance;
+      
+      // Get total pharmacies
+      print('📊 Fetching pharmacies collection...');
+      final pharmaciesSnapshot = await firestore.collection('pharmacies').get();
+      final pharmacies = pharmaciesSnapshot.docs;
+      print('📊 Found ${pharmacies.length} pharmacy documents');
+      
+      int activeCount = 0;
+      int pendingCount = 0;
+      
+      for (var doc in pharmacies) {
+        final data = doc.data();
+        final subscriptionStatus = data['subscriptionStatus'] as String?;
+        print('🏥 Pharmacy ${doc.id}: status = $subscriptionStatus');
+        
+        if (subscriptionStatus == 'active') {
+          activeCount++;
+        } else if (subscriptionStatus == 'pendingPayment' || 
+                   subscriptionStatus == 'pendingApproval') {
+          pendingCount++;
+        }
+      }
+      
+      print('📈 Dashboard stats: Total=${pharmacies.length}, Active=$activeCount, Pending=$pendingCount');
+      
+      setState(() {
+        totalPharmacies = pharmacies.length;
+        activeSubscriptions = activeCount;
+        pendingApprovals = pendingCount;
+        monthlyRevenue = activeCount * 25.0; // Estimate based on average plan
+        isLoading = false;
+      });
+      
+      print('✅ Dashboard data loaded successfully');
+    } catch (e) {
+      print('❌ Error loading dashboard data: $e');
+      setState(() {
+        isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -197,12 +261,29 @@ class DashboardHomeScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Dashboard Overview',
-            style: GoogleFonts.inter(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-            ),
+          Row(
+            children: [
+              Text(
+                'Dashboard Overview',
+                style: GoogleFonts.inter(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Spacer(),
+              if (isLoading)
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                IconButton(
+                  onPressed: _loadDashboardData,
+                  icon: const Icon(Icons.refresh),
+                  tooltip: 'Refresh Data',
+                ),
+            ],
           ),
           const SizedBox(height: 24),
           
@@ -215,25 +296,25 @@ class DashboardHomeScreen extends StatelessWidget {
               children: [
                 _buildStatCard(
                   title: 'Total Pharmacies',
-                  value: '0',
+                  value: isLoading ? '...' : totalPharmacies.toString(),
                   icon: Icons.local_pharmacy,
                   color: Colors.blue,
                 ),
                 _buildStatCard(
                   title: 'Active Subscriptions',
-                  value: '0',
+                  value: isLoading ? '...' : activeSubscriptions.toString(),
                   icon: Icons.subscriptions,
                   color: Colors.green,
                 ),
                 _buildStatCard(
                   title: 'Pending Approvals',
-                  value: '0',
+                  value: isLoading ? '...' : pendingApprovals.toString(),
                   icon: Icons.pending_actions,
                   color: Colors.orange,
                 ),
                 _buildStatCard(
                   title: 'Monthly Revenue',
-                  value: '\$0',
+                  value: isLoading ? '...' : '\$${monthlyRevenue.toStringAsFixed(0)}',
                   icon: Icons.attach_money,
                   color: Colors.purple,
                 ),
