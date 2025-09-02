@@ -3,6 +3,7 @@ import '../../models/delivery.dart';
 import '../../services/delivery_service.dart';
 import '../../services/courier_location_service.dart';
 import 'order_details_screen.dart';
+import 'active_delivery_screen.dart';
 
 class AvailableOrdersScreen extends StatefulWidget {
   const AvailableOrdersScreen({super.key});
@@ -13,6 +14,33 @@ class AvailableOrdersScreen extends StatefulWidget {
 
 class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
   bool _isCreatingMock = false;
+  bool _locationInitialized = false;
+  bool _isLoadingLocation = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeLocation();
+  }
+
+  Future<void> _initializeLocation() async {
+    try {
+      final position = await CourierLocationService.getCurrentPosition();
+      if (mounted) {
+        setState(() {
+          _locationInitialized = position != null;
+          _isLoadingLocation = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _locationInitialized = false;
+          _isLoadingLocation = false;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -22,6 +50,26 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
         backgroundColor: const Color(0xFF4CAF50),
         foregroundColor: Colors.white,
         actions: [
+          // Location status indicator
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Center(
+              child: _isLoadingLocation
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : Icon(
+                      _locationInitialized ? Icons.gps_fixed : Icons.gps_off,
+                      color: _locationInitialized ? Colors.white : Colors.white70,
+                      size: 20,
+                    ),
+            ),
+          ),
           IconButton(
             onPressed: _isCreatingMock ? null : _createMockDelivery,
             icon: _isCreatingMock 
@@ -88,8 +136,11 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
           }
 
           final deliveries = snapshot.data ?? [];
+          
+          // Sort deliveries by proximity if location is available
+          final sortedDeliveries = _sortDeliveriesByProximity(deliveries);
 
-          if (deliveries.isEmpty) {
+          if (sortedDeliveries.isEmpty) {
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -143,10 +194,11 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
             color: const Color(0xFF4CAF50),
             child: ListView.builder(
               padding: const EdgeInsets.all(16),
-              itemCount: deliveries.length,
+              itemCount: sortedDeliveries.length,
               itemBuilder: (context, index) {
-                final delivery = deliveries[index];
-                return _buildDeliveryCard(delivery);
+                final delivery = sortedDeliveries[index];
+                final isNearbyOrder = index < 3 && _isNearbyOrder(delivery); // Top 3 nearby orders
+                return _buildDeliveryCard(delivery, isNearbyOrder: isNearbyOrder);
               },
             ),
           );
@@ -155,7 +207,71 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
     );
   }
 
-  Widget _buildDeliveryCard(Delivery delivery) {
+  // Sort deliveries by proximity and route efficiency
+  List<Delivery> _sortDeliveriesByProximity(List<Delivery> deliveries) {
+    final currentPosition = CourierLocationService.lastKnownPosition;
+    if (currentPosition == null || !_locationInitialized) {
+      // No location - sort by creation time (newest first)
+      final sorted = [...deliveries];
+      sorted.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return sorted;
+    }
+
+    // Calculate proximity scores for each delivery
+    final deliveryScores = deliveries.map((delivery) {
+      double score = 0;
+      
+      // Factor 1: Distance to pickup (60% weight)
+      if (delivery.pickup.hasGPSLocation) {
+        final distanceToPickup = CourierLocationService.calculateDistance(
+          currentPosition.latitude,
+          currentPosition.longitude,
+          delivery.pickup.latitude!,
+          delivery.pickup.longitude!,
+        );
+        score += (1.0 / (1.0 + distanceToPickup)) * 0.6;
+      }
+      
+      // Factor 2: Delivery fee (20% weight)
+      score += (delivery.deliveryFee / 50.0).clamp(0.0, 1.0) * 0.2;
+      
+      // Factor 3: Route efficiency - shorter pickup to delivery distance (20% weight)
+      if (delivery.pickup.hasGPSLocation && delivery.delivery.hasGPSLocation) {
+        final routeDistance = CourierLocationService.calculateDistance(
+          delivery.pickup.latitude!,
+          delivery.pickup.longitude!,
+          delivery.delivery.latitude!,
+          delivery.delivery.longitude!,
+        );
+        score += (1.0 / (1.0 + routeDistance)) * 0.2;
+      }
+      
+      return MapEntry(delivery, score);
+    }).toList();
+
+    // Sort by score descending (highest score first)
+    deliveryScores.sort((a, b) => b.value.compareTo(a.value));
+    return deliveryScores.map((entry) => entry.key).toList();
+  }
+
+  // Check if delivery is within nearby range (< 5km to pickup)
+  bool _isNearbyOrder(Delivery delivery) {
+    final currentPosition = CourierLocationService.lastKnownPosition;
+    if (currentPosition == null || !delivery.pickup.hasGPSLocation) {
+      return false;
+    }
+    
+    final distance = CourierLocationService.calculateDistance(
+      currentPosition.latitude,
+      currentPosition.longitude,
+      delivery.pickup.latitude!,
+      delivery.pickup.longitude!,
+    );
+    
+    return distance < 5.0; // Less than 5km
+  }
+
+  Widget _buildDeliveryCard(Delivery delivery, {bool isNearbyOrder = false}) {
     final currentPosition = CourierLocationService.lastKnownPosition;
     double? distanceToPickup;
     
@@ -170,7 +286,8 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
-      elevation: 2,
+      elevation: isNearbyOrder ? 4 : 2,
+      color: isNearbyOrder ? const Color(0xFFF1F8E9) : null,
       child: InkWell(
         onTap: () => _viewOrderDetails(delivery),
         borderRadius: BorderRadius.circular(8),
@@ -179,6 +296,33 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Priority indicator for nearby orders
+              if (isNearbyOrder)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF4CAF50),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.star, color: Colors.white, size: 14),
+                      SizedBox(width: 4),
+                      Text(
+                        'NEARBY ORDER',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              
               // Header with delivery fee and distance
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -202,16 +346,27 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: Colors.grey[100],
+                        color: isNearbyOrder ? const Color(0xFF4CAF50) : Colors.grey[100],
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: Text(
-                        '${CourierLocationService.formatDistance(distanceToPickup)} away',
-                        style: TextStyle(
-                          color: Colors.grey[700],
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.location_on,
+                            size: 12,
+                            color: isNearbyOrder ? Colors.white : Colors.grey[700],
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${CourierLocationService.formatDistance(distanceToPickup)} away',
+                            style: TextStyle(
+                              color: isNearbyOrder ? Colors.white : Colors.grey[700],
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                 ],
@@ -319,6 +474,27 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
               
               const SizedBox(height: 16),
               
+              // Route information (if GPS available)
+              if (_locationInitialized && delivery.pickup.hasGPSLocation && delivery.delivery.hasGPSLocation)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.blue[100]!),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.route, color: Colors.blue, size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _buildRouteInfo(delivery),
+                      ),
+                    ],
+                  ),
+                ),
+              
               // Items and total value
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -371,6 +547,75 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
     );
   }
 
+  Widget _buildRouteInfo(Delivery delivery) {
+    final currentPosition = CourierLocationService.lastKnownPosition;
+    if (currentPosition == null) return const SizedBox();
+
+    final distanceToPickup = CourierLocationService.calculateDistance(
+      currentPosition.latitude,
+      currentPosition.longitude,
+      delivery.pickup.latitude!,
+      delivery.pickup.longitude!,
+    );
+
+    final deliveryDistance = CourierLocationService.calculateDistance(
+      delivery.pickup.latitude!,
+      delivery.pickup.longitude!,
+      delivery.delivery.latitude!,
+      delivery.delivery.longitude!,
+    );
+
+    final totalDistance = distanceToPickup + deliveryDistance;
+    final estimatedTime = CourierLocationService.calculateEstimatedDeliveryTime(totalDistance);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Route: ${CourierLocationService.formatDistance(totalDistance)}',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.blue,
+              ),
+            ),
+            Text(
+              'Est: ${CourierLocationService.formatDuration(estimatedTime)}',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[700],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'To pickup: ${CourierLocationService.formatDistance(distanceToPickup)}',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ),
+            Text(
+              'Delivery: ${CourierLocationService.formatDistance(deliveryDistance)}',
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.grey[600],
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   void _viewOrderDetails(Delivery delivery) {
     Navigator.push(
       context,
@@ -385,10 +630,29 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
       await DeliveryService.acceptDelivery(delivery.id);
       
       if (mounted) {
+        // Show success message
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Delivery accepted! Check your active deliveries.'),
+            content: Text('Delivery accepted! Starting active tracking...'),
             backgroundColor: Color(0xFF4CAF50),
+            duration: Duration(seconds: 2),
+          ),
+        );
+        
+        // Navigate to active delivery screen
+        final acceptedDelivery = delivery.copyWith(
+          courierId: 'current_courier_id', // This would be set by the service
+          status: DeliveryStatus.accepted,
+        );
+        
+        await Future.delayed(const Duration(milliseconds: 500));
+        
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ActiveDeliveryScreen(
+              delivery: acceptedDelivery,
+            ),
           ),
         );
       }

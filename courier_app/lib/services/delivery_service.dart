@@ -13,10 +13,11 @@ class DeliveryService {
     return _firestore
         .collection('deliveries')
         .where('status', isEqualTo: 'pending')
-        .orderBy('createdAt', descending: true)
         .snapshots()
         .map((snapshot) {
       final deliveries = snapshot.docs.map((doc) => Delivery.fromFirestore(doc)).toList();
+      // Sort by creation time on client-side (newest first)
+      deliveries.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       print('🚚 DeliveryService: Found ${deliveries.length} available deliveries');
       return deliveries;
     });
@@ -35,10 +36,11 @@ class DeliveryService {
     return _firestore
         .collection('deliveries')
         .where('courierId', isEqualTo: currentUser.uid)
-        .orderBy('createdAt', descending: true)
         .snapshots()
         .map((snapshot) {
       final deliveries = snapshot.docs.map((doc) => Delivery.fromFirestore(doc)).toList();
+      // Sort by creation time on client-side (newest first)
+      deliveries.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       print('🚚 DeliveryService: Found ${deliveries.length} courier deliveries');
       return deliveries;
     });

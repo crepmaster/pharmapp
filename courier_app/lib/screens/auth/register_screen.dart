@@ -61,6 +61,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 backgroundColor: Colors.red,
               ),
             );
+          } else if (state is AuthAuthenticated) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Account created successfully! Welcome aboard!'),
+                backgroundColor: Color(0xFF4CAF50),
+                duration: Duration(seconds: 2),
+              ),
+            );
+            // Navigate to dashboard (should be handled by main app routing)
           }
         },
         builder: (context, state) {

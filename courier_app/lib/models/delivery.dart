@@ -189,6 +189,44 @@ class Delivery extends Equatable {
     return null;
   }
 
+  Delivery copyWith({
+    String? id,
+    String? exchangeId,
+    String? courierId,
+    DeliveryLocation? pickup,
+    DeliveryLocation? delivery,
+    List<DeliveryItem>? items,
+    DeliveryStatus? status,
+    double? deliveryFee,
+    double? totalValue,
+    DateTime? createdAt,
+    DateTime? acceptedAt,
+    DateTime? pickedUpAt,
+    DateTime? deliveredAt,
+    String? notes,
+    String? failureReason,
+    List<String>? proofImages,
+  }) {
+    return Delivery(
+      id: id ?? this.id,
+      exchangeId: exchangeId ?? this.exchangeId,
+      courierId: courierId ?? this.courierId,
+      pickup: pickup ?? this.pickup,
+      delivery: delivery ?? this.delivery,
+      items: items ?? this.items,
+      status: status ?? this.status,
+      deliveryFee: deliveryFee ?? this.deliveryFee,
+      totalValue: totalValue ?? this.totalValue,
+      createdAt: createdAt ?? this.createdAt,
+      acceptedAt: acceptedAt ?? this.acceptedAt,
+      pickedUpAt: pickedUpAt ?? this.pickedUpAt,
+      deliveredAt: deliveredAt ?? this.deliveredAt,
+      notes: notes ?? this.notes,
+      failureReason: failureReason ?? this.failureReason,
+      proofImages: proofImages ?? this.proofImages,
+    );
+  }
+
   @override
   List<Object?> get props => [
     id, exchangeId, courierId, pickup, delivery, items, status, deliveryFee,
@@ -246,43 +284,5 @@ class Delivery extends Equatable {
   factory Delivery.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
     return Delivery.fromMap(data, doc.id);
-  }
-
-  Delivery copyWith({
-    String? id,
-    String? exchangeId,
-    String? courierId,
-    DeliveryLocation? pickup,
-    DeliveryLocation? delivery,
-    List<DeliveryItem>? items,
-    DeliveryStatus? status,
-    double? deliveryFee,
-    double? totalValue,
-    DateTime? createdAt,
-    DateTime? acceptedAt,
-    DateTime? pickedUpAt,
-    DateTime? deliveredAt,
-    String? notes,
-    String? failureReason,
-    List<String>? proofImages,
-  }) {
-    return Delivery(
-      id: id ?? this.id,
-      exchangeId: exchangeId ?? this.exchangeId,
-      courierId: courierId ?? this.courierId,
-      pickup: pickup ?? this.pickup,
-      delivery: delivery ?? this.delivery,
-      items: items ?? this.items,
-      status: status ?? this.status,
-      deliveryFee: deliveryFee ?? this.deliveryFee,
-      totalValue: totalValue ?? this.totalValue,
-      createdAt: createdAt ?? this.createdAt,
-      acceptedAt: acceptedAt ?? this.acceptedAt,
-      pickedUpAt: pickedUpAt ?? this.pickedUpAt,
-      deliveredAt: deliveredAt ?? this.deliveredAt,
-      notes: notes ?? this.notes,
-      failureReason: failureReason ?? this.failureReason,
-      proofImages: proofImages ?? this.proofImages,
-    );
   }
 }

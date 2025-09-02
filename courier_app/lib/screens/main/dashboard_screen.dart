@@ -3,10 +3,19 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../blocs/auth_bloc.dart';
 import '../../services/courier_location_service.dart';
 import '../../services/delivery_service.dart';
+import '../../models/delivery.dart';
 import '../deliveries/available_orders_screen.dart';
+import '../deliveries/active_delivery_screen.dart';
+import '../deliveries/qr_scanner_screen.dart';
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
@@ -181,20 +190,55 @@ class DashboardScreen extends StatelessWidget {
                           );
                         },
                       ),
-                      _buildActionCard(
-                        'Active Delivery',
-                        Icons.navigation,
-                        Colors.orange,
-                        () {
-                          // TODO: Navigate to active delivery
+                      StreamBuilder<Delivery?>(
+                        stream: DeliveryService.getActiveDelivery(),
+                        builder: (context, snapshot) {
+                          final hasActiveDelivery = snapshot.hasData && snapshot.data != null;
+                          return _buildActionCard(
+                            hasActiveDelivery ? 'Active Delivery' : 'No Active Delivery',
+                            hasActiveDelivery ? Icons.navigation : Icons.directions_off,
+                            hasActiveDelivery ? Colors.orange : Colors.grey,
+                            hasActiveDelivery 
+                              ? () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => ActiveDeliveryScreen(
+                                        delivery: snapshot.data!,
+                                      ),
+                                    ),
+                                  );
+                                }
+                              : () {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('No active delivery found'),
+                                      backgroundColor: Colors.orange,
+                                    ),
+                                  );
+                                },
+                          );
                         },
                       ),
-                      _buildActionCard(
-                        'Scan QR Code',
-                        Icons.qr_code_scanner,
-                        Colors.purple,
-                        () {
-                          // TODO: Open QR scanner
+                      StreamBuilder<Delivery?>(
+                        stream: DeliveryService.getActiveDelivery(),
+                        builder: (context, snapshot) {
+                          final hasActiveDelivery = snapshot.hasData && snapshot.data != null;
+                          return _buildActionCard(
+                            'Scan QR Code',
+                            Icons.qr_code_scanner,
+                            hasActiveDelivery ? Colors.purple : Colors.grey,
+                            hasActiveDelivery
+                              ? () => _openQRScanner(snapshot.data!)
+                              : () {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('No active delivery to scan for'),
+                                      backgroundColor: Colors.orange,
+                                    ),
+                                  );
+                                },
+                          );
                         },
                       ),
                       _buildActionCard(
@@ -259,6 +303,34 @@ class DashboardScreen extends StatelessWidget {
           }
           return const Center(child: CircularProgressIndicator());
         },
+      ),
+    );
+  }
+
+  void _openQRScanner(Delivery activeDelivery) {
+    // Determine which type of scan based on delivery status
+    String scanType;
+    if (activeDelivery.status == DeliveryStatus.accepted || activeDelivery.status == DeliveryStatus.enRoute) {
+      scanType = 'pickup';
+    } else if (activeDelivery.status == DeliveryStatus.pickedUp) {
+      scanType = 'delivery';
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot scan QR at this delivery stage'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => QRScannerScreen(
+          delivery: activeDelivery,
+          scanType: scanType,
+        ),
       ),
     );
   }
