@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'location_data.dart';
+import 'subscription.dart';
 
 class PharmacyUser extends Equatable {
   final String uid;
@@ -10,6 +11,12 @@ class PharmacyUser extends Equatable {
   final PharmacyLocationData? locationData; // New global location system
   final bool isActive;
   final DateTime? createdAt;
+  
+  // Subscription-related fields
+  final SubscriptionStatus subscriptionStatus;
+  final SubscriptionPlan subscriptionPlan;
+  final DateTime? subscriptionEndDate;
+  final bool hasActiveSubscription;
 
   const PharmacyUser({
     required this.uid,
@@ -20,6 +27,10 @@ class PharmacyUser extends Equatable {
     this.locationData,
     this.isActive = true,
     this.createdAt,
+    this.subscriptionStatus = SubscriptionStatus.pendingPayment,
+    this.subscriptionPlan = SubscriptionPlan.basic,
+    this.subscriptionEndDate,
+    this.hasActiveSubscription = false,
   });
 
   factory PharmacyUser.fromMap(Map<String, dynamic> map, String uid) {
@@ -34,6 +45,10 @@ class PharmacyUser extends Equatable {
           : null,
       isActive: map['isActive'] ?? true,
       createdAt: map['createdAt']?.toDate(),
+      subscriptionStatus: _parseSubscriptionStatus(map['subscriptionStatus']),
+      subscriptionPlan: _parseSubscriptionPlan(map['subscriptionPlan']),
+      subscriptionEndDate: map['subscriptionEndDate']?.toDate(),
+      hasActiveSubscription: map['hasActiveSubscription'] ?? false,
     );
   }
 
@@ -46,6 +61,10 @@ class PharmacyUser extends Equatable {
       'locationData': locationData?.toMap(),
       'isActive': isActive,
       'role': 'pharmacy',
+      'subscriptionStatus': subscriptionStatus.toString().split('.').last,
+      'subscriptionPlan': subscriptionPlan.toString().split('.').last,
+      'subscriptionEndDate': subscriptionEndDate,
+      'hasActiveSubscription': hasActiveSubscription,
     };
   }
 
@@ -78,6 +97,10 @@ class PharmacyUser extends Equatable {
         locationData,
         isActive,
         createdAt,
+        subscriptionStatus,
+        subscriptionPlan,
+        subscriptionEndDate,
+        hasActiveSubscription,
       ];
 
   PharmacyUser copyWith({
@@ -86,8 +109,13 @@ class PharmacyUser extends Equatable {
     String? pharmacyName,
     String? phoneNumber,
     String? address,
+    PharmacyLocationData? locationData,
     bool? isActive,
     DateTime? createdAt,
+    SubscriptionStatus? subscriptionStatus,
+    SubscriptionPlan? subscriptionPlan,
+    DateTime? subscriptionEndDate,
+    bool? hasActiveSubscription,
   }) {
     return PharmacyUser(
       uid: uid ?? this.uid,
@@ -95,8 +123,45 @@ class PharmacyUser extends Equatable {
       pharmacyName: pharmacyName ?? this.pharmacyName,
       phoneNumber: phoneNumber ?? this.phoneNumber,
       address: address ?? this.address,
+      locationData: locationData ?? this.locationData,
       isActive: isActive ?? this.isActive,
       createdAt: createdAt ?? this.createdAt,
+      subscriptionStatus: subscriptionStatus ?? this.subscriptionStatus,
+      subscriptionPlan: subscriptionPlan ?? this.subscriptionPlan,
+      subscriptionEndDate: subscriptionEndDate ?? this.subscriptionEndDate,
+      hasActiveSubscription: hasActiveSubscription ?? this.hasActiveSubscription,
     );
+  }
+
+  static SubscriptionStatus _parseSubscriptionStatus(String? statusString) {
+    switch (statusString?.toLowerCase()) {
+      case 'pendingpayment':
+        return SubscriptionStatus.pendingPayment;
+      case 'pendingapproval':
+        return SubscriptionStatus.pendingApproval;
+      case 'active':
+        return SubscriptionStatus.active;
+      case 'expired':
+        return SubscriptionStatus.expired;
+      case 'suspended':
+        return SubscriptionStatus.suspended;
+      case 'cancelled':
+        return SubscriptionStatus.cancelled;
+      default:
+        return SubscriptionStatus.pendingPayment;
+    }
+  }
+
+  static SubscriptionPlan _parseSubscriptionPlan(String? planString) {
+    switch (planString?.toLowerCase()) {
+      case 'basic':
+        return SubscriptionPlan.basic;
+      case 'professional':
+        return SubscriptionPlan.professional;
+      case 'enterprise':
+        return SubscriptionPlan.enterprise;
+      default:
+        return SubscriptionPlan.basic;
+    }
   }
 }
