@@ -13,10 +13,69 @@ service cloud.firestore {
     match /exchanges/{id}    { allow write: if false; allow read: if isAdmin() || isAuthenticated(); }
     match /idempotency/{id}  { allow write: if false; allow read: if isAdmin(); }
 
+    // Admin collection (secure authentication-based access)
+    match /admins/{userId} {
+      allow read: if isAuthenticated() && request.auth.uid == userId; // Admin can read own data
+      allow read: if isAuthenticated() && isSuperAdmin(request.auth.uid); // Super admin can read all
+      allow write: if false; // Only cloud functions or admin SDK should write admin data
+    }
+    
+    // Helper function to check if user is super admin
+    function isSuperAdmin(userId) {
+      return exists(/databases/$(database)/documents/admins/$(userId)) &&
+             get(/databases/$(database)/documents/admins/$(userId)).data.role == 'super_admin';
+    }
+
     // Mobile app collections
     match /pharmacies/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read, write: if isOwner(userId) && isValidPharmacyData(request.resource.data);
       allow read: if isAuthenticated(); // Other pharmacies can read basic profile info
+    }
+    
+    // Pharmacy data validation function
+    function isValidPharmacyData(data) {
+      return data.keys().hasAll(['email', 'pharmacyName', 'phoneNumber', 'address', 'role']) &&
+             data.role == 'pharmacy' &&
+             data.email is string &&
+             data.pharmacyName is string &&
+             data.phoneNumber is string &&
+             data.address is string &&
+             data.isActive is bool &&
+             // Location data is optional but if present must be valid
+             (!data.keys().hasAny(['locationData']) || isValidLocationData(data.locationData));
+    }
+    
+    // Location data validation function
+    function isValidLocationData(locationData) {
+      return locationData == null || (
+        locationData is map &&
+        locationData.keys().hasAll(['coordinates']) &&
+        isValidCoordinates(locationData.coordinates) &&
+        // Address is optional in location data
+        (!locationData.keys().hasAny(['address']) || isValidAddress(locationData.address))
+      );
+    }
+    
+    // GPS coordinates validation
+    function isValidCoordinates(coords) {
+      return coords is map &&
+             coords.keys().hasAll(['latitude', 'longitude', 'accuracy']) &&
+             coords.latitude is number &&
+             coords.longitude is number &&
+             coords.accuracy is number &&
+             coords.latitude >= -90 && coords.latitude <= 90 &&
+             coords.longitude >= -180 && coords.longitude <= 180 &&
+             coords.accuracy >= 0;
+    }
+    
+    // Address validation function
+    function isValidAddress(address) {
+      return address is map &&
+             address.keys().hasAll(['type']) &&
+             address.type is string &&
+             address.type in ['formal', 'landmark', 'description'] &&
+             address.keys().hasAll(['displayText']) &&
+             address.displayText is string;
     }
 
     match /couriers/{userId} {
@@ -41,9 +100,19 @@ service cloud.firestore {
     }
 
     match /deliveries/{id} {
-      allow read: if isAuthenticated(); // All users can read delivery info
-      allow create: if isAuthenticated(); // System creates deliveries
-      allow update: if isAuthenticated(); // Couriers and pharmacies can update status
+      allow read: if isAuthenticated() && (
+        resource.data.courierId == request.auth.uid ||           // Courier can read assigned deliveries
+        resource.data.fromPharmacyId == request.auth.uid ||      // Source pharmacy can read
+        resource.data.toPharmacyId == request.auth.uid ||        // Destination pharmacy can read
+        isSuperAdmin(request.auth.uid)                           // Super admin can read all
+      );
+      allow create: if isAuthenticated() && isSuperAdmin(request.auth.uid); // Only admins create deliveries
+      allow update: if isAuthenticated() && (
+        resource.data.courierId == request.auth.uid ||           // Courier can update status/location
+        resource.data.fromPharmacyId == request.auth.uid ||      // Source pharmacy can update
+        resource.data.toPharmacyId == request.auth.uid ||        // Destination pharmacy can update
+        isSuperAdmin(request.auth.uid)                           // Super admin can update all
+      );
     }
 
     match /medicines/{id} {
