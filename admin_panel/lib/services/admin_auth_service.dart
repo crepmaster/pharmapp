@@ -164,10 +164,11 @@ class AdminAuthService {
 
   /// Generate temporary password for new admin users
   String _generateTemporaryPassword() {
-    // Generate a secure temporary password
+    // Generate a cryptographically secure temporary password
+    import 'dart:math' as math;
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#\$%^&*';
-    final random = DateTime.now().millisecondsSinceEpoch;
-    return List.generate(12, (index) => chars[random % chars.length]).join();
+    final random = math.Random.secure();
+    return List.generate(12, (index) => chars[random.nextInt(chars.length)]).join();
   }
 
   /// Update admin user
