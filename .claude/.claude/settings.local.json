@@ -93,7 +93,9 @@
       "Read(/D:\\Projects\\pharmapp-mobile\\admin_panel\\lib\\blocs/**)",
       "Read(/D:\\Projects\\pharmapp-mobile\\admin_panel\\lib\\blocs/**)",
       "Read(/D:\\Projects\\pharmapp-mobile\\admin_panel\\lib\\screens/**)",
-      "Read(/D:\\Projects\\pharmapp-mobile\\admin_panel\\lib\\screens/**)"
+      "Read(/D:\\Projects\\pharmapp-mobile\\admin_panel\\lib\\screens/**)",
+      "Read(/D:\\Projects\\pharmapp-mobile\\pharmacy_app\\lib\\services/**)",
+      "Read(/D:\\Projects\\pharmapp-mobile\\pharmacy_app\\lib\\services/**)"
     ],
     "deny": [],
     "ask": []

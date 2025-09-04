@@ -208,15 +208,15 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
   }
 
   Future<void> _loadDashboardData() async {
-    print('🔄 Loading dashboard data...');
+    // Loading dashboard data
     try {
       final firestore = FirebaseFirestore.instance;
       
       // Get total pharmacies
-      print('📊 Fetching pharmacies collection...');
+      // Fetching pharmacies data
       final pharmaciesSnapshot = await firestore.collection('pharmacies').get();
       final pharmacies = pharmaciesSnapshot.docs;
-      print('📊 Found ${pharmacies.length} pharmacy documents');
+      // Pharmacies data retrieved
       
       int activeCount = 0;
       int pendingCount = 0;
@@ -224,7 +224,7 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
       for (var doc in pharmacies) {
         final data = doc.data();
         final subscriptionStatus = data['subscriptionStatus'] as String?;
-        print('🏥 Pharmacy ${doc.id}: status = $subscriptionStatus');
+        // Processing pharmacy subscription status
         
         if (subscriptionStatus == 'active') {
           activeCount++;
@@ -234,7 +234,7 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
         }
       }
       
-      print('📈 Dashboard stats: Total=${pharmacies.length}, Active=$activeCount, Pending=$pendingCount');
+      // Dashboard statistics calculated
       
       setState(() {
         totalPharmacies = pharmacies.length;
@@ -244,9 +244,9 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
         isLoading = false;
       });
       
-      print('✅ Dashboard data loaded successfully');
+      // Dashboard load completed
     } catch (e) {
-      print('❌ Error loading dashboard data: $e');
+      // Dashboard load error
       setState(() {
         isLoading = false;
       });
