@@ -71,7 +71,11 @@
       "Read(/D:\\Projects\\pharmapp-mobile\\admin_panel/**)",
       "Read(/D:\\Projects\\pharmapp-mobile\\pharmacy_app/**)",
       "Read(/D:\\Projects\\pharmapp-mobile\\admin_panel/**)",
-      "Read(/D:\\Projects\\pharmapp-mobile/**)"
+      "Read(/D:\\Projects\\pharmapp-mobile/**)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git config:*)",
+      "Read(/D:\\Projects\\pharmapp-mobile\\.claude/**)"
     ],
     "deny": [],
     "ask": []
