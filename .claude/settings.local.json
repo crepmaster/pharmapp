@@ -50,7 +50,8 @@
       "Bash(node:*)",
       "Bash(pkill:*)",
       "Bash(taskkill:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(gh:*)"
     ],
     "deny": [],
     "ask": []
