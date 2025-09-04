@@ -153,7 +153,7 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
                               Container(
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF1976D2).withOpacity(0.1),
+                                  color: const Color(0xFF1976D2).withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(8),
                                   border: Border.all(color: const Color(0xFF1976D2)),
                                 ),
@@ -351,7 +351,7 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
                   color: Colors.white,
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.grey.withOpacity(0.3),
+                      color: Colors.grey.withValues(alpha: 0.3),
                       spreadRadius: 1,
                       blurRadius: 5,
                       offset: const Offset(0, -3),

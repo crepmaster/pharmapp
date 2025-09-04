@@ -204,7 +204,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                 Text(
                   'Tap on the map or use GPS to mark your location',
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.9),
+                    color: Colors.white.withValues(alpha: 0.9),
                     fontSize: 14,
                   ),
                 ),

@@ -576,9 +576,7 @@ class QRScannerOverlayShape extends ShapeBorder {
   @override
   void paint(Canvas canvas, Rect rect, {TextDirection? textDirection}) {
     final width = rect.width;
-    final borderWidthSize = width / 2;
     final height = rect.height;
-    final borderHeightSize = height / 2;
     final cutOutWidth = cutOutSize < width ? cutOutSize : width - borderWidth;
     final cutOutHeight = cutOutSize < height ? cutOutSize : height - borderWidth;
 

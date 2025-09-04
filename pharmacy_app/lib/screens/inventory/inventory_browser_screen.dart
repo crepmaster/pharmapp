@@ -109,7 +109,7 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
                             });
                           },
                           backgroundColor: Colors.white,
-                          selectedColor: const Color(0xFF1976D2).withOpacity(0.2),
+                          selectedColor: const Color(0xFF1976D2).withValues(alpha: 0.2),
                           checkmarkColor: const Color(0xFF1976D2),
                         ),
                       );
@@ -521,7 +521,7 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(

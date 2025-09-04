@@ -286,7 +286,7 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
                               Container(
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF1976D2).withOpacity(0.1),
+                                  color: const Color(0xFF1976D2).withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(8),
                                   border: Border.all(color: const Color(0xFF1976D2)),
                                 ),
