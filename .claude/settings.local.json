@@ -45,7 +45,11 @@
       "Read(D:\\Projects\\pharmapp/**)",
       "Read(D:\\Projects\\pharmapp/**)",
       "Bash(firebase deploy:*)",
-      "Bash(./gradlew:*)"
+      "Bash(./gradlew:*)",
+      "Read(D:\\Projects\\pharmapp/**)",
+      "Bash(node:*)",
+      "Bash(pkill:*)",
+      "Bash(taskkill:*)"
     ],
     "deny": [],
     "ask": []
