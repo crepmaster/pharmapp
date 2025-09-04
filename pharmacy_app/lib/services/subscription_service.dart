@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/subscription.dart';
-import '../models/pharmacy_user.dart';
 
 class SubscriptionService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;

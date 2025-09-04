@@ -4,7 +4,7 @@ import 'package:location/location.dart';
 import 'dart:math';
 
 class CourierLocationService {
-  static Location _location = Location();
+  static final Location _location = Location();
   static StreamSubscription<LocationData>? _locationSubscription;
   static geolocator.Position? _currentPosition;
   static StreamController<geolocator.Position>? _positionController;

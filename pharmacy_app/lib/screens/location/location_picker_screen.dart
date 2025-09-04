@@ -253,7 +253,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                     onChanged: (value) {
                       setState(() => _includeAddress = value);
                     },
-                    activeColor: const Color(0xFF1976D2),
+                    activeThumbColor: const Color(0xFF1976D2),
                   ),
                   
                   if (_includeAddress) ...[

@@ -205,13 +205,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
               children: [
                 Row(
                   children: [
-                    CircleAvatar(
+                    const CircleAvatar(
                       radius: 30,
                       backgroundColor: Colors.white,
                       child: Icon(
                         Icons.local_pharmacy,
                         size: 30,
-                        color: const Color(0xFF1976D2),
+                        color: Color(0xFF1976D2),
                       ),
                     ),
                     const SizedBox(width: 16),

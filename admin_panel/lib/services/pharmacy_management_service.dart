@@ -26,7 +26,7 @@ class PharmacyManagementService {
 
       return querySnapshot.docs
           .map((doc) {
-            final data = doc.data() as Map<String, dynamic>;
+            final data = doc.data();
             return PharmacyUser.fromMap(data, doc.id);
           })
           .toList();
@@ -74,7 +74,7 @@ class PharmacyManagementService {
       // Add name search results
       for (final doc in nameResults.docs) {
         if (!seenIds.contains(doc.id)) {
-          final data = doc.data() as Map<String, dynamic>;
+          final data = doc.data();
           results.add(PharmacyUser.fromMap(data, doc.id));
           seenIds.add(doc.id);
         }
@@ -83,7 +83,7 @@ class PharmacyManagementService {
       // Add email search results (avoiding duplicates)
       for (final doc in emailResults.docs) {
         if (!seenIds.contains(doc.id)) {
-          final data = doc.data() as Map<String, dynamic>;
+          final data = doc.data();
           results.add(PharmacyUser.fromMap(data, doc.id));
           seenIds.add(doc.id);
         }
@@ -189,7 +189,7 @@ class PharmacyManagementService {
 
       return querySnapshot.docs
           .map((doc) {
-            final data = doc.data() as Map<String, dynamic>;
+            final data = doc.data();
             return PharmacyUser.fromMap(data, doc.id);
           })
           .toList();
@@ -213,7 +213,7 @@ class PharmacyManagementService {
 
       return querySnapshot.docs
           .map((doc) {
-            final data = doc.data() as Map<String, dynamic>;
+            final data = doc.data();
             return PharmacyUser.fromMap(data, doc.id);
           })
           .toList();

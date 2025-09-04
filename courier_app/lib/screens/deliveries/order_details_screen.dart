@@ -336,7 +336,7 @@ class OrderDetailsScreen extends StatelessWidget {
             
             const SizedBox(height: 16),
             
-            ...delivery.items.map((item) => _buildItemRow(item)).toList(),
+            ...delivery.items.map((item) => _buildItemRow(item)),
           ],
         ),
       ),

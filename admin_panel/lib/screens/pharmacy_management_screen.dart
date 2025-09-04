@@ -89,7 +89,7 @@ class _PharmacyManagementScreenState extends State<PharmacyManagementScreen> {
                   // Status filter
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      value: _statusFilter,
+                      initialValue: _statusFilter,
                       decoration: const InputDecoration(
                         labelText: 'Status',
                         border: OutlineInputBorder(),
@@ -112,7 +112,7 @@ class _PharmacyManagementScreenState extends State<PharmacyManagementScreen> {
                   // Subscription filter
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      value: _subscriptionFilter,
+                      initialValue: _subscriptionFilter,
                       decoration: const InputDecoration(
                         labelText: 'Subscription',
                         border: OutlineInputBorder(),

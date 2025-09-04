@@ -255,7 +255,7 @@ class DeliveryService {
             'quantity': 20,
             'unit': 'tablets',
             'pricePerUnit': 2.5,
-            'expirationDate': DateTime.now().add(Duration(days: 365)).toIso8601String(),
+            'expirationDate': DateTime.now().add(const Duration(days: 365)).toIso8601String(),
           },
           {
             'medicineId': 'med_002',
@@ -263,7 +263,7 @@ class DeliveryService {
             'quantity': 50,
             'unit': 'tablets',
             'pricePerUnit': 0.5,
-            'expirationDate': DateTime.now().add(Duration(days: 300)).toIso8601String(),
+            'expirationDate': DateTime.now().add(const Duration(days: 300)).toIso8601String(),
           },
         ],
         'status': 'pending',

@@ -3,7 +3,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../blocs/admin_auth_bloc.dart';
-import '../models/admin_user.dart';
 import 'pharmacy_management_screen.dart';
 import 'subscription_management_screen.dart';
 import 'financial_reports_screen.dart';

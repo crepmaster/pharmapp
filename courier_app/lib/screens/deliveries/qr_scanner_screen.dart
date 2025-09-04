@@ -228,9 +228,9 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
 
   Widget _buildScannerOverlay() {
     return Container(
-      decoration: ShapeDecoration(
+      decoration: const ShapeDecoration(
         shape: QRScannerOverlayShape(
-          borderColor: const Color(0xFF4CAF50),
+          borderColor: Color(0xFF4CAF50),
           borderRadius: 10,
           borderLength: 30,
           borderWidth: 10,
@@ -559,7 +559,7 @@ class QRScannerOverlayShape extends ShapeBorder {
 
   @override
   Path getOuterPath(Rect rect, {TextDirection? textDirection}) {
-    Path _getLeftTopPath(Rect rect) {
+    Path getLeftTopPath(Rect rect) {
       return Path()
         ..moveTo(rect.left, rect.bottom)
         ..lineTo(rect.left, rect.top + borderRadius)
@@ -567,7 +567,7 @@ class QRScannerOverlayShape extends ShapeBorder {
         ..lineTo(rect.right, rect.top);
     }
 
-    return _getLeftTopPath(rect)
+    return getLeftTopPath(rect)
       ..lineTo(rect.right, rect.bottom)
       ..lineTo(rect.left, rect.bottom)
       ..lineTo(rect.left, rect.top);

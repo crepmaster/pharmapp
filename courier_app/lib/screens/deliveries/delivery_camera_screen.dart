@@ -25,7 +25,7 @@ class _DeliveryCameraScreenState extends State<DeliveryCameraScreen> {
   List<CameraDescription>? _cameras;
   bool _isInitialized = false;
   bool _isCapturing = false;
-  List<String> _capturedImages = [];
+  final List<String> _capturedImages = [];
   int _currentCameraIndex = 0;
 
   @override
@@ -114,9 +114,9 @@ class _DeliveryCameraScreenState extends State<DeliveryCameraScreen> {
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 4),
-                Text(
+                const Text(
                   'Take 1-3 clear photos as proof',
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: Colors.white70,
                     fontSize: 14,
                   ),
@@ -309,7 +309,7 @@ class _DeliveryCameraScreenState extends State<DeliveryCameraScreen> {
                         : const Color(0xFF4CAF50),
                       border: Border.all(color: Colors.white, width: 4),
                     ),
-                    child: Icon(
+                    child: const Icon(
                       Icons.camera_alt,
                       color: Colors.white,
                       size: 36,
@@ -400,7 +400,7 @@ class _DeliveryCameraScreenState extends State<DeliveryCameraScreen> {
     try {
       final Directory appDir = await getApplicationDocumentsDirectory();
       final String timestamp = DateTime.now().millisecondsSinceEpoch.toString();
-      final String fileName = 'delivery_${widget.proofType}_${timestamp}.jpg';
+      final String fileName = 'delivery_${widget.proofType}_$timestamp.jpg';
       final String filePath = path.join(appDir.path, fileName);
 
       final XFile photo = await _controller!.takePicture();
