@@ -99,7 +99,17 @@
       "Read(/D:\\Projects\\pharmapp-mobile\\courier_app\\lib\\screens\\deliveries/**)",
       "Read(/D:\\Projects\\pharmapp-mobile\\courier_app\\lib\\screens\\deliveries/**)",
       "Read(/D:\\Projects\\pharmapp-mobile\\courier_app\\lib\\screens\\deliveries/**)",
-      "Read(/D:\\Projects\\pharmapp-mobile\\pharmacy_app\\lib\\screens\\exchanges/**)"
+      "Read(/D:\\Projects\\pharmapp-mobile\\pharmacy_app\\lib\\screens\\exchanges/**)",
+      "Read(/D:\\Projects\\pharmapp-mobile\\pharmacy_app\\lib\\screens\\exchanges/**)",
+      "Read(/D:\\Projects\\pharmapp-mobile\\pharmacy_app/**)",
+      "Read(/D:\\Projects\\pharmapp-mobile\\pharmacy_app\\lib\\screens\\location/**)",
+      "Read(/D:\\Projects\\pharmapp-mobile\\pharmacy_app\\lib\\screens\\location/**)",
+      "Read(/D:\\Projects\\pharmapp-mobile\\pharmacy_app\\lib\\screens\\profile/**)",
+      "Read(/D:\\Projects\\pharmapp-mobile\\pharmacy_app\\lib\\screens\\profile/**)",
+      "Read(/D:\\Projects\\pharmapp-mobile\\pharmacy_app\\lib\\screens\\inventory/**)",
+      "Read(/D:\\Projects\\pharmapp-mobile\\pharmacy_app\\lib\\screens\\inventory/**)",
+      "Read(/D:\\Projects\\pharmapp-mobile\\pharmacy_app\\lib\\screens\\inventory/**)",
+      "Read(/D:\\Projects\\pharmapp-mobile\\pharmacy_app\\lib\\screens\\inventory/**)"
     ],
     "deny": [],
     "ask": []
