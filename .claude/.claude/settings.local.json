@@ -75,6 +75,7 @@
       "Bash(git commit:*)",
       "Bash(git push:*)",
       "Bash(git config:*)",
+      "Read(/D:\\Projects\\pharmapp-mobile\\.claude/**)",
       "Read(/D:\\Projects\\pharmapp-mobile\\.claude/**)"
     ],
     "deny": [],
