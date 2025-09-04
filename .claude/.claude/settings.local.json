@@ -114,7 +114,12 @@
       "Read(/D:\\Projects\\pharmapp-mobile\\courier_app\\lib\\screens\\deliveries/**)",
       "Read(/D:\\Projects\\pharmapp-mobile\\.claude/**)",
       "Read(/D:\\Projects\\pharmapp-mobile\\.claude/**)",
-      "Read(/D:\\Projects\\pharmapp-mobile\\pharmacy_app\\lib\\screens\\exchanges/**)"
+      "Read(/D:\\Projects\\pharmapp-mobile\\pharmacy_app\\lib\\screens\\exchanges/**)",
+      "Read(/D:\\Projects\\pharmapp-mobile\\pharmacy_app\\lib\\screens\\exchanges/**)",
+      "Read(/D:\\Projects\\pharmapp-mobile\\pharmacy_app\\lib\\screens\\exchanges/**)",
+      "Read(/D:\\Projects\\pharmapp-mobile\\pharmacy_app\\lib\\screens\\exchanges/**)",
+      "Read(/D:\\Projects\\pharmapp-mobile\\pharmacy_app\\lib\\screens\\exchanges/**)",
+      "Read(/D:\\Projects\\pharmapp-mobile/**)"
     ],
     "deny": [],
     "ask": []

@@ -377,7 +377,7 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
                 color: Colors.white,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.grey.withOpacity(0.3),
+                    color: Colors.grey.withValues(alpha: 0.3),
                     spreadRadius: 1,
                     blurRadius: 5,
                     offset: const Offset(0, -3),
@@ -473,6 +473,7 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
           .doc(proposalId)
           .set(proposalWithNotes.toFirestore());
 
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Proposal submitted successfully!'),
@@ -482,6 +483,7 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
 
       Navigator.pop(context);
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to submit proposal: $e'),
