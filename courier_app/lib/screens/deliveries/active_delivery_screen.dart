@@ -723,7 +723,7 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
       builder: (context) => AlertDialog(
         title: Text('Confirm ${proofType == 'pickup' ? 'Pickup' : 'Delivery'}'),
         content: Text(
-          'You chose to skip photos. Do you want to manually confirm this ${proofType}?',
+          'You chose to skip photos. Do you want to manually confirm this $proofType?',
         ),
         actions: [
           TextButton(

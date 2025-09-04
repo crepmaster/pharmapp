@@ -204,15 +204,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
+                          const Row(
                             children: [
-                              const Icon(
+                              Icon(
                                 Icons.map,
                                 color: Color(0xFF1976D2),
                                 size: 24,
                               ),
-                              const SizedBox(width: 8),
-                              const Text(
+                              SizedBox(width: 8),
+                              Text(
                                 'Enhanced Location (Recommended)',
                                 style: TextStyle(
                                   fontSize: 16,

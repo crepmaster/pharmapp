@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../blocs/auth_bloc.dart';
-import '../../services/courier_location_service.dart';
 import '../../services/delivery_service.dart';
 import '../../models/delivery.dart';
 import '../deliveries/available_orders_screen.dart';
