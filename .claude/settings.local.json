@@ -51,7 +51,8 @@
       "Bash(pkill:*)",
       "Bash(taskkill:*)",
       "Bash(git push:*)",
-      "Bash(gh:*)"
+      "Bash(gh:*)",
+      "Bash(git remote add:*)"
     ],
     "deny": [],
     "ask": []

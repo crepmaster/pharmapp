@@ -98,7 +98,8 @@
       "Read(/D:\\Projects\\pharmapp-mobile\\pharmacy_app\\lib\\services/**)",
       "Read(/D:\\Projects\\pharmapp-mobile\\courier_app\\lib\\screens\\deliveries/**)",
       "Read(/D:\\Projects\\pharmapp-mobile\\courier_app\\lib\\screens\\deliveries/**)",
-      "Read(/D:\\Projects\\pharmapp-mobile\\courier_app\\lib\\screens\\deliveries/**)"
+      "Read(/D:\\Projects\\pharmapp-mobile\\courier_app\\lib\\screens\\deliveries/**)",
+      "Read(/D:\\Projects\\pharmapp-mobile\\pharmacy_app\\lib\\screens\\exchanges/**)"
     ],
     "deny": [],
     "ask": []
