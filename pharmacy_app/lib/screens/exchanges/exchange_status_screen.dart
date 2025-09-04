@@ -332,6 +332,7 @@ class ExchangeStatusScreen extends StatelessWidget {
     try {
       final exchangeId = await proposal.acceptProposal();
       
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Proposal accepted! Exchange ID: $exchangeId'),
@@ -339,6 +340,7 @@ class ExchangeStatusScreen extends StatelessWidget {
         ),
       );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to accept proposal: $e'),
@@ -380,6 +382,7 @@ class ExchangeStatusScreen extends StatelessWidget {
       try {
         await proposal.rejectProposal(reason.isEmpty ? 'No reason provided' : reason);
         
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Proposal rejected'),
@@ -387,6 +390,7 @@ class ExchangeStatusScreen extends StatelessWidget {
           ),
         );
       } catch (e) {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to reject proposal: $e'),
@@ -420,6 +424,7 @@ class ExchangeStatusScreen extends StatelessWidget {
       try {
         await proposal.completeDelivery(exchangeId);
         
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Delivery completed! Payment processed.'),
@@ -427,6 +432,7 @@ class ExchangeStatusScreen extends StatelessWidget {
           ),
         );
       } catch (e) {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to complete delivery: $e'),

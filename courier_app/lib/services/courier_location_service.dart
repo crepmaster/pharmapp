@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:geolocator/geolocator.dart' as geolocator;
 import 'package:location/location.dart';
-import 'dart:math';
 
 class CourierLocationService {
   static final Location _location = Location();

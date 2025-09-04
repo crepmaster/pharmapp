@@ -4,7 +4,6 @@ import '../../blocs/auth_bloc.dart';
 import '../../widgets/auth_text_field.dart';
 import '../../widgets/auth_button.dart';
 import '../../models/location_data.dart';
-import '../../services/location_service.dart';
 import '../location/location_picker_screen.dart';
 
 class RegisterScreen extends StatefulWidget {

@@ -128,27 +128,27 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     AuthSignInRequested event,
     Emitter<AuthState> emit,
   ) async {
-    print('🔑 AuthBloc: Starting login for ${event.email}');
+    // Login process started
     emit(AuthLoading());
 
     try {
-      print('🔑 AuthBloc: Calling Firebase signIn...');
+      // Calling Firebase authentication
       final result = await AuthService.signIn(
         email: event.email,
         password: event.password,
       );
-      print('🔑 AuthBloc: Firebase signIn result: ${result?.user?.email}');
+      // Firebase sign-in completed
 
-      print('🔑 AuthBloc: Getting pharmacy data...');
+      // Fetching user profile data
       final pharmacyData = await AuthService.getPharmacyData();
-      print('🔑 AuthBloc: Pharmacy data: ${pharmacyData != null ? 'found' : 'not found'}');
+      // Profile data retrieved
       
       if (pharmacyData != null) {
         final pharmacyUser = PharmacyUser.fromMap(
           pharmacyData,
           AuthService.currentUser!.uid,
         );
-        print('✅ AuthBloc: Login successful for ${pharmacyUser.email}');
+        // Login successful
         emit(AuthAuthenticated(user: pharmacyUser));
       } else {
         print('❌ AuthBloc: Pharmacy profile not found - creating basic profile');
