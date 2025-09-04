@@ -59,18 +59,18 @@ class AuthService {
     required String password,
   }) async {
     try {
-      print('🔥 AuthService: Attempting Firebase signIn for $email');
+      // Attempting Firebase authentication
       final result = await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
-      print('✅ AuthService: Firebase signIn successful');
+      // Firebase sign-in completed successfully
       return result;
     } on FirebaseAuthException catch (e) {
-      print('❌ AuthService: Firebase Auth Error - Code: ${e.code}, Message: ${e.message}');
+      // Firebase authentication error occurred
       throw _handleAuthException(e);
     } catch (e) {
-      print('❌ AuthService: Unexpected error during signIn - $e');
+      // Unexpected authentication error
       rethrow;
     }
   }
