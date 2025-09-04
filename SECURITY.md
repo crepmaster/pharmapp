@@ -1,5 +1,23 @@
 # 🔒 PharmApp Security Guidelines
 
+## 🚨 PRIORITY 1: HARDCODED SECRET DETECTION
+
+**BEFORE ANY DEVELOPMENT, REVIEW, OR DEPLOYMENT** - Run the secret detection system:
+
+```bash
+# Windows
+scripts\detect_secrets.bat
+
+# Linux/Mac
+bash scripts/detect_secrets.sh
+```
+
+**❌ IF SECRETS DETECTED**: 
+- **STOP ALL WORK IMMEDIATELY**
+- Remove all hardcoded secrets
+- Regenerate compromised keys
+- Re-run detection until clean
+
 ## ⚠️ CRITICAL SECURITY NOTICE
 
 This document outlines security practices for the PharmApp mobile platform. **All team members MUST follow these guidelines.**
@@ -65,6 +83,7 @@ git status
 ## 📋 Security Checklist
 
 ### Before Every Commit:
+- [ ] **🔍 RUN SECRET DETECTION FIRST**: `scripts\detect_secrets.bat` passes ✅
 - [ ] No hardcoded API keys in source code
 - [ ] `.env` files are gitignored  
 - [ ] `firebase_options.dart` uses environment variables only

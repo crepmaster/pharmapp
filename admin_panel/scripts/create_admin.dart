@@ -23,10 +23,14 @@ void main() async {
     stdout.write('Enter admin role (super_admin/admin/finance): ');
     final role = stdin.readLineSync() ?? 'admin';
     
-    // Generate temporary password
-    final tempPassword = 'TempPass123!';
-    print('\nUsing temporary password: $tempPassword');
-    print('(Admin should change this on first login)\n');
+    // Get password from admin (no hardcoded passwords)
+    stdout.write('Enter temporary password for admin: ');
+    final tempPassword = stdin.readLineSync() ?? '';
+    if (tempPassword.isEmpty) {
+      print('❌ Password cannot be empty');
+      return;
+    }
+    print('\n(Admin should change this on first login)\n');
 
     // Create Firebase Auth user
     final auth = FirebaseAuth.instance;
