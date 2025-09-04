@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:math' as math;
 import '../models/admin_user.dart';
 
 class AdminAuthService {
@@ -165,7 +166,6 @@ class AdminAuthService {
   /// Generate temporary password for new admin users
   String _generateTemporaryPassword() {
     // Generate a cryptographically secure temporary password
-    import 'dart:math' as math;
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#\$%^&*';
     final random = math.Random.secure();
     return List.generate(12, (index) => chars[random.nextInt(chars.length)]).join();

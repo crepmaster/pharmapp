@@ -40,6 +40,7 @@ dependencies:
   # Camera (Courier specific)
   camera: ^0.10.5+5
   path_provider: ^2.1.1
+  path: ^1.8.0
 
   # Utilities  
   intl: ^0.18.1
