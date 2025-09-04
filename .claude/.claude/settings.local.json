@@ -91,7 +91,9 @@
       "Read(/D:\\Projects\\pharmapp-mobile\\courier_app\\lib\\screens\\deliveries/**)",
       "Read(/D:\\Projects\\pharmapp-mobile/**)",
       "Read(/D:\\Projects\\pharmapp-mobile\\admin_panel\\lib\\blocs/**)",
-      "Read(/D:\\Projects\\pharmapp-mobile\\admin_panel\\lib\\blocs/**)"
+      "Read(/D:\\Projects\\pharmapp-mobile\\admin_panel\\lib\\blocs/**)",
+      "Read(/D:\\Projects\\pharmapp-mobile\\admin_panel\\lib\\screens/**)",
+      "Read(/D:\\Projects\\pharmapp-mobile\\admin_panel\\lib\\screens/**)"
     ],
     "deny": [],
     "ask": []
