@@ -4,6 +4,40 @@ service cloud.firestore {
     function isAdmin() { return request.auth.token.role == 'admin'; }
     function isAuthenticated() { return request.auth != null; }
     function isOwner(userId) { return request.auth != null && request.auth.uid == userId; }
+    
+    // 🔒 SUBSCRIPTION SECURITY FUNCTIONS (UPDATED FOR AFRICAN MARKETS)
+    function hasActiveSubscription(userId) {
+      let pharmacy = get(/databases/$(database)/documents/pharmacies/$(userId));
+      return pharmacy != null && 
+             pharmacy.data.hasActiveSubscription == true &&
+             (
+               // Active subscription
+               (pharmacy.data.subscriptionStatus == 'active' &&
+                pharmacy.data.subscriptionEndDate > request.time) ||
+               // Trial subscription (NEW for African markets)
+               (pharmacy.data.subscriptionStatus == 'trial' &&
+                (pharmacy.data.subscriptionEndDate == null || 
+                 pharmacy.data.subscriptionEndDate > request.time))
+             );
+    }
+    
+    function getSubscriptionPlan(userId) {
+      let pharmacy = get(/databases/$(database)/documents/pharmacies/$(userId));
+      return pharmacy != null ? pharmacy.data.subscriptionPlan : null;
+    }
+    
+    function canCreateInventory(userId, inventoryCount) {
+      let plan = getSubscriptionPlan(userId);
+      return hasActiveSubscription(userId) && (
+        plan == 'basic' && inventoryCount < 100 ||
+        plan == 'professional' ||  // Unlimited
+        plan == 'enterprise'       // Unlimited
+      );
+    }
+    
+    function canCreateProposal(userId) {
+      return hasActiveSubscription(userId);
+    }
 
     // Backend-only collections (write restricted to cloud functions)
     match /webhook_logs/{id} { allow write: if false; allow read: if isAdmin(); }
@@ -12,6 +46,31 @@ service cloud.firestore {
     match /wallets/{id}      { allow write: if false; allow read: if isAdmin() || isAuthenticated(); }
     match /exchanges/{id}    { allow write: if false; allow read: if isAdmin() || isAuthenticated(); }
     match /idempotency/{id}  { allow write: if false; allow read: if isAdmin(); }
+
+    // 🔒 CRITICAL: Subscription collections (SECURE - BACKEND ONLY)
+    match /subscriptions/{subscriptionId} {
+      allow read: if isAuthenticated() && 
+        (get(/databases/$(database)/documents/subscriptions/$(subscriptionId)).data.pharmacyId == request.auth.uid ||
+         isSuperAdmin(request.auth.uid));
+      allow write: if false; // Only backend functions can write subscription data
+    }
+    
+    match /subscription_payments/{paymentId} {
+      allow read: if isAuthenticated() && 
+        (get(/databases/$(database)/documents/subscription_payments/$(paymentId)).data.pharmacyId == request.auth.uid ||
+         isSuperAdmin(request.auth.uid));
+      allow write: if false; // Only payment webhooks can write payment data
+    }
+    
+    match /subscription_config/{configId} {
+      allow read: if isAuthenticated(); // Plan configurations are public
+      allow write: if isSuperAdmin(request.auth.uid); // Only super admin can modify plans
+    }
+    
+    match /subscription_audit/{auditId} {
+      allow read: if isSuperAdmin(request.auth.uid); // Only admin can read audit logs
+      allow write: if false; // Only backend functions can write audit logs
+    }
 
     // Admin collection (secure authentication-based access)
     match /admins/{userId} {
@@ -82,21 +141,53 @@ service cloud.firestore {
       allow read, write: if isOwner(userId);
       allow read: if isAuthenticated(); // Pharmacies can read courier profiles
     }
+    
+    // 🔒 SUBSCRIPTION SECURITY RULES
+    match /subscriptions/{id} {
+      allow read: if isAuthenticated() && (
+        resource.data.pharmacyId == request.auth.uid ||  // Pharmacy can read own subscription
+        isSuperAdmin(request.auth.uid)                   // Admin can read all
+      );
+      allow create: if isAuthenticated() && request.resource.data.pharmacyId == request.auth.uid;
+      allow update: if isSuperAdmin(request.auth.uid);   // Only admin can approve/suspend
+      allow delete: if false; // Subscriptions should not be deleted, only cancelled
+    }
+    
+    match /subscription_payments/{id} {
+      allow read: if isAuthenticated() && (
+        resource.data.pharmacyId == request.auth.uid ||  // Pharmacy can read own payments
+        isSuperAdmin(request.auth.uid)                   // Admin can read all
+      );
+      allow create: if isAuthenticated() && request.resource.data.pharmacyId == request.auth.uid;
+      allow update: if isSuperAdmin(request.auth.uid);   // Only admin can verify payments
+      allow delete: if false; // Payment records should not be deleted
+    }
 
     match /pharmacy_inventory/{id} {
       allow read: if isAuthenticated(); // All authenticated users can read inventory (for browsing)
-      allow create: if isAuthenticated() && request.resource.data.pharmacyId == request.auth.uid;
-      allow update, delete: if isAuthenticated() && resource.data.pharmacyId == request.auth.uid;
+      // 🔒 CRITICAL: Inventory creation requires active subscription
+      allow create: if isAuthenticated() && 
+                   request.resource.data.pharmacyId == request.auth.uid &&
+                   hasActiveSubscription(request.auth.uid);
+      // 🔒 CRITICAL: Only subscription holders can update/delete inventory
+      allow update, delete: if isAuthenticated() && 
+                           resource.data.pharmacyId == request.auth.uid &&
+                           hasActiveSubscription(request.auth.uid);
     }
 
     match /exchange_proposals/{id} {
       allow read: if isAuthenticated(); // All authenticated users can read proposals
-      allow create: if isAuthenticated(); // Authenticated users can create proposals
+      // 🔒 CRITICAL: Creating proposals requires active subscription
+      allow create: if isAuthenticated() && hasActiveSubscription(request.auth.uid);
+      // 🔒 CRITICAL: Updating proposals requires active subscription for both parties
       allow update: if isAuthenticated() && (
-        resource.data.proposingPharmacyId == request.auth.uid || // Proposer can update
-        resource.data.receivingPharmacyId == request.auth.uid    // Receiver can accept/reject
+        (resource.data.proposingPharmacyId == request.auth.uid && hasActiveSubscription(request.auth.uid)) || 
+        (resource.data.receivingPharmacyId == request.auth.uid && hasActiveSubscription(request.auth.uid))
       );
-      allow delete: if isAuthenticated() && resource.data.proposingPharmacyId == request.auth.uid;
+      // 🔒 CRITICAL: Deleting proposals requires active subscription
+      allow delete: if isAuthenticated() && 
+                   resource.data.proposingPharmacyId == request.auth.uid &&
+                   hasActiveSubscription(request.auth.uid);
     }
 
     match /deliveries/{id} {

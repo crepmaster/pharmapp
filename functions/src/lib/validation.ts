@@ -160,5 +160,9 @@ export const BusinessErrors = {
   EXCHANGE_INVALID_STATUS: (status: string, expected: string) => 
     new AppError("EXCHANGE_INVALID_STATUS", `Exchange status is ${status}, expected ${expected}`, 409),
   WEBHOOK_UNAUTHORIZED: () => new AppError("WEBHOOK_UNAUTHORIZED", "Invalid webhook token", 401),
-  IDEMPOTENCY_CONFLICT: () => new AppError("IDEMPOTENCY_CONFLICT", "Operation already processed", 409, { retryable: false })
+  IDEMPOTENCY_CONFLICT: () => new AppError("IDEMPOTENCY_CONFLICT", "Operation already processed", 409, { retryable: false }),
+  USER_NOT_FOUND: (userId: string) => new AppError("USER_NOT_FOUND", `User ${userId} not found`, 404),
+  SUBSCRIPTION_REQUIRED: (action: string) => new AppError("SUBSCRIPTION_REQUIRED", `Active subscription required for ${action}`, 403),
+  PLAN_UPGRADE_REQUIRED: (currentPlan: string, requiredPlan: string) => 
+    new AppError("PLAN_UPGRADE_REQUIRED", `${requiredPlan} plan required (current: ${currentPlan})`, 403)
 };
