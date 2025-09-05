@@ -13,9 +13,9 @@ void main() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-    print('✅ Firebase initialized successfully');
+    // Debug statement removed for production security
   } catch (e) {
-    print('❌ Firebase initialization failed: $e');
+    // Debug statement removed for production security
   }
   
   runApp(const PharmacyApp());
@@ -28,7 +28,7 @@ class PharmacyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (context) {
-        print('🔄 Creating AuthBloc...');
+        // Debug statement removed for production security
         final bloc = AuthBloc();
         bloc.add(AuthStarted());
         return bloc;
@@ -55,14 +55,14 @@ class AuthWrapper extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
-        print('🔄 Auth State Changed: ${state.runtimeType}');
+        // Debug statement removed for production security
         if (state is AuthError) {
-          print('❌ Auth Error: ${state.message}');
+          // Debug statement removed for production security
         }
       },
       child: BlocBuilder<AuthBloc, AuthState>(
         builder: (context, state) {
-          print('🏗️ Building AuthWrapper with state: ${state.runtimeType}');
+          // Debug statement removed for production security
           
           if (state is AuthLoading) {
             return const Scaffold(
@@ -92,7 +92,7 @@ class AuthWrapper extends StatelessWidget {
               ),
             );
           } else if (state is AuthAuthenticated) {
-            print('✅ User authenticated: ${state.user.email}');
+            // Debug statement removed for production security
             return const DashboardScreen();
           } else if (state is AuthError) {
             return Scaffold(
@@ -123,7 +123,7 @@ class AuthWrapper extends StatelessWidget {
               ),
             );
           } else {
-            print('🔓 User not authenticated, showing login');
+            // Debug statement removed for production security
             return const LoginScreen();
           }
         },

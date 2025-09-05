@@ -337,7 +337,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
       
       return false;
     } catch (e) {
-      print('QR validation error: $e');
+      // Debug statement removed for production security
       return false;
     }
   }

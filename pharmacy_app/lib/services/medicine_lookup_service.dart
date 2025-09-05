@@ -42,7 +42,7 @@ class MedicineLookupService {
       return scannedData;
 
     } catch (e) {
-      print('Medicine lookup error: $e');
+      // Debug statement removed for production security
       return scannedData.copyWithApiData(isVerified: false);
     }
   }
@@ -60,7 +60,7 @@ class MedicineLookupService {
       
       return scannedData.copyWithApiData(isVerified: false);
     } catch (e) {
-      print('GTIN lookup error: $e');
+      // Debug statement removed for production security
       return scannedData.copyWithApiData(isVerified: false);
     }
   }
@@ -90,7 +90,7 @@ class MedicineLookupService {
 
       return scannedData.copyWithApiData(isVerified: false);
     } catch (e) {
-      print('NDC lookup error: $e');
+      // Debug statement removed for production security
       return scannedData.copyWithApiData(isVerified: false);
     }
   }
@@ -148,7 +148,7 @@ class MedicineLookupService {
 
       return BarcodeMedicineData.empty(gtin, BarcodeType.ean13);
     } catch (e) {
-      print('OpenFDA lookup error: $e');
+      // Debug statement removed for production security
       return BarcodeMedicineData.empty(gtin, BarcodeType.ean13);
     }
   }
@@ -169,7 +169,7 @@ class MedicineLookupService {
 
       return scannedData.copyWithApiData(isVerified: false);
     } catch (e) {
-      print('Generic barcode lookup error: $e');
+      // Debug statement removed for production security
       return scannedData.copyWithApiData(isVerified: false);
     }
   }

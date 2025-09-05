@@ -27,7 +27,7 @@ class SubscriptionGuardService {
       final pharmacy = PharmacyUser.fromMap(pharmacyDoc.data()!, userId);
       return _isSubscriptionActive(pharmacy);
     } catch (e) {
-      print('Error checking subscription: $e');
+      // Debug statement removed for production security
       return false;
     }
   }
@@ -48,7 +48,7 @@ class SubscriptionGuardService {
       final pharmacy = PharmacyUser.fromMap(pharmacyDoc.data()!, userId);
       return pharmacy.subscriptionStatus;
     } catch (e) {
-      print('Error getting subscription status: $e');
+      // Debug statement removed for production security
       return SubscriptionStatus.pendingPayment;
     }
   }
@@ -69,7 +69,7 @@ class SubscriptionGuardService {
       final pharmacy = PharmacyUser.fromMap(pharmacyDoc.data()!, userId);
       return pharmacy.subscriptionPlan;
     } catch (e) {
-      print('Error getting subscription plan: $e');
+      // Debug statement removed for production security
       return SubscriptionPlan.basic;
     }
   }
@@ -132,7 +132,7 @@ class SubscriptionGuardService {
 
       return querySnapshot.docs.length;
     } catch (e) {
-      print('Error getting inventory count: $e');
+      // Debug statement removed for production security
       return 999; // Return high number to block creation on error
     }
   }

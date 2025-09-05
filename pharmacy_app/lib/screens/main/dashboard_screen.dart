@@ -137,7 +137,7 @@ class DashboardScreen extends StatelessWidget {
                                 }
                                 
                                 if (snapshot.hasError) {
-                                  print('💰 Dashboard: Wallet error - ${snapshot.error}');
+                                  // Debug statement removed for production security
                                   return Container(
                                     padding: const EdgeInsets.all(8),
                                     decoration: BoxDecoration(

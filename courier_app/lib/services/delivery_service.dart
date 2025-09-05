@@ -8,7 +8,7 @@ class DeliveryService {
 
   /// Get all available deliveries (not yet assigned to any courier)
   static Stream<List<Delivery>> getAvailableDeliveries() {
-    print('🚚 DeliveryService: Getting available deliveries');
+    // Debug statement removed for production security
     
     return _firestore
         .collection('deliveries')
@@ -18,7 +18,7 @@ class DeliveryService {
       final deliveries = snapshot.docs.map((doc) => Delivery.fromFirestore(doc)).toList();
       // Sort by creation time on client-side (newest first)
       deliveries.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      print('🚚 DeliveryService: Found ${deliveries.length} available deliveries');
+      // Debug statement removed for production security
       return deliveries;
     });
   }
@@ -27,11 +27,11 @@ class DeliveryService {
   static Stream<List<Delivery>> getCourierDeliveries() {
     final currentUser = _auth.currentUser;
     if (currentUser == null) {
-      print('❌ DeliveryService: No authenticated user');
+      // No authenticated user for delivery service
       return Stream.value([]);
     }
 
-    print('🚚 DeliveryService: Getting deliveries for courier ${currentUser.uid}');
+    // Debug statement removed for production security
     
     return _firestore
         .collection('deliveries')
@@ -41,7 +41,7 @@ class DeliveryService {
       final deliveries = snapshot.docs.map((doc) => Delivery.fromFirestore(doc)).toList();
       // Sort by creation time on client-side (newest first)
       deliveries.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      print('🚚 DeliveryService: Found ${deliveries.length} courier deliveries');
+      // Debug statement removed for production security
       return deliveries;
     });
   }
@@ -64,7 +64,7 @@ class DeliveryService {
         return null;
       }
       final delivery = Delivery.fromFirestore(snapshot.docs.first);
-      print('🚚 DeliveryService: Active delivery - ${delivery.id} (${delivery.status})');
+      // Debug statement removed for production security
       return delivery;
     });
   }
@@ -77,7 +77,7 @@ class DeliveryService {
     }
 
     try {
-      print('🚚 DeliveryService: Accepting delivery $deliveryId');
+      // Debug statement removed for production security
       
       await _firestore.collection('deliveries').doc(deliveryId).update({
         'courierId': currentUser.uid,
@@ -85,9 +85,9 @@ class DeliveryService {
         'acceptedAt': FieldValue.serverTimestamp(),
       });
 
-      print('✅ DeliveryService: Delivery $deliveryId accepted successfully');
+      // Debug statement removed for production security
     } catch (e) {
-      print('❌ DeliveryService: Error accepting delivery - $e');
+      // Debug statement removed for production security
       throw 'Failed to accept delivery: $e';
     }
   }
@@ -101,7 +101,7 @@ class DeliveryService {
     List<String>? proofImages,
   }) async {
     try {
-      print('🚚 DeliveryService: Updating delivery $deliveryId to $status');
+      // Debug statement removed for production security
       
       final updateData = <String, dynamic>{
         'status': status.toString().split('.').last,
@@ -134,9 +134,9 @@ class DeliveryService {
       }
 
       await _firestore.collection('deliveries').doc(deliveryId).update(updateData);
-      print('✅ DeliveryService: Delivery status updated successfully');
+      // Debug statement removed for production security
     } catch (e) {
-      print('❌ DeliveryService: Error updating delivery status - $e');
+      // Debug statement removed for production security
       throw 'Failed to update delivery status: $e';
     }
   }
@@ -155,7 +155,7 @@ class DeliveryService {
     }
 
     try {
-      print('🚚 DeliveryService: Getting courier stats for ${currentUser.uid}');
+      // Debug statement removed for production security
       
       final deliveries = await _firestore
           .collection('deliveries')
@@ -190,7 +190,7 @@ class DeliveryService {
         'successRate': successRate,
       };
     } catch (e) {
-      print('❌ DeliveryService: Error getting courier stats - $e');
+      // Debug statement removed for production security
       return {
         'totalDeliveries': 0,
         'completedDeliveries': 0,
@@ -216,16 +216,16 @@ class DeliveryService {
         },
       });
 
-      print('📍 DeliveryService: Courier location updated - $latitude, $longitude');
+      // Debug statement removed for production security
     } catch (e) {
-      print('❌ DeliveryService: Error updating courier location - $e');
+      // Debug statement removed for production security
     }
   }
 
   /// Create a mock delivery for testing purposes
   static Future<void> createMockDelivery() async {
     try {
-      print('🚚 DeliveryService: Creating mock delivery for testing');
+      // Debug statement removed for production security
       
       final mockDelivery = {
         'exchangeId': 'mock_exchange_${DateTime.now().millisecondsSinceEpoch}',
@@ -274,9 +274,9 @@ class DeliveryService {
       };
 
       await _firestore.collection('deliveries').add(mockDelivery);
-      print('✅ DeliveryService: Mock delivery created successfully');
+      // Debug statement removed for production security
     } catch (e) {
-      print('❌ DeliveryService: Error creating mock delivery - $e');
+      // Debug statement removed for production security
       throw 'Failed to create mock delivery: $e';
     }
   }

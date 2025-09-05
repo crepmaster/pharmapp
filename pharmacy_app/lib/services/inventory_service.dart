@@ -20,7 +20,7 @@ class InventoryService {
       throw Exception('User not authenticated');
     }
 
-    print('📦 InventoryService: Adding medicine ${medicine.name} to inventory');
+    // Debug statement removed for production security
     
     final inventoryItem = PharmacyInventoryItem.create(
       pharmacyId: user.uid,
@@ -36,10 +36,10 @@ class InventoryService {
           .collection('pharmacy_inventory')
           .add(inventoryItem.toFirestore());
       
-      print('✅ InventoryService: Medicine added with ID: ${docRef.id}');
+      // Debug statement removed for production security
       return docRef.id;
     } catch (e) {
-      print('❌ InventoryService: Error adding medicine - $e');
+      // Debug statement removed for production security
       throw Exception('Failed to add medicine to inventory: $e');
     }
   }
@@ -140,9 +140,9 @@ class InventoryService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
       
-      print('✅ InventoryService: Updated quantity for $inventoryId to $newQuantity');
+      // Debug statement removed for production security
     } catch (e) {
-      print('❌ InventoryService: Error updating quantity - $e');
+      // Debug statement removed for production security
       throw Exception('Failed to update quantity: $e');
     }
   }
@@ -155,9 +155,9 @@ class InventoryService {
           .doc(inventoryId)
           .delete();
       
-      print('✅ InventoryService: Removed medicine $inventoryId from inventory');
+      // Debug statement removed for production security
     } catch (e) {
-      print('❌ InventoryService: Error removing medicine - $e');
+      // Debug statement removed for production security
       throw Exception('Failed to remove medicine: $e');
     }
   }
@@ -176,9 +176,9 @@ class InventoryService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
       
-      print('✅ InventoryService: Updated availability for $inventoryId to $available');
+      // Debug statement removed for production security
     } catch (e) {
-      print('❌ InventoryService: Error updating availability - $e');
+      // Debug statement removed for production security
       throw Exception('Failed to update availability: $e');
     }
   }
@@ -196,7 +196,7 @@ class InventoryService {
       }
       return null;
     } catch (e) {
-      print('❌ InventoryService: Error getting inventory item - $e');
+      // Debug statement removed for production security
       return null;
     }
   }
