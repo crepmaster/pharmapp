@@ -28,8 +28,8 @@ This document outlines security practices for the PharmApp mobile platform. **Al
 ```dart
 // INSECURE - Hardcoded API keys
 static const FirebaseOptions web = FirebaseOptions(
-  apiKey: 'AIzaSyA7LyWPJZmkSGjrmj0uyEYHiCfXBRXQ0MA', // EXPOSED!
-  appId: '1:850468406397:web:40b26b7b9a1c8b4e0b4a2d',     // EXPOSED!
+  apiKey: 'AIzaSy[REDACTED-NEVER-HARDCODE-KEYS]', // EXPOSED!
+  appId: '1:850468406397:web:[REDACTED]',     // EXPOSED!
   // ... other sensitive data
 );
 ```
