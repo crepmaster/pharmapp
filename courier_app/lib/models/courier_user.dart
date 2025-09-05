@@ -7,6 +7,8 @@ class CourierUser extends Equatable {
   final String phoneNumber;
   final String vehicleType;
   final String licensePlate;
+  final String operatingCity; // NEW: City where courier operates
+  final List<String> serviceZones; // NEW: Specific zones within city
   final bool isActive;
   final bool isAvailable;
   final double rating;
@@ -20,6 +22,8 @@ class CourierUser extends Equatable {
     required this.phoneNumber,
     required this.vehicleType,
     required this.licensePlate,
+    required this.operatingCity,
+    this.serviceZones = const [],
     this.isActive = true,
     this.isAvailable = false,
     this.rating = 0.0,
@@ -35,6 +39,8 @@ class CourierUser extends Equatable {
       phoneNumber: map['phoneNumber'] ?? '',
       vehicleType: map['vehicleType'] ?? '',
       licensePlate: map['licensePlate'] ?? '',
+      operatingCity: map['operatingCity'] ?? '',
+      serviceZones: List<String>.from(map['serviceZones'] ?? []),
       isActive: map['isActive'] ?? true,
       isAvailable: map['isAvailable'] ?? false,
       rating: (map['rating'] ?? 0.0).toDouble(),
@@ -50,6 +56,8 @@ class CourierUser extends Equatable {
       'phoneNumber': phoneNumber,
       'vehicleType': vehicleType,
       'licensePlate': licensePlate,
+      'operatingCity': operatingCity,
+      'serviceZones': serviceZones,
       'isActive': isActive,
       'isAvailable': isAvailable,
       'rating': rating,
@@ -66,6 +74,8 @@ class CourierUser extends Equatable {
         phoneNumber,
         vehicleType,
         licensePlate,
+        operatingCity,
+        serviceZones,
         isActive,
         isAvailable,
         rating,

@@ -6,6 +6,7 @@ import '../blocs/admin_auth_bloc.dart';
 import 'pharmacy_management_screen.dart';
 import 'subscription_management_screen.dart';
 import 'financial_reports_screen.dart';
+import 'system_config_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -22,6 +23,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     const PharmacyManagementScreen(),
     const SubscriptionManagementScreen(),
     const FinancialReportsScreen(),
+    const SystemConfigScreen(),
   ];
 
   @override
@@ -168,6 +170,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     selectedIcon: const Icon(Icons.analytics),
                     label: const Text('Reports'),
                     disabled: !adminUser.canViewFinancials,
+                  ),
+                  NavigationRailDestination(
+                    icon: const Icon(Icons.settings),
+                    selectedIcon: const Icon(Icons.settings),
+                    label: const Text('System Config'),
+                    disabled: !adminUser.isSuperAdmin,
                   ),
                 ],
               ),
