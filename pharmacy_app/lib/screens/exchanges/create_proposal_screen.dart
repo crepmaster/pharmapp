@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../models/pharmacy_inventory.dart';
 import '../../models/exchange_proposal.dart';
+import '../../services/subscription_guard_service.dart';
 
 class CreateProposalScreen extends StatefulWidget {
   final PharmacyInventoryItem inventoryItem;
@@ -431,6 +432,29 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
   Future<void> _submitProposal() async {
     if (!_formKey.currentState!.validate()) return;
 
+    // 🔒 CRITICAL SUBSCRIPTION CHECK
+    final canCreate = await SubscriptionGuardService.canCreateProposal();
+    if (!canCreate) {
+      final status = await SubscriptionGuardService.getSubscriptionStatus();
+      final message = SubscriptionGuardService.getSubscriptionStatusMessage(status);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Proposal Access Denied: $message'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'Upgrade',
+              textColor: Colors.white,
+              onPressed: () => _showSubscriptionDialog(),
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
     setState(() {
       isLoading = true;
     });
@@ -518,5 +542,45 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
       default:
         return Colors.grey;
     }
+  }
+
+  /// Show subscription upgrade dialog
+  void _showSubscriptionDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('🔒 Subscription Required'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('You need an active subscription to create exchange proposals.'),
+            SizedBox(height: 16),
+            Text('Available Plans:', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text('• Basic ($10/month) - Create & receive proposals'),
+            Text('• Professional ($25/month) - Unlimited + analytics'),
+            Text('• Enterprise ($50/month) - Multi-location + API'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Subscription payment coming soon!'),
+                  backgroundColor: Colors.blue,
+                ),
+              );
+            },
+            child: const Text('Upgrade Now'),
+          ),
+        ],
+      ),
+    );
   }
 }

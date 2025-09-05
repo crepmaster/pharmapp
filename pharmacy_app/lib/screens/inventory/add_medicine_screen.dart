@@ -4,6 +4,7 @@ import '../../models/barcode_medicine_data.dart';
 import '../../data/essential_medicines.dart';
 import '../../services/inventory_service.dart';
 import '../../services/medicine_lookup_service.dart';
+import '../../services/subscription_guard_service.dart';
 import 'create_custom_medicine_screen.dart';
 import 'barcode_scanner_screen.dart';
 
@@ -47,6 +48,47 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
     batchController.dispose();
     notesController.dispose();
     super.dispose();
+  }
+
+  /// Show subscription upgrade dialog
+  void _showSubscriptionDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('🔒 Subscription Required'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('You need an active subscription to add medicines to your inventory.'),
+            SizedBox(height: 16),
+            Text('Available Plans:', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text('• Basic ($10/month) - Up to 100 medicines'),
+            Text('• Professional ($25/month) - Unlimited'),
+            Text('• Enterprise ($50/month) - Multi-location'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              // TODO: Navigate to subscription payment screen
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Subscription payment coming soon!'),
+                  backgroundColor: Colors.blue,
+                ),
+              );
+            },
+            child: const Text('Upgrade Now'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -520,6 +562,29 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
           backgroundColor: Colors.red,
         ),
       );
+      return;
+    }
+
+    // 🔒 CRITICAL SUBSCRIPTION CHECK
+    final canCreate = await SubscriptionGuardService.canCreateInventoryItem();
+    if (!canCreate) {
+      final status = await SubscriptionGuardService.getSubscriptionStatus();
+      final message = SubscriptionGuardService.getSubscriptionStatusMessage(status);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Access Denied: $message'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'Upgrade',
+              textColor: Colors.white,
+              onPressed: () => _showSubscriptionDialog(),
+            ),
+          ),
+        );
+      }
       return;
     }
 

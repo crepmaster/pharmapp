@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../blocs/auth_bloc.dart';
 import '../../services/payment_service.dart';
+import '../../widgets/subscription_status_widget.dart';
 import '../inventory/inventory_browser_screen.dart';
 import '../exchanges/proposals_screen.dart';
 import '../profile/profile_screen.dart';
@@ -256,6 +257,11 @@ class DashboardScreen extends StatelessWidget {
                       ),
                     ),
                   ),
+                  
+                  const SizedBox(height: 16),
+                  
+                  // 🔒 SUBSCRIPTION STATUS (CRITICAL FOR REVENUE)
+                  const SubscriptionStatusWidget(),
                   
                   const SizedBox(height: 24),
                   
