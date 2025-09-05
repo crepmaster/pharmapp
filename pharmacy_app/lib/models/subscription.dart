@@ -3,30 +3,36 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Subscription status enumeration
 enum SubscriptionStatus {
-  pendingPayment,    // Just registered, needs payment
+  trial,             // In free trial period (NEW for African markets)
+  pendingPayment,    // Trial ended or just registered, needs payment
   pendingApproval,   // Paid, waiting for admin approval  
-  active,            // Full access
+  active,            // Full access (paid)
   expired,           // Subscription ended
   suspended,         // Admin suspended account
   cancelled          // Account cancelled
 }
 
-/// Subscription plan types
+/// Subscription plan types (DEPRECATED - use SubscriptionPlanConfig instead)
+/// Kept for backward compatibility during migration
 enum SubscriptionPlan {
-  basic,       // $10/month - 100 medicines, basic features
-  professional,// $25/month - Unlimited medicines, analytics
-  enterprise   // $50/month - Multi-location, API access
+  basic,       // Essential plan - 6,000 XAF/month
+  professional,// Professional plan - 15,000 XAF/month  
+  enterprise   // Enterprise plan - 30,000 XAF/month
 }
 
 /// Subscription model for pharmacy accounts
 class Subscription extends Equatable {
   final String id;
   final String pharmacyId;
-  final SubscriptionPlan plan;
+  final SubscriptionPlan plan;           // DEPRECATED - use planConfigId
+  final String? planConfigId;            // NEW: Reference to SubscriptionPlanConfig
   final SubscriptionStatus status;
   final double amount;
+  final String currency;                 // NEW: Currency code (XAF, USD, etc.)
   final DateTime startDate;
   final DateTime endDate;
+  final DateTime? trialEndDate;          // NEW: When trial period ends
+  final bool isYearly;                   // NEW: Monthly vs yearly billing
   final DateTime createdAt;
   final DateTime? activatedAt;
   final DateTime? suspendedAt;
@@ -39,10 +45,14 @@ class Subscription extends Equatable {
     required this.id,
     required this.pharmacyId,
     required this.plan,
+    this.planConfigId,
     required this.status,
     required this.amount,
+    required this.currency,
     required this.startDate,
     required this.endDate,
+    this.trialEndDate,
+    required this.isYearly,
     required this.createdAt,
     this.activatedAt,
     this.suspendedAt,
@@ -61,6 +71,48 @@ class Subscription extends Equatable {
   bool get isExpired => 
       endDate.isBefore(DateTime.now()) || 
       status == SubscriptionStatus.expired;
+
+  /// Check if subscription is in trial period
+  bool get isInTrial => 
+      status == SubscriptionStatus.trial && 
+      trialEndDate != null && 
+      trialEndDate!.isAfter(DateTime.now());
+
+  /// Check if trial has expired
+  bool get isTrialExpired => 
+      trialEndDate != null && 
+      trialEndDate!.isBefore(DateTime.now());
+
+  /// Days remaining in trial period
+  int get trialDaysRemaining => isInTrial && trialEndDate != null
+      ? trialEndDate!.difference(DateTime.now()).inDays 
+      : 0;
+
+  /// Get formatted amount with currency
+  String get formattedAmount {
+    switch (currency.toUpperCase()) {
+      case 'XAF':
+        return '${amount.toStringAsFixed(0)} XAF';
+      case 'USD':
+        return '\$${amount.toStringAsFixed(2)}';
+      default:
+        return '${amount.toStringAsFixed(2)} $currency';
+    }
+  }
+
+  /// Get formatted monthly equivalent for yearly plans
+  String get formattedMonthlyEquivalent {
+    if (!isYearly) return formattedAmount;
+    final monthlyAmount = amount / 12;
+    switch (currency.toUpperCase()) {
+      case 'XAF':
+        return '${monthlyAmount.toStringAsFixed(0)} XAF/month';
+      case 'USD':
+        return '\$${monthlyAmount.toStringAsFixed(2)}/month';
+      default:
+        return '${monthlyAmount.toStringAsFixed(2)} $currency/month';
+    }
+  }
 
   /// Check if subscription needs payment
   bool get needsPayment => status == SubscriptionStatus.pendingPayment;
@@ -132,10 +184,14 @@ class Subscription extends Equatable {
     String? id,
     String? pharmacyId,
     SubscriptionPlan? plan,
+    String? planConfigId,
     SubscriptionStatus? status,
     double? amount,
+    String? currency,
     DateTime? startDate,
     DateTime? endDate,
+    DateTime? trialEndDate,
+    bool? isYearly,
     DateTime? createdAt,
     DateTime? activatedAt,
     DateTime? suspendedAt,
@@ -148,10 +204,14 @@ class Subscription extends Equatable {
       id: id ?? this.id,
       pharmacyId: pharmacyId ?? this.pharmacyId,
       plan: plan ?? this.plan,
+      planConfigId: planConfigId ?? this.planConfigId,
       status: status ?? this.status,
       amount: amount ?? this.amount,
+      currency: currency ?? this.currency,
       startDate: startDate ?? this.startDate,
       endDate: endDate ?? this.endDate,
+      trialEndDate: trialEndDate ?? this.trialEndDate,
+      isYearly: isYearly ?? this.isYearly,
       createdAt: createdAt ?? this.createdAt,
       activatedAt: activatedAt ?? this.activatedAt,
       suspendedAt: suspendedAt ?? this.suspendedAt,
@@ -167,10 +227,14 @@ class Subscription extends Equatable {
     return {
       'pharmacyId': pharmacyId,
       'plan': plan.toString().split('.').last,
+      'planConfigId': planConfigId,
       'status': status.toString().split('.').last,
       'amount': amount,
+      'currency': currency,
       'startDate': Timestamp.fromDate(startDate),
       'endDate': Timestamp.fromDate(endDate),
+      'trialEndDate': trialEndDate != null ? Timestamp.fromDate(trialEndDate!) : null,
+      'isYearly': isYearly,
       'createdAt': Timestamp.fromDate(createdAt),
       'activatedAt': activatedAt != null ? Timestamp.fromDate(activatedAt!) : null,
       'suspendedAt': suspendedAt != null ? Timestamp.fromDate(suspendedAt!) : null,
@@ -193,10 +257,14 @@ class Subscription extends Equatable {
       id: id,
       pharmacyId: map['pharmacyId'] ?? '',
       plan: _parsePlan(map['plan']),
+      planConfigId: map['planConfigId'],
       status: _parseStatus(map['status']),
       amount: (map['amount'] ?? 0.0).toDouble(),
+      currency: map['currency'] ?? 'USD',
       startDate: (map['startDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
       endDate: (map['endDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      trialEndDate: (map['trialEndDate'] as Timestamp?)?.toDate(),
+      isYearly: map['isYearly'] ?? false,
       createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       activatedAt: (map['activatedAt'] as Timestamp?)?.toDate(),
       suspendedAt: (map['suspendedAt'] as Timestamp?)?.toDate(),
@@ -226,6 +294,8 @@ class Subscription extends Equatable {
   /// Parse status from string
   static SubscriptionStatus _parseStatus(String? statusString) {
     switch (statusString?.toLowerCase()) {
+      case 'trial':
+        return SubscriptionStatus.trial;
       case 'pendingpayment':
         return SubscriptionStatus.pendingPayment;
       case 'pendingapproval':
@@ -248,10 +318,14 @@ class Subscription extends Equatable {
         id,
         pharmacyId,
         plan,
+        planConfigId,
         status,
         amount,
+        currency,
         startDate,
         endDate,
+        trialEndDate,
+        isYearly,
         createdAt,
         activatedAt,
         suspendedAt,

@@ -4,7 +4,7 @@ import '../../models/barcode_medicine_data.dart';
 import '../../data/essential_medicines.dart';
 import '../../services/inventory_service.dart';
 import '../../services/medicine_lookup_service.dart';
-import '../../services/subscription_guard_service.dart';
+import '../../services/secure_subscription_service.dart';
 import 'create_custom_medicine_screen.dart';
 import 'barcode_scanner_screen.dart';
 
@@ -565,25 +565,56 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
       return;
     }
 
-    // 🔒 CRITICAL SUBSCRIPTION CHECK
-    final canCreate = await SubscriptionGuardService.canCreateInventoryItem();
-    if (!canCreate) {
-      final status = await SubscriptionGuardService.getSubscriptionStatus();
-      final message = SubscriptionGuardService.getSubscriptionStatusMessage(status);
-      
+    // 🔒 CRITICAL SERVER-SIDE SUBSCRIPTION CHECK (SECURE)
+    final accessResult = await SecureSubscriptionService.validateInventoryAccess();
+    if (!accessResult.canAccess) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('❌ Access Denied: $message'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 5),
-            action: SnackBarAction(
-              label: 'Upgrade',
-              textColor: Colors.white,
-              onPressed: () => _showSubscriptionDialog(),
+        if (accessResult.isLimitExceeded) {
+          // Show limit exceeded dialog with specific details
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('🚫 Inventory Limit Reached'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Your Basic plan allows maximum ${accessResult.maxAllowed} medicines.'),
+                  Text('Current inventory: ${accessResult.currentCount}'),
+                  const SizedBox(height: 16),
+                  const Text('Upgrade to Professional or Enterprise for unlimited medicines!'),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    Navigator.of(context).pop(); // Return to previous screen
+                  },
+                  child: const Text('Upgrade Plan'),
+                ),
+              ],
             ),
-          ),
-        );
+          );
+        } else {
+          // Show general subscription required message
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('❌ Access Denied: ${accessResult.error ?? "Subscription required"}'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+              action: SnackBarAction(
+                label: 'Upgrade',
+                textColor: Colors.white,
+                onPressed: _showSubscriptionDialog,
+              ),
+            ),
+          );
+        }
       }
       return;
     }

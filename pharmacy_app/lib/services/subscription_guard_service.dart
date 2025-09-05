@@ -24,7 +24,7 @@ class SubscriptionGuardService {
 
       if (!pharmacyDoc.exists) return false;
 
-      final pharmacy = PharmacyUser.fromMap(pharmacyDoc.data()!);
+      final pharmacy = PharmacyUser.fromMap(pharmacyDoc.data()!, userId);
       return _isSubscriptionActive(pharmacy);
     } catch (e) {
       print('Error checking subscription: $e');
@@ -45,7 +45,7 @@ class SubscriptionGuardService {
 
       if (!pharmacyDoc.exists) return SubscriptionStatus.pendingPayment;
 
-      final pharmacy = PharmacyUser.fromMap(pharmacyDoc.data()!);
+      final pharmacy = PharmacyUser.fromMap(pharmacyDoc.data()!, userId);
       return pharmacy.subscriptionStatus;
     } catch (e) {
       print('Error getting subscription status: $e');
@@ -66,7 +66,7 @@ class SubscriptionGuardService {
 
       if (!pharmacyDoc.exists) return SubscriptionPlan.basic;
 
-      final pharmacy = PharmacyUser.fromMap(pharmacyDoc.data()!);
+      final pharmacy = PharmacyUser.fromMap(pharmacyDoc.data()!, userId);
       return pharmacy.subscriptionPlan;
     } catch (e) {
       print('Error getting subscription plan: $e');
@@ -139,23 +139,30 @@ class SubscriptionGuardService {
 
   /// Check if subscription is active based on status and dates
   static bool _isSubscriptionActive(PharmacyUser pharmacy) {
-    // Must have active status
-    if (pharmacy.subscriptionStatus != SubscriptionStatus.active) {
-      return false;
+    // Active subscription
+    if (pharmacy.subscriptionStatus == SubscriptionStatus.active) {
+      if (pharmacy.subscriptionEndDate != null) {
+        return DateTime.now().isBefore(pharmacy.subscriptionEndDate!);
+      }
+      return pharmacy.hasActiveSubscription;
+    }
+    
+    // Trial subscription (NEW for African markets)
+    if (pharmacy.subscriptionStatus == SubscriptionStatus.trial) {
+      if (pharmacy.subscriptionEndDate != null) {
+        return DateTime.now().isBefore(pharmacy.subscriptionEndDate!);
+      }
+      return true; // Trial without end date defaults to active
     }
 
-    // Must not be expired
-    if (pharmacy.subscriptionEndDate != null) {
-      return DateTime.now().isBefore(pharmacy.subscriptionEndDate!);
-    }
-
-    // If no end date specified, check hasActiveSubscription flag
-    return pharmacy.hasActiveSubscription;
+    return false;
   }
 
   /// Get user-friendly subscription status message
   static String getSubscriptionStatusMessage(SubscriptionStatus status) {
     switch (status) {
+      case SubscriptionStatus.trial:
+        return 'Free Trial Active - Enjoying full access';
       case SubscriptionStatus.pendingPayment:
         return 'Payment Required - Please complete your subscription payment';
       case SubscriptionStatus.pendingApproval:
@@ -226,7 +233,7 @@ class SubscriptionGuardService {
         .map((doc) {
       if (!doc.exists) return SubscriptionStatus.pendingPayment;
       
-      final pharmacy = PharmacyUser.fromMap(doc.data()!);
+      final pharmacy = PharmacyUser.fromMap(doc.data()!, userId);
       return pharmacy.subscriptionStatus;
     });
   }

@@ -214,6 +214,8 @@ class _SubscriptionStatusWidgetState extends State<SubscriptionStatusWidget> {
     if (_hasActiveSubscription) return Colors.green;
     
     switch (_status) {
+      case SubscriptionStatus.trial:
+        return Colors.teal; // NEW for African markets
       case SubscriptionStatus.pendingPayment:
         return Colors.orange;
       case SubscriptionStatus.pendingApproval:
@@ -235,6 +237,8 @@ class _SubscriptionStatusWidgetState extends State<SubscriptionStatusWidget> {
     if (_hasActiveSubscription) return Icons.verified;
     
     switch (_status) {
+      case SubscriptionStatus.trial:
+        return Icons.free_breakfast; // NEW for African markets
       case SubscriptionStatus.pendingPayment:
         return Icons.payment;
       case SubscriptionStatus.pendingApproval:
@@ -242,7 +246,7 @@ class _SubscriptionStatusWidgetState extends State<SubscriptionStatusWidget> {
       case SubscriptionStatus.active:
         return Icons.verified;
       case SubscriptionStatus.expired:
-        return Icons.expired;
+        return Icons.access_time;
       case SubscriptionStatus.suspended:
         return Icons.block;
       case SubscriptionStatus.cancelled:
@@ -256,6 +260,8 @@ class _SubscriptionStatusWidgetState extends State<SubscriptionStatusWidget> {
     if (_status == null) return 'Unknown';
     
     switch (_status!) {
+      case SubscriptionStatus.trial:
+        return 'Free Trial'; // NEW for African markets
       case SubscriptionStatus.pendingPayment:
         return 'Payment Required';
       case SubscriptionStatus.pendingApproval:
@@ -274,13 +280,14 @@ class _SubscriptionStatusWidgetState extends State<SubscriptionStatusWidget> {
   String _getPlanText() {
     if (_plan == null) return 'Basic';
     
+    // 🌍 African market pricing (XAF currency)
     switch (_plan!) {
       case SubscriptionPlan.basic:
-        return 'Basic ($10/month)';
+        return 'Essential (6,000 XAF/month)';
       case SubscriptionPlan.professional:
-        return 'Professional ($25/month)';
+        return 'Professionnel (15,000 XAF/month)';
       case SubscriptionPlan.enterprise:
-        return 'Enterprise ($50/month)';
+        return 'Entreprise (30,000 XAF/month)';
     }
   }
 
@@ -313,9 +320,9 @@ class _SubscriptionStatusWidgetState extends State<SubscriptionStatusWidget> {
               child: ListTile(
                 leading: CircleAvatar(
                   backgroundColor: plan == _plan ? Colors.blue : Colors.grey,
-                  child: Text('\$${SubscriptionGuardService.getPlanPrice(plan).toInt()}'),
+                  child: Text('${_getXAFPrice(plan).toInt()}k', style: const TextStyle(fontSize: 10)),
                 ),
-                title: Text(_getPlanName(plan)),
+                title: Text(_getPlanNameForDialog(plan)),
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: SubscriptionGuardService.getPlanFeatures(plan)
@@ -360,6 +367,30 @@ class _SubscriptionStatusWidgetState extends State<SubscriptionStatusWidget> {
         return 'Professional';
       case SubscriptionPlan.enterprise:
         return 'Enterprise';
+    }
+  }
+
+  // 🌍 African market plan names (French localization)
+  String _getPlanNameForDialog(SubscriptionPlan plan) {
+    switch (plan) {
+      case SubscriptionPlan.basic:
+        return 'Essential (6,000 XAF/mois)';
+      case SubscriptionPlan.professional:
+        return 'Professionnel (15,000 XAF/mois)';
+      case SubscriptionPlan.enterprise:
+        return 'Entreprise (30,000 XAF/mois)';
+    }
+  }
+
+  // Get XAF pricing for African markets
+  double _getXAFPrice(SubscriptionPlan plan) {
+    switch (plan) {
+      case SubscriptionPlan.basic:
+        return 6.0; // 6k XAF
+      case SubscriptionPlan.professional:
+        return 15.0; // 15k XAF
+      case SubscriptionPlan.enterprise:
+        return 30.0; // 30k XAF
     }
   }
 }
