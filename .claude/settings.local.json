@@ -56,7 +56,9 @@
       "Bash(git reset:*)",
       "Bash(git stash:*)",
       "Bash(find:*)",
-      "Read(//d/Projects/pharmapp/**)"
+      "Read(//d/Projects/pharmapp/**)",
+      "Bash(npm run build:*)",
+      "Bash(npm run serve:*)"
     ],
     "deny": [],
     "ask": []

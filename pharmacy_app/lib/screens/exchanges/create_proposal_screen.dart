@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../models/pharmacy_inventory.dart';
 import '../../models/exchange_proposal.dart';
-import '../../services/subscription_guard_service.dart';
+import '../../services/secure_subscription_service.dart';
 
 class CreateProposalScreen extends StatefulWidget {
   final PharmacyInventoryItem inventoryItem;
@@ -432,22 +432,27 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
   Future<void> _submitProposal() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // 🔒 CRITICAL SUBSCRIPTION CHECK
-    final canCreate = await SubscriptionGuardService.canCreateProposal();
-    if (!canCreate) {
-      final status = await SubscriptionGuardService.getSubscriptionStatus();
-      final message = SubscriptionGuardService.getSubscriptionStatusMessage(status);
-      
+    // 🔒 CRITICAL SERVER-SIDE SUBSCRIPTION CHECK (SECURE)
+    final accessResult = await SecureSubscriptionService.validateProposalAccess();
+    if (!accessResult.canAccess) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('❌ Proposal Access Denied: $message'),
+            content: Text('❌ Proposal Access Denied: ${accessResult.error ?? "Subscription required"}'),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 5),
             action: SnackBarAction(
               label: 'Upgrade',
               textColor: Colors.white,
-              onPressed: () => _showSubscriptionDialog(),
+              onPressed: () {
+                // TODO: Navigate to subscription upgrade screen
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Subscription upgrade coming soon!'),
+                    backgroundColor: Colors.blue,
+                  ),
+                );
+              },
             ),
           ),
         );
