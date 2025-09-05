@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import '../../models/medicine.dart';
+import '../../models/barcode_medicine_data.dart';
 import '../../data/essential_medicines.dart';
 import '../../services/inventory_service.dart';
+import '../../services/medicine_lookup_service.dart';
 import 'create_custom_medicine_screen.dart';
+import 'barcode_scanner_screen.dart';
 
 class AddMedicineScreen extends StatefulWidget {
   const AddMedicineScreen({super.key});
@@ -22,6 +25,11 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
   DateTime? expirationDate;
   bool isLoading = false;
   String searchQuery = '';
+  
+  // Barcode-related fields
+  BarcodeMedicineData? scannedMedicineData;
+  bool isLookingUpBarcode = false;
+  final MedicineLookupService _lookupService = MedicineLookupService();
   
   List<Medicine> get filteredMedicines {
     if (searchQuery.isEmpty) return EssentialMedicines.allMedicines;
@@ -97,8 +105,99 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
                             
                             const SizedBox(height: 16),
                             
+                            // Barcode Scanner Button
+                            Container(
+                              width: double.infinity,
+                              margin: const EdgeInsets.only(bottom: 16),
+                              child: ElevatedButton.icon(
+                                onPressed: isLookingUpBarcode ? null : _scanBarcode,
+                                icon: isLookingUpBarcode 
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                    )
+                                  : const Icon(Icons.qr_code_scanner),
+                                label: Text(isLookingUpBarcode 
+                                  ? 'Looking up medicine...'
+                                  : 'Scan Medicine Barcode'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF1976D2),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                ),
+                              ),
+                            ),
+                            
+                            // Show scanned medicine info if available
+                            if (scannedMedicineData != null) ...[
+                              Card(
+                                color: scannedMedicineData!.isVerified 
+                                  ? Colors.green.shade50 
+                                  : Colors.orange.shade50,
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Icon(
+                                            scannedMedicineData!.isVerified 
+                                              ? Icons.verified_user 
+                                              : Icons.warning,
+                                            color: scannedMedicineData!.isVerified 
+                                              ? Colors.green 
+                                              : Colors.orange,
+                                            size: 20,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            scannedMedicineData!.isVerified 
+                                              ? 'Medicine Verified'
+                                              : 'Barcode Scanned - Please verify details',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.w600,
+                                              color: scannedMedicineData!.isVerified 
+                                                ? Colors.green.shade700
+                                                : Colors.orange.shade700,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      if (scannedMedicineData!.brandName != null)
+                                        Text('Brand: ${scannedMedicineData!.brandName}'),
+                                      if (scannedMedicineData!.genericName != null)
+                                        Text('Generic: ${scannedMedicineData!.genericName}'),
+                                      if (scannedMedicineData!.manufacturer != null)
+                                        Text('Manufacturer: ${scannedMedicineData!.manufacturer}'),
+                                      if (scannedMedicineData!.strength != null)
+                                        Text('Strength: ${scannedMedicineData!.strength}'),
+                                      if (scannedMedicineData!.gtin != null)
+                                        Text('GTIN: ${scannedMedicineData!.gtin}'),
+                                      const SizedBox(height: 8),
+                                      Row(
+                                        children: [
+                                          TextButton(
+                                            onPressed: _useScannedMedicine,
+                                            child: const Text('Use This Medicine'),
+                                          ),
+                                          TextButton(
+                                            onPressed: _clearScannedMedicine,
+                                            child: const Text('Clear'),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+                            
                             // Medicine selection
-                            if (selectedMedicine == null) ...[
+                            if (selectedMedicine == null && scannedMedicineData == null) ...[
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
@@ -481,6 +580,113 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
     }
   }
 
+  // Barcode scanning methods
+  Future<void> _scanBarcode() async {
+    try {
+      final result = await Navigator.push<BarcodeMedicineData>(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const BarcodeScannerScreen(),
+        ),
+      );
+
+      if (result != null) {
+        setState(() {
+          isLookingUpBarcode = true;
+        });
+
+        // Look up medicine information from APIs
+        final medicineData = await _lookupService.lookupMedicine(result);
+
+        setState(() {
+          scannedMedicineData = medicineData;
+          isLookingUpBarcode = false;
+        });
+
+        // Auto-fill expiry date if available from GS1 DataMatrix
+        if (medicineData.hasExpiryInfo && medicineData.expiryDate != null) {
+          setState(() {
+            expirationDate = medicineData.expiryDate;
+          });
+        }
+
+        // Auto-fill batch/lot number if available
+        if (medicineData.hasLotInfo && medicineData.lotNumber != null) {
+          batchController.text = medicineData.lotNumber!;
+        }
+      }
+    } catch (e) {
+      setState(() {
+        isLookingUpBarcode = false;
+      });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error scanning barcode: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _useScannedMedicine() {
+    if (scannedMedicineData == null) return;
+
+    // Create a Medicine object from scanned data
+    final scannedMedicine = Medicine(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      name: scannedMedicineData!.brandName ?? 
+             scannedMedicineData!.genericName ?? 
+             'Unknown Medicine',
+      genericName: scannedMedicineData!.genericName ?? 
+                   scannedMedicineData!.brandName ?? 
+                   'Unknown',
+      category: 'Scanned Medicines',
+      strength: scannedMedicineData!.strength ?? 'Unknown',
+      dosageForm: scannedMedicineData!.dosageForm ?? 'Unknown',
+      manufacturer: scannedMedicineData!.manufacturer ?? 'Unknown',
+      description: 'Medicine scanned from barcode (GTIN: ${scannedMedicineData!.gtin})',
+      therapeuticClass: 'Unknown',
+      indications: ['Scanned from barcode'],
+      contraindications: [],
+      sideEffects: [],
+      africanClassification: 'Unknown',
+      createdAt: DateTime.now(),
+      formulations: [],
+      marketInfo: {},
+      names: {
+        'en': scannedMedicineData!.brandName ?? scannedMedicineData!.genericName ?? 'Unknown Medicine',
+      },
+      searchTerms: [
+        (scannedMedicineData!.brandName ?? '').toLowerCase(),
+        (scannedMedicineData!.genericName ?? '').toLowerCase(),
+        'scanned', 'barcode',
+      ].where((term) => term.isNotEmpty).toList(),
+      storage: 'Store as per manufacturer instructions',
+      updatedAt: DateTime.now(),
+    );
+
+    setState(() {
+      selectedMedicine = scannedMedicine;
+      // Keep scanned data for reference
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Using scanned medicine: ${scannedMedicine.name}'),
+        backgroundColor: Colors.green,
+      ),
+    );
+  }
+
+  void _clearScannedMedicine() {
+    setState(() {
+      scannedMedicineData = null;
+    });
+  }
+
   Color _getCategoryColor(String category) {
     switch (category.toLowerCase()) {
       case 'antimalarials':
@@ -499,6 +705,8 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
         return Colors.indigo;
       case 'respiratory':
         return Colors.teal;
+      case 'scanned medicines':
+        return Colors.deepPurple;
       default:
         return Colors.grey;
     }
