@@ -36,7 +36,7 @@ class CourierLocationService {
   static Future<geolocator.Position?> getCurrentPosition() async {
     try {
       if (!await hasLocationPermission()) {
-        print('📍 CourierLocationService: Location permission denied');
+        // Debug statement removed for production security
         return null;
       }
 
@@ -45,10 +45,10 @@ class CourierLocationService {
       );
       
       _currentPosition = position;
-      print('📍 CourierLocationService: Current position - ${position.latitude}, ${position.longitude}');
+      // Debug statement removed for production security
       return position;
     } catch (e) {
-      print('❌ CourierLocationService: Error getting current position - $e');
+      // Debug statement removed for production security
       return null;
     }
   }
@@ -57,7 +57,7 @@ class CourierLocationService {
   static Future<Stream<geolocator.Position>?> startLocationTracking() async {
     try {
       if (!await hasLocationPermission()) {
-        print('📍 CourierLocationService: Location permission denied for tracking');
+        // Debug statement removed for production security
         return null;
       }
 
@@ -80,13 +80,13 @@ class CourierLocationService {
           
           _currentPosition = position;
           _positionController?.add(position);
-          print('📍 CourierLocationService: Live position - ${position.latitude}, ${position.longitude}');
+          // Debug statement removed for production security
         }
       });
 
       return _positionController?.stream;
     } catch (e) {
-      print('❌ CourierLocationService: Error starting location tracking - $e');
+      // Debug statement removed for production security
       return null;
     }
   }
@@ -97,7 +97,7 @@ class CourierLocationService {
     _locationSubscription = null;
     await _positionController?.close();
     _positionController = null;
-    print('📍 CourierLocationService: Location tracking stopped');
+    // Debug statement removed for production security
   }
 
   // Get last known position

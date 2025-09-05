@@ -25,11 +25,11 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
   }
 
   void _submit() {
-    print('📝 Form submission started');
+    // Form submission started
     if (_formKey.currentState!.validate()) {
       final email = _emailController.text.trim();
       final password = _passwordController.text;
-      print('📝 Form validated. Email: $email, Password length: ${password.length}');
+      // Form validated successfully
       
       context.read<AdminAuthBloc>().add(
         AdminAuthLoginRequested(
@@ -37,9 +37,9 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
           password: password,
         ),
       );
-      print('📝 Login event added to BLoC');
+      // Login event added to BLoC
     } else {
-      print('📝 Form validation failed');
+      // Form validation failed
     }
   }
 
@@ -108,7 +108,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                 child: BlocConsumer<AdminAuthBloc, AdminAuthState>(
                   listener: (context, state) {
                     if (state is AdminAuthError) {
-                      print('Admin auth error: ${state.message}'); // Debug log
+                      // Admin auth error occurred
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(state.message),
@@ -124,7 +124,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                         ),
                       );
                     } else if (state is AdminAuthAuthenticated) {
-                      print('Admin successfully authenticated: ${state.adminUser.email}'); // Debug log
+                      // Admin successfully authenticated
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text('Welcome, ${state.adminUser.displayName}!'),
@@ -132,7 +132,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                         ),
                       );
                     } else if (state is AdminAuthLoading) {
-                      print('Admin auth loading...'); // Debug log
+                      // Admin auth loading
                     }
                   },
                   builder: (context, state) {

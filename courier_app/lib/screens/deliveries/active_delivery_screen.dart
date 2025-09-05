@@ -57,7 +57,7 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
         });
       }
     } catch (e) {
-      print('Error starting location tracking: $e');
+      // Debug statement removed for production security
       setState(() => _isTrackingLocation = false);
     }
   }
@@ -77,7 +77,7 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
         position.longitude,
       );
     } catch (e) {
-      print('Error updating location in Firebase: $e');
+      // Debug statement removed for production security
     }
   }
 
@@ -668,7 +668,7 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
 
     // Launch navigation
     // Note: This would use url_launcher in a real app
-    print('Opening navigation to: $url');
+    // Debug statement removed for production security
     
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(

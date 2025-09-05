@@ -57,7 +57,7 @@ class _DeliveryCameraScreenState extends State<DeliveryCameraScreen> {
         }
       }
     } catch (e) {
-      print('Error initializing camera: $e');
+      // Debug statement removed for production security
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -368,7 +368,7 @@ class _DeliveryCameraScreenState extends State<DeliveryCameraScreen> {
       await _controller!.setFlashMode(nextMode);
       setState(() {});
     } catch (e) {
-      print('Error toggling flash: $e');
+      // Debug statement removed for production security
     }
   }
 
@@ -436,7 +436,7 @@ class _DeliveryCameraScreenState extends State<DeliveryCameraScreen> {
     setState(() {
       // Delete the file
       final file = File(_capturedImages[index]);
-      file.delete().catchError((e) => print('Error deleting file: $e'));
+      file.delete().catchError((e) => // Debug statement removed for production security
       
       // Remove from list
       _capturedImages.removeAt(index);

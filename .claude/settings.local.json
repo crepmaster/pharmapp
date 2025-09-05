@@ -58,7 +58,8 @@
       "Bash(find:*)",
       "Read(//d/Projects/pharmapp/**)",
       "Bash(npm run build:*)",
-      "Bash(npm run serve:*)"
+      "Bash(npm run serve:*)",
+      "Bash(sed:*)"
     ],
     "deny": [],
     "ask": []

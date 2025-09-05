@@ -85,7 +85,7 @@ class BarcodeParserService {
           final day = int.parse(expiryStr.substring(4, 6));
           expiryDate = DateTime(year, month, day);
         } catch (e) {
-          print('Error parsing expiry date: $e');
+          // Debug statement removed for production security
         }
       }
 

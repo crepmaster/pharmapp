@@ -151,7 +151,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         // Login successful
         emit(AuthAuthenticated(user: pharmacyUser));
       } else {
-        print('❌ AuthBloc: Pharmacy profile not found - creating basic profile');
+        // Debug statement removed for production security
         // Create a basic pharmacy profile for existing Firebase users
         try {
           await AuthService.createPharmacyProfile(
@@ -168,18 +168,18 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
               newPharmacyData,
               AuthService.currentUser!.uid,
             );
-            print('✅ AuthBloc: Created basic profile for ${pharmacyUser.email}');
+            // Debug statement removed for production security
             emit(AuthAuthenticated(user: pharmacyUser));
           } else {
             emit(const AuthError(message: 'Failed to create pharmacy profile'));
           }
         } catch (e) {
-          print('❌ AuthBloc: Failed to create basic profile - $e');
+          // Debug statement removed for production security
           emit(const AuthError(message: 'Unable to access pharmacy profile. Please contact support.'));
         }
       }
     } catch (e) {
-      print('❌ AuthBloc: Login error - $e');
+      // Debug statement removed for production security
       emit(AuthError(message: e.toString()));
     }
   }
@@ -188,11 +188,11 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     AuthSignUpRequested event,
     Emitter<AuthState> emit,
   ) async {
-    print('📝 AuthBloc: Starting registration for ${event.email}');
+    // Debug statement removed for production security
     emit(AuthLoading());
 
     try {
-      print('📝 AuthBloc: Calling Firebase signUp...');
+      // Debug statement removed for production security
       await AuthService.signUp(
         email: event.email,
         password: event.password,
@@ -201,25 +201,25 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         address: event.address,
         locationData: event.locationData,
       );
-      print('📝 AuthBloc: Firebase signUp successful');
+      // Debug statement removed for production security
 
-      print('📝 AuthBloc: Getting pharmacy data after signup...');
+      // Debug statement removed for production security
       final pharmacyData = await AuthService.getPharmacyData();
-      print('📝 AuthBloc: Signup pharmacy data: ${pharmacyData != null ? 'found' : 'not found'}');
+      // Debug statement removed for production security
       
       if (pharmacyData != null) {
         final pharmacyUser = PharmacyUser.fromMap(
           pharmacyData,
           AuthService.currentUser!.uid,
         );
-        print('✅ AuthBloc: Registration successful for ${pharmacyUser.email}');
+        // Debug statement removed for production security
         emit(AuthAuthenticated(user: pharmacyUser));
       } else {
-        print('❌ AuthBloc: Registration failed - pharmacy data not found');
+        // Debug statement removed for production security
         emit(const AuthError(message: 'Registration completed but profile not found'));
       }
     } catch (e) {
-      print('❌ AuthBloc: Registration error - $e');
+      // Debug statement removed for production security
       emit(AuthError(message: e.toString()));
     }
   }

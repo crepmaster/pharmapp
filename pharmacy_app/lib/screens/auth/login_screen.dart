@@ -31,9 +31,9 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       body: BlocConsumer<AuthBloc, AuthState>(
         listener: (context, state) {
-          print('🔄 Login Screen - Auth State Changed: ${state.runtimeType}');
+          // Debug statement removed for production security
           if (state is AuthError) {
-            print('❌ Login Error: ${state.message}');
+            // Debug statement removed for production security
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(state.message),
@@ -42,9 +42,9 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             );
           } else if (state is AuthAuthenticated) {
-            print('✅ Login Success: ${state.user.email}');
+            // Debug statement removed for production security
           } else if (state is AuthLoading) {
-            print('⏳ Login in progress...');
+            // Debug statement removed for production security
           }
         },
         builder: (context, state) {
@@ -187,7 +187,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       onPressed: () {
                         if (_formKey.currentState!.validate()) {
                           final email = _emailController.text.trim();
-                          print('🔑 Attempting login with email: $email');
+                          // Debug statement removed for production security
                           context.read<AuthBloc>().add(
                             AuthSignInRequested(
                               email: email,
@@ -195,7 +195,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           );
                         } else {
-                          print('❌ Form validation failed');
+                          // Debug statement removed for production security
                         }
                       },
                     ),

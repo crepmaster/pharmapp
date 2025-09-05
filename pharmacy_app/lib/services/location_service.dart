@@ -38,7 +38,7 @@ class LocationService {
 
       return true;
     } catch (e) {
-      print('❌ LocationService: Permission request failed - $e');
+      // Debug statement removed for production security
       return false;
     }
   }
@@ -49,11 +49,11 @@ class LocationService {
       // Request permissions first
       bool hasPermission = await requestLocationPermission();
       if (!hasPermission) {
-        print('❌ LocationService: No location permission');
+        // Debug statement removed for production security
         return null;
       }
 
-      print('📍 LocationService: Getting current position...');
+      // Debug statement removed for production security
 
       // Get high-accuracy position
       Position position = await Geolocator.getCurrentPosition(
@@ -61,7 +61,7 @@ class LocationService {
         timeLimit: const Duration(seconds: 15),
       );
 
-      print('✅ LocationService: Position acquired - ${position.latitude}, ${position.longitude} (±${position.accuracy}m)');
+      // Debug statement removed for production security
 
       return PharmacyCoordinates(
         latitude: position.latitude,
@@ -70,7 +70,7 @@ class LocationService {
         capturedAt: DateTime.now(),
       );
     } catch (e) {
-      print('❌ LocationService: Failed to get position - $e');
+      // Debug statement removed for production security
       return null;
     }
   }
@@ -88,7 +88,7 @@ class LocationService {
         capturedAt: DateTime.now(),
       );
     } catch (e) {
-      print('❌ LocationService: Failed to get last known position - $e');
+      // Debug statement removed for production security
       return null;
     }
   }

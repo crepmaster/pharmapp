@@ -21,7 +21,7 @@ class SystemConfigService {
       // Create default config if none exists
       return await _createDefaultConfig();
     } catch (e) {
-      print('Error getting system config: $e');
+      // Debug statement removed for production security
       return null;
     }
   }
@@ -35,7 +35,7 @@ class SystemConfigService {
           .set(config.toFirestore());
       return true;
     } catch (e) {
-      print('Error updating system config: $e');
+      // Debug statement removed for production security
       return false;
     }
   }
@@ -94,7 +94,7 @@ class SystemConfigService {
 
       return await updateSystemConfig(updatedConfig);
     } catch (e) {
-      print('Error adding city: $e');
+      // Debug statement removed for production security
       return false;
     }
   }
@@ -126,7 +126,7 @@ class SystemConfigService {
 
       return await updateSystemConfig(updatedConfig);
     } catch (e) {
-      print('Error updating currency rates: $e');
+      // Debug statement removed for production security
       return false;
     }
   }
@@ -153,7 +153,7 @@ class SystemConfigService {
           .add(plan.toFirestore());
       return true;
     } catch (e) {
-      print('Error creating subscription plan: $e');
+      // Debug statement removed for production security
       return false;
     }
   }
@@ -167,7 +167,7 @@ class SystemConfigService {
           .update(plan.toFirestore());
       return true;
     } catch (e) {
-      print('Error updating subscription plan: $e');
+      // Debug statement removed for production security
       return false;
     }
   }

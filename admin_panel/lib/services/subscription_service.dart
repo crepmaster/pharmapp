@@ -322,7 +322,7 @@ class SubscriptionService {
         'hasActiveSubscription': subscription.isActive,
       });
     } catch (e) {
-      print('Error updating pharmacy subscription fields: $e');
+      // Debug statement removed for production security
     }
   }
 

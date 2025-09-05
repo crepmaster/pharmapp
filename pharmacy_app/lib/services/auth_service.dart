@@ -102,7 +102,7 @@ class AuthService {
     }
 
     try {
-      print('🏥 AuthService: Creating pharmacy profile for ${currentUser!.uid}');
+      // Debug statement removed for production security
       final data = {
         'email': email,
         'pharmacyName': pharmacyName,
@@ -119,9 +119,9 @@ class AuthService {
       }
 
       await _firestore.collection('pharmacies').doc(currentUser!.uid).set(data);
-      print('✅ AuthService: Pharmacy profile created successfully');
+      // Debug statement removed for production security
     } catch (e) {
-      print('❌ AuthService: Error creating pharmacy profile - $e');
+      // Debug statement removed for production security
       throw 'Failed to create pharmacy profile: $e';
     }
   }
@@ -138,7 +138,7 @@ class AuthService {
     }
 
     try {
-      print('🏥 AuthService: Updating pharmacy profile for ${currentUser!.uid}');
+      // Debug statement removed for production security
       final data = {
         'pharmacyName': pharmacyName,
         'phoneNumber': phoneNumber,
@@ -154,9 +154,9 @@ class AuthService {
       }
 
       await _firestore.collection('pharmacies').doc(currentUser!.uid).update(data);
-      print('✅ AuthService: Pharmacy profile updated successfully');
+      // Debug statement removed for production security
     } catch (e) {
-      print('❌ AuthService: Error updating pharmacy profile - $e');
+      // Debug statement removed for production security
       throw 'Failed to update pharmacy profile: $e';
     }
   }
@@ -164,18 +164,18 @@ class AuthService {
   // Get pharmacy data
   static Future<Map<String, dynamic>?> getPharmacyData() async {
     if (currentUser == null) {
-      print('❌ AuthService: No current user for pharmacy data');
+      // Debug statement removed for production security
       return null;
     }
 
     try {
-      print('📛 AuthService: Getting pharmacy data for ${currentUser!.uid}');
+      // Debug statement removed for production security
       final doc = await _firestore.collection('pharmacies').doc(currentUser!.uid).get();
       final data = doc.data();
-      print('📛 AuthService: Pharmacy data ${data != null ? 'found' : 'not found'}');
+      // Debug statement removed for production security
       return data;
     } catch (e) {
-      print('❌ AuthService: Error getting pharmacy data - $e');
+      // Debug statement removed for production security
       throw 'Failed to load pharmacy data: $e';
     }
   }

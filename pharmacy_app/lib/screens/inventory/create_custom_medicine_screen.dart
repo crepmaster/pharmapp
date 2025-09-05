@@ -407,7 +407,7 @@ class _CreateCustomMedicineScreenState extends State<CreateCustomMedicineScreen>
       // Return the created medicine to the previous screen
       Navigator.pop(context, createdMedicine);
     } catch (e) {
-      print('❌ Error creating custom medicine: $e');
+      // Debug statement removed for production security
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to create medicine: $e'),
