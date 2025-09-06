@@ -1,6 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
-import '../services/pharmacy_auth_adapter.dart';
+import '../services/auth_service.dart';
 import '../models/pharmacy_user.dart';
 import '../models/location_data.dart';
 
@@ -107,9 +107,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(AuthLoading());
 
     try {
-      final user = PharmacyAuthAdapter.currentUser;
+      final user = AuthService.currentUser;
       if (user != null) {
-        final pharmacyData = await PharmacyAuthAdapter.getPharmacyData();
+        final pharmacyData = await AuthService.getPharmacyData();
         if (pharmacyData != null) {
           final pharmacyUser = PharmacyUser.fromMap(pharmacyData, user.uid);
           emit(AuthAuthenticated(user: pharmacyUser));
@@ -133,49 +133,26 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
     try {
       // Calling Firebase authentication
-      final result = await PharmacyAuthAdapter.signIn(
+      final result = await AuthService.signIn(
         email: event.email,
         password: event.password,
       );
       // Firebase sign-in completed
 
       // Fetching user profile data
-      final pharmacyData = await PharmacyAuthAdapter.getPharmacyData();
+      final pharmacyData = await AuthService.getPharmacyData();
       // Profile data retrieved
       
       if (pharmacyData != null) {
         final pharmacyUser = PharmacyUser.fromMap(
           pharmacyData,
-          PharmacyAuthAdapter.currentUser!.uid,
+          AuthService.currentUser!.uid,
         );
         // Login successful
         emit(AuthAuthenticated(user: pharmacyUser));
       } else {
-        // Debug statement removed for production security
-        // Create a basic pharmacy profile for existing Firebase users
-        try {
-          await PharmacyAuthAdapter.createPharmacyProfile(
-            pharmacyName: 'Pharmacy Profile (Update Required)',
-            phoneNumber: 'Please update',
-            address: 'Please update your address',
-          );
-          
-          // Try to get the newly created profile
-          final newPharmacyData = await PharmacyAuthAdapter.getPharmacyData();
-          if (newPharmacyData != null) {
-            final pharmacyUser = PharmacyUser.fromMap(
-              newPharmacyData,
-              PharmacyAuthAdapter.currentUser!.uid,
-            );
-            // Debug statement removed for production security
-            emit(AuthAuthenticated(user: pharmacyUser));
-          } else {
-            emit(const AuthError(message: 'Failed to create pharmacy profile'));
-          }
-        } catch (e) {
-          // Debug statement removed for production security
-          emit(const AuthError(message: 'Unable to access pharmacy profile. Please contact support.'));
-        }
+        // Profile not found - user needs to register properly through unified system
+        emit(const AuthError(message: 'Pharmacy profile not found. Please register again.'));
       }
     } catch (e) {
       // Debug statement removed for production security
@@ -192,7 +169,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
     try {
       // Debug statement removed for production security
-      await PharmacyAuthAdapter.signUp(
+      await AuthService.signUp(
         email: event.email,
         password: event.password,
         pharmacyName: event.pharmacyName,
@@ -203,13 +180,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       // Debug statement removed for production security
 
       // Debug statement removed for production security
-      final pharmacyData = await PharmacyAuthAdapter.getPharmacyData();
+      final pharmacyData = await AuthService.getPharmacyData();
       // Debug statement removed for production security
       
       if (pharmacyData != null) {
         final pharmacyUser = PharmacyUser.fromMap(
           pharmacyData,
-          PharmacyAuthAdapter.currentUser!.uid,
+          AuthService.currentUser!.uid,
         );
         // Debug statement removed for production security
         emit(AuthAuthenticated(user: pharmacyUser));
@@ -228,7 +205,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     emit(AuthLoading());
-    await PharmacyAuthAdapter.signOut();
+    await AuthService.signOut();
     emit(AuthUnauthenticated());
   }
 
@@ -239,7 +216,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(AuthLoading());
 
     try {
-      await PharmacyAuthAdapter.resetPassword(event.email);
+      await AuthService.resetPassword(event.email);
       emit(AuthPasswordResetSent());
     } catch (e) {
       emit(AuthError(message: e.toString()));
