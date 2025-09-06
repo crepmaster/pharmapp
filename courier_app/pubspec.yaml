@@ -13,6 +13,10 @@ dependencies:
   flutter:
     sdk: flutter
 
+  # Shared package
+  pharmapp_shared:
+    path: ../shared
+
   # Firebase (Updated versions for better web compatibility)
   firebase_core: ^3.6.0
   firebase_auth: ^5.3.1

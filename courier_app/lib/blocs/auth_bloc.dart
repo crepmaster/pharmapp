@@ -1,6 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
-import '../services/auth_service.dart';
+import '../services/courier_auth_adapter.dart';
 import '../models/courier_user.dart';
 
 // Events
@@ -106,9 +106,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(AuthLoading());
 
     try {
-      final user = AuthService.currentUser;
+      final user = CourierAuthAdapter.currentUser;
       if (user != null) {
-        final courierData = await AuthService.getCourierData();
+        final courierData = await CourierAuthAdapter.getCourierData();
         if (courierData != null) {
           final courierUser = CourierUser.fromMap(courierData, user.uid);
           emit(AuthAuthenticated(user: courierUser));
@@ -130,16 +130,16 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(AuthLoading());
 
     try {
-      await AuthService.signIn(
+      await CourierAuthAdapter.signIn(
         email: event.email,
         password: event.password,
       );
 
-      final courierData = await AuthService.getCourierData();
+      final courierData = await CourierAuthAdapter.getCourierData();
       if (courierData != null) {
         final courierUser = CourierUser.fromMap(
           courierData,
-          AuthService.currentUser!.uid,
+          CourierAuthAdapter.currentUser!.uid,
         );
         emit(AuthAuthenticated(user: courierUser));
       } else {
@@ -157,7 +157,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(AuthLoading());
 
     try {
-      await AuthService.signUp(
+      await CourierAuthAdapter.signUp(
         email: event.email,
         password: event.password,
         fullName: event.fullName,
@@ -166,11 +166,11 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         licensePlate: event.licensePlate,
       );
 
-      final courierData = await AuthService.getCourierData();
+      final courierData = await CourierAuthAdapter.getCourierData();
       if (courierData != null) {
         final courierUser = CourierUser.fromMap(
           courierData,
-          AuthService.currentUser!.uid,
+          CourierAuthAdapter.currentUser!.uid,
         );
         emit(AuthAuthenticated(user: courierUser));
       }
@@ -184,7 +184,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     emit(AuthLoading());
-    await AuthService.signOut();
+    await CourierAuthAdapter.signOut();
     emit(AuthUnauthenticated());
   }
 
@@ -195,7 +195,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(AuthLoading());
 
     try {
-      await AuthService.resetPassword(event.email);
+      await CourierAuthAdapter.resetPassword(event.email);
       emit(AuthPasswordResetSent());
     } catch (e) {
       emit(AuthError(message: e.toString()));
