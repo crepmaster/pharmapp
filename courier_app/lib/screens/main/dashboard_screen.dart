@@ -6,6 +6,7 @@ import '../../models/delivery.dart';
 import '../deliveries/available_orders_screen.dart';
 import '../deliveries/active_delivery_screen.dart';
 import '../deliveries/qr_scanner_screen.dart';
+import '../../widgets/courier_wallet_widget.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -241,15 +242,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         },
                       ),
                       _buildActionCard(
-                        'Earnings',
+                        'View Earnings',
                         Icons.attach_money,
                         Colors.green,
                         () {
-                          // TODO: Navigate to earnings
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Your detailed earnings are shown below'),
+                              backgroundColor: Color(0xFF4CAF50),
+                            ),
+                          );
                         },
                       ),
                     ],
                   ),
+                  
+                  const SizedBox(height: 32),
+                  
+                  // Courier Wallet
+                  const CourierWalletWidget(),
                   
                   const SizedBox(height: 32),
                   

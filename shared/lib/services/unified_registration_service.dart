@@ -1,25 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'unified_wallet_service.dart';
 
 /// Unified Registration Service for all PharmApp applications
 /// Handles registration flow and automatic navigation consistently
 class UnifiedRegistrationService {
   
-  /// Handles successful registration with unified navigation
+  /// Handles successful registration with unified navigation and wallet initialization
   /// Works for pharmacy, courier, and admin apps
-  static void handleRegistrationSuccess({
+  static Future<void> handleRegistrationSuccess({
     required BuildContext context,
     required String userType, // 'pharmacy', 'courier', 'admin'
+    required String userId,
     required String userName,
     required Widget dashboardScreen,
     Duration delay = const Duration(seconds: 2),
-  }) {
+  }) async {
+    // Initialize wallet for new user
+    await UnifiedWalletService.initializeWalletOnRegistration(
+      userId: userId,
+      userType: userType,
+    );
+    
     // Show success message with user type specific styling
     final color = _getSuccessColor(userType);
     
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Welcome $userName! $userType account created successfully.'),
+        content: Text('Welcome $userName! $userType account created successfully.\n💰 Your wallet is ready!'),
         backgroundColor: color,
         duration: delay,
       ),
