@@ -1588,6 +1588,84 @@ After the initial security fix, GitHub security alerts detected **additional exp
 
 **🔐 REPOSITORY NOW 100% SECURE - NO API KEYS IN ANY COMMIT OR FILE** ✅
 
+## 🛡️ **AUTOMATED SECURITY REVIEW ROUTINE IMPLEMENTED (2025-09-07)**
+
+### 🔒 **CONTINUOUS SECURITY VALIDATION SYSTEM:**
+
+To prevent future security vulnerabilities, a systematic security review routine has been implemented that automatically triggers the pharmapp-reviewer agent before commits and pushes.
+
+#### **📋 Security Review Triggers:**
+
+**Automatic Security Review Required:**
+- ✅ **Before Production Pushes** - All pushes to main/production branches
+- ✅ **Security-Sensitive Files** - Changes to authentication, Firebase config, credentials
+- ✅ **Weekly Maintenance** - Regular security maintenance scans
+- ✅ **New Dependencies** - When adding new packages or integrations
+
+**File Patterns Monitored:**
+```
+*auth*.dart          - Authentication services
+*firebase*.dart      - Firebase configurations  
+*security*.dart      - Security-related code
+*credential*.dart    - Credential handling
+*token*.dart         - Token management
+*config*.dart        - Configuration files
+*.env*               - Environment variables
+*secret*, *key*      - Any secret/key files
+```
+
+#### **🔧 Implementation Files:**
+- ✅ `.claude/pre-commit-security-check.md` - Security review process documentation
+- ✅ `security-review-routine.ps1` - PowerShell automation script for security checks
+- ✅ Integrated with Claude Code workflow for automatic reviewer invocation
+
+#### **🚀 Security Review Process:**
+
+**Phase 1: Automatic Detection**
+1. Scan changed files for security-sensitive patterns
+2. Determine review necessity based on file types and context
+3. Block operations if critical security files modified
+
+**Phase 2: Pharmapp-Reviewer Invocation**  
+1. Automatically call pharmapp-reviewer agent
+2. Comprehensive vulnerability assessment
+3. API key exposure scanning
+4. Authentication security validation
+
+**Phase 3: Review Response Handling**
+1. Address identified issues immediately  
+2. Block commit/push if critical issues found
+3. Update security documentation
+4. Log security review results
+
+### 🎯 **ROUTINE USAGE:**
+
+**For Developers:**
+```bash
+# Before committing security changes
+.\security-review-routine.ps1 -ReviewType "pre-commit" -ChangedFiles "auth_service.dart"
+
+# Before production push  
+.\security-review-routine.ps1 -ReviewType "pre-push"
+
+# Skip review (non-security changes only)
+.\security-review-routine.ps1 -SkipReview
+```
+
+**For Claude Code Integration:**
+- Systematic pharmapp-reviewer invocation before security-sensitive commits
+- Automated vulnerability scanning integrated into development workflow
+- Continuous security validation throughout development lifecycle
+
+### 🛡️ **SECURITY BENEFITS:**
+- **Proactive Security**: Issues caught before they reach production
+- **Automated Validation**: No manual security review oversight
+- **Continuous Monitoring**: Ongoing security assessment during development  
+- **Expert Analysis**: Specialized pharmapp-reviewer agent provides comprehensive security audits
+- **Zero Tolerance**: Critical security issues block deployment automatically
+
+**The PharmApp development process now includes mandatory security validation at every critical step.** 🔒
+
 ## ✅ **AUTHENTICATION SECURITY FIXES COMPLETE (2025-09-07)**
 
 ### 🔒 **CRITICAL AUTHENTICATION ISSUES RESOLVED:**
