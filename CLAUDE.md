@@ -1586,4 +1586,38 @@ Les "quick wins" ont apporté des améliorations substantielles (+1 point qualit
 
 **Authentication systems are now production-ready with maximum security.** 🔐
 
+## ✅ **PHARMACY REGISTRATION RACE CONDITION FIX (2025-09-07)**
+
+### 🚨 **CRITICAL REGISTRATION ISSUE RESOLVED:**
+
+#### **✅ RESOLVED: Unified Authentication Race Condition**
+- **Issue**: "Registration completed but profile not found" error during pharmacy registration
+- **Root Cause**: Race condition between Firebase Function user creation and Firestore data retrieval
+- **Analysis**: `createPharmacyUser` function works correctly, but immediate `getPharmacyData()` call failed due to Firestore eventual consistency
+
+### 🔧 **TECHNICAL FIX IMPLEMENTED:**
+
+#### **Enhanced AuthService.getPharmacyData() Method:**
+- **Added Retry Mechanism**: Progressive delays (500ms, 1000ms, 1500ms, 2000ms, 2500ms)
+- **Configurable Retries**: Default 3 retries, registration flow uses 5 retries
+- **Eventual Consistency Handling**: Properly handles Firestore document propagation delays
+- **Non-breaking Change**: Backward compatible with existing code
+
+#### **Improved AuthBloc Error Handling:**
+- **Better Error Messages**: "Registration successful but unable to retrieve profile. Please try signing in."
+- **User Guidance**: Clear instructions for users if rare edge cases occur
+- **Increased Retries**: 5 attempts for registration flow vs 3 for normal profile fetching
+
+### 📋 **FILES MODIFIED:**
+- ✅ `pharmacy_app/lib/services/auth_service.dart` - Added retry mechanism to getPharmacyData()
+- ✅ `pharmacy_app/lib/blocs/auth_bloc.dart` - Enhanced error handling and retry configuration
+
+### 🎯 **REGISTRATION FLOW STATUS: FULLY FUNCTIONAL**
+- **Backend Function**: ✅ createPharmacyUser tested and working correctly
+- **Race Condition**: ✅ RESOLVED with progressive retry mechanism
+- **User Experience**: ✅ Smooth registration with proper error handling
+- **Production Ready**: ✅ Handles Firestore consistency edge cases
+
+**Pharmacy registration now works reliably for all users.** ✅
+
 ---

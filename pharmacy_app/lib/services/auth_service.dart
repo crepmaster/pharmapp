@@ -124,21 +124,29 @@ class AuthService {
     }
   }
 
-  // Get pharmacy profile data (unchanged)
-  static Future<Map<String, dynamic>?> getPharmacyData() async {
+  // Get pharmacy profile data with retry mechanism for registration flow
+  static Future<Map<String, dynamic>?> getPharmacyData({int maxRetries = 3}) async {
     try {
       final user = _auth.currentUser;
       if (user == null) return null;
 
-      // This could also be moved to a Firebase Function in the future
-      final doc = await FirebaseFirestore.instance
-          .collection('pharmacies')
-          .doc(user.uid)
-          .get();
-          
-      if (doc.exists) {
-        return doc.data();
+      // Retry mechanism to handle Firestore eventual consistency after user creation
+      for (int attempt = 0; attempt < maxRetries; attempt++) {
+        final doc = await FirebaseFirestore.instance
+            .collection('pharmacies')
+            .doc(user.uid)
+            .get();
+            
+        if (doc.exists) {
+          return doc.data();
+        }
+        
+        // If document doesn't exist and we have retries left, wait and try again
+        if (attempt < maxRetries - 1) {
+          await Future.delayed(Duration(milliseconds: 500 * (attempt + 1))); // Progressive delay
+        }
       }
+      
       return null;
     } catch (e) {
       // Error fetching pharmacy profile

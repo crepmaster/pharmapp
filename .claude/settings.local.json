@@ -59,7 +59,8 @@
       "Read(//d/Projects/pharmapp/**)",
       "Bash(npm run build:*)",
       "Bash(npm run serve:*)",
-      "Bash(sed:*)"
+      "Bash(sed:*)",
+      "Bash(git fetch:*)"
     ],
     "deny": [],
     "ask": []

@@ -179,20 +179,18 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       );
       // Debug statement removed for production security
 
-      // Debug statement removed for production security
-      final pharmacyData = await AuthService.getPharmacyData();
-      // Debug statement removed for production security
+      // Get pharmacy data with retry mechanism to handle Firestore consistency
+      final pharmacyData = await AuthService.getPharmacyData(maxRetries: 5);
       
       if (pharmacyData != null) {
         final pharmacyUser = PharmacyUser.fromMap(
           pharmacyData,
           AuthService.currentUser!.uid,
         );
-        // Debug statement removed for production security
         emit(AuthAuthenticated(user: pharmacyUser));
       } else {
-        // Debug statement removed for production security
-        emit(const AuthError(message: 'Registration completed but profile not found'));
+        // If profile still not found after retries, this indicates a backend issue
+        emit(const AuthError(message: 'Registration successful but unable to retrieve profile. Please try signing in.'));
       }
     } catch (e) {
       // Debug statement removed for production security
