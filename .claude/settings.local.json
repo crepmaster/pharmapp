@@ -61,7 +61,8 @@
       "Bash(npm run serve:*)",
       "Bash(sed:*)",
       "Bash(git fetch:*)",
-      "Bash(firebase emulators:start:*)"
+      "Bash(firebase emulators:start:*)",
+      "Bash(chmod:*)"
     ],
     "deny": [],
     "ask": []

@@ -26,6 +26,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Revenue Protection**: Subscription bypass impossible with server-side enforcement ✅
 - **API Key Security**: Google API keys completely purged from git history ✅
 - **Authentication System**: Complete unified registration with automatic navigation ✅
+- **Automated Security Reviews**: Git hooks implemented for automatic security scanning ✅
 
 ### 💰 **BUSINESS MODEL - FULLY OPERATIONAL:**
 - **African Market Pricing**: XAF 6,000-30,000 (Cameroon), KES 1,500-7,500 (Kenya)
@@ -109,6 +110,31 @@ cd courier_app && flutter analyze
 cd pharmacy_app && dart format .
 cd courier_app && dart format .
 ```
+
+### Automated Security Review System
+The project includes Git hooks for automatic security reviews:
+
+**Pre-commit Hook**: Automatically detects code changes and flags them for security review
+**Post-commit Hook**: Triggers security review after commits and creates pending review markers
+
+**How it works:**
+- Every commit with code changes (.dart, .yaml, .json, .js, .ts) triggers automatic security review
+- The pharmapp-reviewer agent scans for vulnerabilities and provides security scores
+- Critical security issues block production deployment
+- Documentation-only changes skip security review
+
+**Manual Security Review:**
+```bash
+# Trigger manual security review using Claude Code
+# The pharmapp-reviewer agent will scan the entire project
+```
+
+**Security Review Checklist:**
+- ✅ API key exposure detection
+- ✅ Authentication flow security validation  
+- ✅ Firebase security rules verification
+- ✅ Data access control validation
+- ✅ Production deployment risk assessment
 
 ### Firebase
 Firebase project ID: `mediexchange`
