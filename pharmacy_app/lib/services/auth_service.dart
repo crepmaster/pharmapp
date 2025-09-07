@@ -26,7 +26,7 @@ class AuthService {
     PharmacyLocationData? locationData,
   }) async {
     try {
-      print('🏥 UnifiedAuth: Starting pharmacy signup for ${_hashEmail(email)}');
+      // Starting pharmacy signup process
 
       // Prepare request data
       final requestData = {
@@ -57,7 +57,7 @@ class AuthService {
             password: password,
           );
           
-          print('✅ Unified pharmacy signup successful - UID: ${credential.user?.uid}');
+          // Pharmacy signup successful
           return credential;
         } else {
           throw Exception(responseData['error'] ?? 'Unknown error occurred');
@@ -70,7 +70,7 @@ class AuthService {
       }
 
     } catch (e) {
-      print('❌ Unified pharmacy signup failed: $e');
+      // Pharmacy signup failed
       
       // Convert backend errors to user-friendly messages
       String userMessage = _handleError(e.toString());
@@ -84,20 +84,20 @@ class AuthService {
     required String password,
   }) async {
     try {
-      print('🔐 UnifiedAuth: Starting signin for ${_hashEmail(email)}');
+      // Starting signin process
       
       final credential = await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
       
-      print('✅ Signin successful - UID: ${credential.user?.uid}');
+      // Signin successful
       return credential;
     } on FirebaseAuthException catch (e) {
-      print('❌ Firebase Auth Error: ${e.code} - ${e.message}');
+      // Firebase Auth Error occurred
       throw _handleAuthException(e);
     } catch (e) {
-      print('❌ Unexpected error in signin: $e');
+      // Unexpected signin error
       rethrow;
     }
   }
@@ -106,9 +106,9 @@ class AuthService {
   static Future<void> signOut() async {
     try {
       await _auth.signOut();
-      print('✅ Pharmacy signed out successfully');
+      // Pharmacy signed out successfully
     } catch (e) {
-      print('❌ Sign out error: $e');
+      // Sign out error occurred
       rethrow;
     }
   }
@@ -117,9 +117,9 @@ class AuthService {
   static Future<void> resetPassword(String email) async {
     try {
       await _auth.sendPasswordResetEmail(email: email);
-      print('✅ Password reset email sent to ${_hashEmail(email)}');
+      // Password reset email sent
     } on FirebaseAuthException catch (e) {
-      print('❌ Password reset error: ${e.code}');
+      // Password reset error occurred
       throw _handleAuthException(e);
     }
   }
@@ -141,7 +141,7 @@ class AuthService {
       }
       return null;
     } catch (e) {
-      print('❌ Error fetching pharmacy profile: $e');
+      // Error fetching pharmacy profile
       return null;
     }
   }
@@ -171,7 +171,7 @@ class AuthService {
       final user = _auth.currentUser;
       if (user == null) throw Exception('User not authenticated');
 
-      print('🏥 UnifiedAuth: Updating pharmacy profile for ${_hashEmail(user.email ?? 'unknown')}');
+      // Updating pharmacy profile
 
       final updateData = {
         'pharmacyName': pharmacyName,
@@ -191,9 +191,9 @@ class AuthService {
           .doc(user.uid)
           .update(updateData);
           
-      print('✅ Pharmacy profile updated successfully');
+      // Pharmacy profile updated successfully
     } catch (e) {
-      print('❌ Error updating pharmacy profile: $e');
+      // Error updating pharmacy profile
       rethrow;
     }
   }

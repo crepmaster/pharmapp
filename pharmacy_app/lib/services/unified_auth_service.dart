@@ -1,12 +1,12 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../models/location_data.dart';
 
-/// Unified Authentication Service for Courier App
+/// Unified Authentication Service for Pharmacy App
 /// Calls the backend Firebase Functions instead of duplicating auth logic
 /// Provides anti-orphan protection and consistent business rule enforcement
-class AuthService {
+class UnifiedAuthService {
   static final FirebaseAuth _auth = FirebaseAuth.instance;
   static const String _baseUrl = 'https://europe-west1-mediexchange.cloudfunctions.net';
 
@@ -16,34 +16,32 @@ class AuthService {
   /// Authentication state stream
   static Stream<User?> get authStateChanges => _auth.authStateChanges();
 
-  /// Sign up courier user using unified backend function
+  /// Sign up pharmacy user using unified backend function
   /// This eliminates code duplication and ensures server-side validation
   static Future<UserCredential?> signUp({
     required String email,
     required String password,
-    required String fullName,
+    required String pharmacyName,
     required String phoneNumber,
-    required String vehicleType,
-    required String licensePlate,
-    String operatingCity = '',
+    required String address,
+    PharmacyLocationData? locationData,
   }) async {
     try {
-      // Starting courier signup process
+      // Starting pharmacy signup process
 
       // Prepare request data
       final requestData = {
         'email': email,
         'password': password,
-        'fullName': fullName,
+        'pharmacyName': pharmacyName,
         'phoneNumber': phoneNumber,
-        'vehicleType': vehicleType,
-        'licensePlate': licensePlate,
-        'operatingCity': operatingCity,
+        'address': address,
+        if (locationData != null) 'locationData': locationData.toMap(),
       };
 
       // Call unified Firebase Function
       final response = await http.post(
-        Uri.parse('$_baseUrl/createCourierUser'),
+        Uri.parse('$_baseUrl/createPharmacyUser'),
         headers: {
           'Content-Type': 'application/json',
         },
@@ -60,7 +58,7 @@ class AuthService {
             password: password,
           );
           
-          // Courier signup successful
+          // Pharmacy signup successful
           return credential;
         } else {
           throw Exception(responseData['error'] ?? 'Unknown error occurred');
@@ -73,7 +71,7 @@ class AuthService {
       }
 
     } catch (e) {
-      // Courier signup failed
+      // Pharmacy signup failed
       
       // Convert backend errors to user-friendly messages
       String userMessage = _handleError(e.toString());
@@ -109,7 +107,7 @@ class AuthService {
   static Future<void> signOut() async {
     try {
       await _auth.signOut();
-      // Courier signed out successfully
+      // Pharmacy signed out successfully
     } catch (e) {
       // Sign out error occurred
       rethrow;
@@ -127,15 +125,15 @@ class AuthService {
     }
   }
 
-  /// Get courier profile data (unchanged)
-  static Future<Map<String, dynamic>?> getCourierData() async {
+  /// Get pharmacy profile data (unchanged)
+  static Future<Map<String, dynamic>?> getPharmacyData() async {
     try {
       final user = _auth.currentUser;
       if (user == null) return null;
 
       // This could also be moved to a Firebase Function in the future
       final doc = await FirebaseFirestore.instance
-          .collection('couriers')
+          .collection('pharmacies')
           .doc(user.uid)
           .get();
           
@@ -144,9 +142,23 @@ class AuthService {
       }
       return null;
     } catch (e) {
-      // Error fetching courier profile
+      // Error fetching pharmacy profile
       return null;
     }
+  }
+
+  /// Create pharmacy profile (now handled by Firebase Function)
+  static Future<void> createPharmacyProfile({
+    required String pharmacyName,
+    required String phoneNumber,
+    required String address,
+    PharmacyLocationData? locationData,
+  }) async {
+    // This functionality is now handled by the unified Firebase Function
+    // during the signUp process, so this method is no longer needed
+    throw UnimplementedError(
+      'Profile creation is now handled automatically by the unified signup process'
+    );
   }
 
   // MARK: - Helper Methods

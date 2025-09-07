@@ -256,11 +256,11 @@ class UnifiedAuthService {
       
       // Security: Log signout (sanitized)
       if (userId != null) {
-        print('[AUTH] User signed out: ${_hashUserId(userId)}');
+        // User signed out
       }
     } catch (e) {
       // Security: Log signout errors
-      print('[AUTH] Error during signout: ${e.runtimeType}');
+      // Error during signout
       rethrow;
     }
   }
@@ -283,7 +283,7 @@ class UnifiedAuthService {
       await _auth.sendPasswordResetEmail(email: email);
       
       // Security: Log password reset (sanitized)
-      print('[AUTH] Password reset requested: ${_hashEmail(email)}');
+      // Password reset requested
       
     } on FirebaseAuthException catch (e) {
       // Security: Track failed attempts
@@ -313,7 +313,7 @@ class UnifiedAuthService {
       return UserProfile(user: unifiedUser, roleData: unifiedUser.roleData);
     } catch (e) {
       // Security: Log profile fetch errors (sanitized)
-      print('[AUTH] Error fetching user profile: ${e.runtimeType}');
+      // Error fetching user profile
       return null;
     }
   }
@@ -476,23 +476,23 @@ class UnifiedAuthService {
 
   /// Log authentication attempt (sanitized)
   static void _logAuthAttempt(String operation, String userType, String email) {
-    print('[AUTH] $operation attempt - Type: $userType, Email: ${_hashEmail(email)}');
+    // Auth operation attempt
   }
 
   /// Log authentication success (sanitized)
   static void _logAuthSuccess(String operation, String userType, String userId) {
-    print('[AUTH] $operation success - Type: $userType, User: ${_hashUserId(userId)}');
+    // Auth operation success
   }
 
   /// Log authentication failure (sanitized)
   static void _logAuthFailure(String operation, String userType, String errorCode) {
-    print('[AUTH] $operation failed - Type: $userType, Error: $errorCode');
+    // Auth operation failed
   }
 
   /// Log unexpected errors (sanitized)
   static void _logUnexpectedError(String operation, String error) {
     // Security: Only log error type, not sensitive details
-    print('[AUTH] Unexpected error in $operation: ${error.split(':').first}');
+    // Unexpected auth error
   }
 
   /// Hash email for logging (security)
