@@ -148,10 +148,12 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
                   return;
                 }
 
-                if (phoneController.text.isEmpty) {
+                // Validate phone number format for Cameroon
+                final phoneRegex = RegExp(r'^[6-9]\d{8}$'); // Cameroon mobile format
+                if (phoneController.text.isEmpty || !phoneRegex.hasMatch(phoneController.text)) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Please enter your phone number'),
+                      content: Text('Please enter a valid phone number (9 digits, starting with 6-9)'),
                       backgroundColor: Colors.red,
                     ),
                   );
