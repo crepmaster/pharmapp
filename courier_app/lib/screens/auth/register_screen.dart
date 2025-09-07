@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../blocs/auth_bloc.dart';
 import '../../widgets/auth_text_field.dart';
 import '../../widgets/auth_button.dart';
+import '../../services/registration_navigation_helper.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -62,14 +63,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
             );
           } else if (state is AuthAuthenticated) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Account created successfully! Welcome aboard!'),
-                backgroundColor: Color(0xFF4CAF50),
-                duration: Duration(seconds: 2),
-              ),
+            // Use unified registration navigation helper
+            RegistrationNavigationHelper.handleSuccessfulRegistration(
+              context: context,
+              userName: state.user.fullName,
+              successColor: const Color(0xFF4CAF50), // Courier green
             );
-            // Navigate to dashboard (should be handled by main app routing)
           }
         },
         builder: (context, state) {

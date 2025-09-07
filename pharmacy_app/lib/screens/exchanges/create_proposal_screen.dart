@@ -562,9 +562,9 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
             Text('You need an active subscription to create exchange proposals.'),
             SizedBox(height: 16),
             Text('Available Plans:', style: TextStyle(fontWeight: FontWeight.bold)),
-            Text('• Basic ($10/month) - Create & receive proposals'),
-            Text('• Professional ($25/month) - Unlimited + analytics'),
-            Text('• Enterprise ($50/month) - Multi-location + API'),
+            Text('• Basic (6,000 XAF/month) - Create & receive proposals'),
+            Text('• Professional (15,000 XAF/month) - Unlimited + analytics'),
+            Text('• Enterprise (30,000 XAF/month) - Multi-location + API'),
           ],
         ),
         actions: [

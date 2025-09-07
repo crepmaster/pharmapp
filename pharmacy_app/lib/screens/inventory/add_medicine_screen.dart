@@ -63,9 +63,9 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
             Text('You need an active subscription to add medicines to your inventory.'),
             SizedBox(height: 16),
             Text('Available Plans:', style: TextStyle(fontWeight: FontWeight.bold)),
-            Text('• Basic ($10/month) - Up to 100 medicines'),
-            Text('• Professional ($25/month) - Unlimited'),
-            Text('• Enterprise ($50/month) - Multi-location'),
+            Text('• Basic (6,000 XAF/month) - Up to 100 medicines'),
+            Text('• Professional (15,000 XAF/month) - Unlimited'),
+            Text('• Enterprise (30,000 XAF/month) - Multi-location'),
           ],
         ),
         actions: [
@@ -730,48 +730,19 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
   void _useScannedMedicine() {
     if (scannedMedicineData == null) return;
 
-    // Create a Medicine object from scanned data
-    final scannedMedicine = Medicine(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      name: scannedMedicineData!.brandName ?? 
-             scannedMedicineData!.genericName ?? 
-             'Unknown Medicine',
-      genericName: scannedMedicineData!.genericName ?? 
-                   scannedMedicineData!.brandName ?? 
-                   'Unknown',
-      category: 'Scanned Medicines',
-      strength: scannedMedicineData!.strength ?? 'Unknown',
-      dosageForm: scannedMedicineData!.dosageForm ?? 'Unknown',
-      manufacturer: scannedMedicineData!.manufacturer ?? 'Unknown',
-      description: 'Medicine scanned from barcode (GTIN: ${scannedMedicineData!.gtin})',
-      therapeuticClass: 'Unknown',
-      indications: ['Scanned from barcode'],
-      contraindications: [],
-      sideEffects: [],
-      africanClassification: 'Unknown',
-      createdAt: DateTime.now(),
-      formulations: [],
-      marketInfo: {},
-      names: {
-        'en': scannedMedicineData!.brandName ?? scannedMedicineData!.genericName ?? 'Unknown Medicine',
-      },
-      searchTerms: [
-        (scannedMedicineData!.brandName ?? '').toLowerCase(),
-        (scannedMedicineData!.genericName ?? '').toLowerCase(),
-        'scanned', 'barcode',
-      ].where((term) => term.isNotEmpty).toList(),
-      storage: 'Store as per manufacturer instructions',
-      updatedAt: DateTime.now(),
-    );
+    // Use scanned data to pre-fill form - no Medicine object creation needed
+    final medicineName = scannedMedicineData!.brandName ?? 
+                         scannedMedicineData!.genericName ?? 
+                         'Unknown Medicine';
 
     setState(() {
-      selectedMedicine = scannedMedicine;
-      // Keep scanned data for reference
+      // Keep scanned data for use in the form when creating inventory
+      // The scannedMedicineData will be used in the inventory creation process
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Using scanned medicine: ${scannedMedicine.name}'),
+        content: Text('Using scanned medicine: $medicineName'),
         backgroundColor: Colors.green,
       ),
     );

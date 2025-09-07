@@ -67,3 +67,8 @@ app.*.map.json
 # Backup files
 **/firebase_options.dart.backup
 **/google-services.json.backup
+
+# Development scripts with real Firebase keys
+scripts/run-with-firebase-keys.bat
+scripts/run-with-firebase-keys.sh
+firebase-keys.*

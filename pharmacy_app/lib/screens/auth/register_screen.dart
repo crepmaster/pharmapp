@@ -5,6 +5,7 @@ import '../../widgets/auth_text_field.dart';
 import '../../widgets/auth_button.dart';
 import '../../models/location_data.dart';
 import '../location/location_picker_screen.dart';
+import '../../services/registration_navigation_helper.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -76,15 +77,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
             );
           } else if (state is AuthAuthenticated) {
-            // Show success message and navigate back
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Welcome ${state.user.pharmacyName}! Account created successfully.'),
-                backgroundColor: Colors.green,
-                duration: const Duration(seconds: 3),
-              ),
+            // Use unified registration navigation helper
+            RegistrationNavigationHelper.handleSuccessfulRegistration(
+              context: context,
+              userName: state.user.pharmacyName,
+              successColor: const Color(0xFF1976D2), // Pharmacy blue
             );
-            // The AuthWrapper in main.dart will automatically navigate to DashboardScreen
           }
         },
         builder: (context, state) {

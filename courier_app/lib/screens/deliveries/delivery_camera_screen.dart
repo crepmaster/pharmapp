@@ -436,7 +436,7 @@ class _DeliveryCameraScreenState extends State<DeliveryCameraScreen> {
     setState(() {
       // Delete the file
       final file = File(_capturedImages[index]);
-      file.delete().catchError((e) => // Debug statement removed for production security
+      file.delete().catchError((e) => null); // Error handling for file deletion
       
       // Remove from list
       _capturedImages.removeAt(index);

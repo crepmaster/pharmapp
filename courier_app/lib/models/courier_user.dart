@@ -107,6 +107,8 @@ class CourierUser extends Equatable {
       isAvailable: isAvailable ?? this.isAvailable,
       rating: rating ?? this.rating,
       totalDeliveries: totalDeliveries ?? this.totalDeliveries,
+      operatingCity: this.operatingCity, // Keep existing operating city
+      serviceZones: this.serviceZones, // Keep existing service zones
       createdAt: createdAt ?? this.createdAt,
     );
   }

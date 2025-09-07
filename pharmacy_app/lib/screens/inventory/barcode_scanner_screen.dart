@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:mobile_scanner/mobile_scanner.dart';
-import '../../models/barcode_medicine_data.dart';
+import '../../models/barcode_medicine_data.dart' as medicine_data;
 import '../../services/barcode_parser_service.dart';
 
 /// Screen for scanning medicine barcodes with auto-detection of multiple formats
