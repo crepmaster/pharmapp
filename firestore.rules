@@ -43,7 +43,10 @@ service cloud.firestore {
     match /webhook_logs/{id} { allow write: if false; allow read: if isAdmin(); }
     match /payments/{id}     { allow write: if false; allow read: if isAdmin(); }
     match /ledger/{id}       { allow write: if false; allow read: if isAdmin(); }
-    match /wallets/{id}      { allow write: if false; allow read: if isAdmin() || isAuthenticated(); }
+    match /wallets/{userId}  { 
+      allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow write: if false; // Backend-only writes
+    }
     match /exchanges/{id}    { allow write: if false; allow read: if isAdmin() || isAuthenticated(); }
     match /idempotency/{id}  { allow write: if false; allow read: if isAdmin(); }
 
@@ -87,8 +90,10 @@ service cloud.firestore {
 
     // Mobile app collections
     match /pharmacies/{userId} {
-      allow read, write: if isOwner(userId) && isValidPharmacyData(request.resource.data);
       allow read: if isAuthenticated(); // Other pharmacies can read basic profile info
+      allow create: if isOwner(userId) && isValidPharmacyData(request.resource.data);
+      allow update: if isOwner(userId) && isValidPharmacyData(request.resource.data);
+      allow delete: if isOwner(userId);
     }
     
     // Pharmacy data validation function
@@ -100,6 +105,9 @@ service cloud.firestore {
              data.phoneNumber is string &&
              data.address is string &&
              data.isActive is bool &&
+             // Subscription fields are optional during creation but if present must be valid
+             (!data.keys().hasAny(['hasActiveSubscription']) || data.hasActiveSubscription is bool) &&
+             (!data.keys().hasAny(['subscriptionStatus']) || data.subscriptionStatus is string) &&
              // Location data is optional but if present must be valid
              (!data.keys().hasAny(['locationData']) || isValidLocationData(data.locationData));
     }
@@ -138,8 +146,26 @@ service cloud.firestore {
     }
 
     match /couriers/{userId} {
-      allow read, write: if isOwner(userId);
       allow read: if isAuthenticated(); // Pharmacies can read courier profiles
+      allow create: if isOwner(userId) && isValidCourierData(request.resource.data);
+      allow update: if isOwner(userId) && isValidCourierData(request.resource.data);
+      allow delete: if isOwner(userId);
+    }
+    
+    // Courier data validation function
+    function isValidCourierData(data) {
+      return data.keys().hasAll(['email', 'fullName', 'phoneNumber', 'vehicleType', 'licensePlate', 'role']) &&
+             data.role == 'courier' &&
+             data.email is string &&
+             data.fullName is string &&
+             data.phoneNumber is string &&
+             data.vehicleType is string &&
+             data.licensePlate is string &&
+             data.isActive is bool &&
+             // Optional fields validation
+             (!data.keys().hasAny(['hasActiveSubscription']) || data.hasActiveSubscription is bool) &&
+             (!data.keys().hasAny(['subscriptionStatus']) || data.subscriptionStatus is string) &&
+             (!data.keys().hasAny(['operatingCity']) || data.operatingCity is string);
     }
     
     // 🔒 SUBSCRIPTION SECURITY RULES
