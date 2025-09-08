@@ -62,7 +62,14 @@
       "Bash(sed:*)",
       "Bash(git fetch:*)",
       "Bash(firebase emulators:start:*)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(firebase functions:log:*)",
+      "Bash(npm run deploy:*)",
+      "Bash(gcloud projects add-iam-policy-binding:*)",
+      "Bash(setup_test_keys.bat)",
+      "Bash(copy pharmacy_app\\lib\\firebase_options.dart pharmacy_app\\lib\\firebase_options.dart.backup)",
+      "Bash(copy:*)",
+      "Bash(del nul)"
     ],
     "deny": [],
     "ask": []

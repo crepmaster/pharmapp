@@ -3,6 +3,12 @@
 *.log
 *.pyc
 *.swp
+
+# Temporary Firebase testing files - NEVER COMMIT THESE
+firebase_options_temp.dart
+firebase_options.dart.backup
+setup_test_keys.bat
+cleanup_test_keys.bat
 .DS_Store
 .atom/
 .buildlog/

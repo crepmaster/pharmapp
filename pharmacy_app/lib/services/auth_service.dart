@@ -98,8 +98,9 @@ class AuthService {
         'phoneNumber': phoneNumber,
         'address': address,
         if (locationData != null) 'locationData': locationData.toMap(),
-        // Only include payment preferences if they're properly set up
-        if (paymentPreferences.isSetupComplete) 'paymentPreferences': paymentPreferences.toBackendMap(),
+        // TEMPORARY: Disable payment preferences to fix backend registration
+        // TODO: Handle payment preferences separately after user creation
+        // if (paymentPreferences.isSetupComplete) 'paymentPreferences': paymentPreferences.toBackendMap(),
       };
 
       // Debug: Log the request data being sent
@@ -121,8 +122,43 @@ class AuthService {
         final responseData = json.decode(response.body);
         
         if (responseData['success'] == true) {
-          // User was created successfully by the Firebase Function
-          return null; // Return null since we're using existing auth
+          // Firebase Function created the user successfully
+          print('✅ Firebase Function success, now signing in with custom token...');
+          
+          final customToken = responseData['customToken'];
+          if (customToken == null) {
+            throw Exception('Custom token not provided by backend');
+          }
+          
+          // Use custom token for immediate authentication
+          try {
+            final credential = await _auth.signInWithCustomToken(customToken);
+            print('✅ Custom token sign in successful, UID: ${credential.user?.uid}');
+            
+            // TEMPORARY: Save payment preferences separately to Firestore after sign in
+            if (paymentPreferences.isSetupComplete) {
+              try {
+                final currentUser = FirebaseAuth.instance.currentUser;
+                if (currentUser != null) {
+                  await FirebaseFirestore.instance
+                      .collection('paymentPreferences')
+                      .doc(currentUser.uid)
+                      .set(paymentPreferences.toMap());
+                  print('✅ Payment preferences saved separately');
+                }
+              } catch (e) {
+                print('⚠️ Failed to save payment preferences: $e');
+                // Don't fail the entire registration for this
+              }
+            }
+            
+            // Pharmacy signup successful
+            return credential;
+            
+          } catch (signInError) {
+            print('❌ Custom token sign in failed: $signInError');
+            throw Exception('Registration successful but custom token sign in failed: ${signInError.toString()}');
+          }
         } else {
           // Handle specific backend errors
           final errorMessage = responseData['error'] ?? 'Failed to create pharmacy user';
@@ -130,10 +166,19 @@ class AuthService {
           throw Exception(errorMessage);
         }
       } else {
-        // Handle HTTP errors
-        final errorData = json.decode(response.body);
-        final errorMessage = errorData['error'] ?? 'Server error during registration';
-        throw Exception(errorMessage);
+        // Handle HTTP errors - Enhanced error parsing
+        try {
+          final errorData = json.decode(response.body);
+          final errorMessage = errorData['error'] ?? 'Server error during registration';
+          final errorCode = errorData['code'] ?? 'UNKNOWN_ERROR';
+          print('🚨 Backend HTTP Error [$errorCode]: $errorMessage');
+          print('🚨 Full response: ${response.body}');
+          throw Exception('Backend error [$errorCode]: $errorMessage');
+        } catch (parseError) {
+          // Fallback for non-JSON errors
+          print('🚨 Non-JSON HTTP Error ${response.statusCode}: ${response.body}');
+          throw Exception('HTTP ${response.statusCode}: ${response.body}');
+        }
       }
 
     } catch (e) {

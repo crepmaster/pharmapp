@@ -27,6 +27,8 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
   String _selectedMethod = '';
   bool _autoPayFromWallet = false;
   bool _isLoading = false;
+  bool _registrationInProgress = false; // 🔧 FIX: Add registration guard
+  bool _selectionInProgress = false; // 🛡️ ENHANCED: Add selection guard
   String? _phoneError;
 
   final List<PaymentMethod> _paymentMethods = [
@@ -91,6 +93,12 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
   }
 
   void _selectPaymentMethod() {
+    // 🔧 FIX: Prevent duplicate calls
+    if (_registrationInProgress) {
+      print('🔒 Registration already in progress, ignoring duplicate call');
+      return;
+    }
+
     if (_selectedMethod.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -107,6 +115,7 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
 
     setState(() {
       _isLoading = true;
+      _registrationInProgress = true; // 🔧 FIX: Set guard immediately
     });
 
     // Clean phone number
@@ -147,6 +156,13 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
       isSetupComplete: true,
     );
 
+    // 🛡️ ENHANCED: Set selection guard and call callback
+    setState(() {
+      _selectionInProgress = true;
+    });
+    
+    print('🔍 PAYMENT: Calling completion callback');
+    
     // Simulate network delay
     Future.delayed(const Duration(milliseconds: 500), () {
       if (mounted) {
@@ -156,6 +172,18 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
   }
 
   void _skipSetup() {
+    // 🛡️ ENHANCED: Prevent rapid skip calls
+    if (_selectionInProgress) {
+      print('🛡️ PAYMENT: Duplicate skip blocked');
+      return;
+    }
+    
+    setState(() {
+      _selectionInProgress = true;
+    });
+    
+    print('🔍 PAYMENT: Skipping payment setup');
+    
     final preferences = PaymentPreferences.empty();
     widget.onPaymentMethodSelected(preferences);
   }
@@ -299,7 +327,7 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
                   const SizedBox(height: 24),
                 ],
 
-                SizedBox(height: MediaQuery.of(context).size.height * 0.1), // Dynamic spacing
+                const SizedBox(height: 40), // Fixed spacing
 
                 // Action Buttons
                 if (_selectedMethod.isNotEmpty)
@@ -307,7 +335,7 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
                     width: double.infinity,
                     height: 50,
                     child: ElevatedButton(
-                      onPressed: _isLoading ? null : _selectPaymentMethod,
+                      onPressed: (_isLoading || _selectionInProgress) ? null : _selectPaymentMethod,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.blue,
                         foregroundColor: Colors.white,
@@ -340,7 +368,7 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
                 if (widget.allowSkip) ...[
                   const SizedBox(height: 16),
                   TextButton(
-                    onPressed: _isLoading ? null : _skipSetup,
+                    onPressed: (_isLoading || _selectionInProgress) ? null : _skipSetup,
                     child: const Text(
                       'Skip for now',
                       style: TextStyle(
@@ -377,10 +405,18 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
         onTap: () {
+          // 🛡️ ENHANCED: Prevent rapid payment method selection
+          if (_selectionInProgress) {
+            print('🛡️ PAYMENT: Duplicate selection blocked');
+            return;
+          }
+          
           setState(() {
             _selectedMethod = method.id;
             _phoneError = null;
           });
+          
+          print('🔍 PAYMENT: Method selected: ${method.id}');
         },
         borderRadius: BorderRadius.circular(12),
         child: Container(

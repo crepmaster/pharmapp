@@ -119,6 +119,8 @@ class AuthPasswordResetSent extends AuthState {}
 
 // BLoC
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
+  bool _registrationInProgress = false; // 🛡️ ENHANCED: Persistent registration guard
+  
   AuthBloc() : super(AuthInitial()) {
     on<AuthStarted>(_onAuthStarted);
     on<AuthSignInRequested>(_onSignInRequested);
@@ -227,9 +229,19 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     AuthSignUpWithPaymentPreferences event,
     Emitter<AuthState> emit,
   ) async {
+    print('🔍 AuthBloc: Registration with payment preferences requested for ${event.email}');
+    
+    // 🛡️ ENHANCED: Comprehensive duplicate protection
+    if (state is AuthLoading || _registrationInProgress) {
+      print('🛡️ AUTH: Duplicate registration blocked (state: $state, inProgress: $_registrationInProgress)');
+      return;
+    }
+    
+    _registrationInProgress = true;
     emit(AuthLoading());
 
     try {
+      print('🚀 AUTH: Starting registration for ${event.email}');
       await AuthService.signUpWithPaymentPreferences(
         email: event.email,
         password: event.password,
@@ -248,13 +260,20 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           pharmacyData,
           AuthService.currentUser!.uid,
         );
+        print('✅ AUTH: Registration completed successfully');
         emit(AuthAuthenticated(user: pharmacyUser));
       } else {
         // If profile still not found after retries, this indicates a backend issue
+        print('⚠️ AUTH: Registration succeeded but profile retrieval failed');
         emit(const AuthError(message: 'Registration successful but unable to retrieve profile. Please try signing in.'));
       }
     } catch (e) {
+      print('❌ AUTH: Registration failed with error: $e');
       emit(AuthError(message: e.toString()));
+    } finally {
+      // 🛡️ ENHANCED: Always reset guard in finally block
+      _registrationInProgress = false;
+      print('🔧 AUTH: Registration guard reset');
     }
   }
 

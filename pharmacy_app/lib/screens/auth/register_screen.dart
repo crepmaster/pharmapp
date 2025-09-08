@@ -27,6 +27,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
+  bool _registrationInProgress = false; // 🔧 FIX: Add registration guard
   
   PharmacyLocationData? _selectedLocationData;
   PaymentPreferences? _paymentPreferences;
@@ -88,6 +89,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void _proceedWithRegistration() {
     if (!mounted) return;
     
+    print('🔍 REG: _proceedWithRegistration called, inProgress: $_registrationInProgress');
+    
+    // 🛡️ ENHANCED: Prevent duplicate calls
+    if (_registrationInProgress) {
+      print('🛡️ REG: Duplicate call blocked at UI level');
+      return;
+    }
+    
+    setState(() {
+      _registrationInProgress = true; // 🛡️ ENHANCED: Set guard immediately
+    });
+    
+    print('🚀 REG: Proceeding with registration, guard set to true');
+    
     context.read<AuthBloc>().add(
       AuthSignUpWithPaymentPreferences(
         email: _emailController.text.trim(),
@@ -112,6 +127,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       body: BlocConsumer<AuthBloc, AuthState>(
         listener: (context, state) {
           if (state is AuthError) {
+            // 🔧 FIX: Reset guard on failure
+            setState(() {
+              _registrationInProgress = false;
+            });
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(state.message),
@@ -120,12 +139,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
             );
           } else if (state is AuthAuthenticated) {
-            // Use unified registration navigation helper
+            // Handle successful registration
             RegistrationNavigationHelper.handleSuccessfulRegistration(
               context: context,
               userName: state.user.pharmacyName,
               successColor: const Color(0xFF1976D2), // Pharmacy blue
             );
+            
+            // Reset guard after navigation
+            if (mounted) {
+              setState(() {
+                _registrationInProgress = false;
+              });
+              print('🔧 REG: Registration guard reset after successful authentication');
+            }
           }
         },
         builder: (context, state) {

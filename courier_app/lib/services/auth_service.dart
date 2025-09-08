@@ -120,8 +120,15 @@ class AuthService {
         final responseData = json.decode(response.body);
         
         if (responseData['success'] == true) {
-          // User was created successfully by the Firebase Function
-          return null; // Return null since we're using existing auth
+          // Firebase Function created the user successfully
+          // Now sign in to get the UserCredential for the client
+          final credential = await _auth.signInWithEmailAndPassword(
+            email: email,
+            password: password,
+          );
+          
+          // Courier signup successful
+          return credential;
         } else {
           // Handle specific backend errors
           final errorMessage = responseData['error'] ?? 'Failed to create courier user';
