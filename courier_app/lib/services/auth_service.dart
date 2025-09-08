@@ -103,7 +103,7 @@ class AuthService {
         'vehicleType': vehicleType,
         'licensePlate': licensePlate,
         'operatingCity': operatingCity,
-        'paymentPreferences': paymentPreferences.toMap(),
+        'paymentPreferences': paymentPreferences.toBackendMap(),
       };
 
       // Call unified Firebase Function (same endpoint as pharmacy)

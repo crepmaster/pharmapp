@@ -101,6 +101,16 @@ class PaymentPreferences extends Equatable {
     };
   }
   
+  /// Convert to backend data (includes original phone for processing)
+  Map<String, dynamic> toBackendMap() {
+    return {
+      'defaultMethod': defaultMethod,
+      'defaultPhone': defaultPhone, // Send original phone to backend
+      'autoPayFromWallet': autoPayFromWallet,
+      'isSetupComplete': isSetupComplete,
+    };
+  }
+  
   /// Create secure version with encrypted data
   static PaymentPreferences createSecure({
     required String method,
@@ -110,7 +120,7 @@ class PaymentPreferences extends Equatable {
   }) {
     return PaymentPreferences(
       defaultMethod: method,
-      defaultPhone: EncryptionService.maskPhoneNumber(phoneNumber),
+      defaultPhone: phoneNumber, // Keep original for backend processing
       encryptedPhone: EncryptionService.encryptData(phoneNumber),
       phoneHash: EncryptionService.hashPhoneNumber(phoneNumber),
       autoPayFromWallet: autoPayFromWallet,

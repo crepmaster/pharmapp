@@ -179,7 +179,6 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
             key: _formKey,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
               children: [
                 // Header
                 Text(
