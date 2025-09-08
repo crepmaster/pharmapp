@@ -82,7 +82,7 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
                   
                   // Payment Method Selection
                   DropdownButtonFormField<String>(
-                    value: selectedMethod,
+                    initialValue: selectedMethod,
                     decoration: const InputDecoration(
                       labelText: 'Payment Method',
                       border: OutlineInputBorder(),

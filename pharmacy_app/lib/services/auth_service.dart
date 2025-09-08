@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/location_data.dart';
+import 'package:pharmapp_shared/models/payment_preferences.dart';
 
 /// Unified Authentication Service for Pharmacy App
 /// Calls the backend Firebase Functions instead of duplicating auth logic
@@ -72,6 +73,62 @@ class AuthService {
     } catch (e) {
       // Pharmacy signup failed
       
+      // Convert backend errors to user-friendly messages
+      String userMessage = _handleError(e.toString());
+      throw Exception(userMessage);
+    }
+  }
+
+  // Sign up pharmacy user with payment preferences using unified backend function
+  static Future<UserCredential?> signUpWithPaymentPreferences({
+    required String email,
+    required String password,
+    required String pharmacyName,
+    required String phoneNumber,
+    required String address,
+    PharmacyLocationData? locationData,
+    required PaymentPreferences paymentPreferences,
+  }) async {
+    try {
+      // Prepare request data with payment preferences
+      final requestData = {
+        'email': email,
+        'password': password,
+        'pharmacyName': pharmacyName,
+        'phoneNumber': phoneNumber,
+        'address': address,
+        if (locationData != null) 'locationData': locationData.toMap(),
+        'paymentPreferences': paymentPreferences.toMap(),
+      };
+
+      // Call unified Firebase Function
+      final response = await http.post(
+        Uri.parse('$_baseUrl/createPharmacyUser'),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: json.encode(requestData),
+      );
+
+      if (response.statusCode == 200) {
+        final responseData = json.decode(response.body);
+        
+        if (responseData['success'] == true) {
+          // User was created successfully by the Firebase Function
+          return null; // Return null since we're using existing auth
+        } else {
+          // Handle specific backend errors
+          final errorMessage = responseData['error'] ?? 'Failed to create pharmacy user';
+          throw Exception(errorMessage);
+        }
+      } else {
+        // Handle HTTP errors
+        final errorData = json.decode(response.body);
+        final errorMessage = errorData['error'] ?? 'Server error during registration';
+        throw Exception(errorMessage);
+      }
+
+    } catch (e) {
       // Convert backend errors to user-friendly messages
       String userMessage = _handleError(e.toString());
       throw Exception(userMessage);

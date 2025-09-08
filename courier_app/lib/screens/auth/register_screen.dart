@@ -4,6 +4,8 @@ import '../../blocs/auth_bloc.dart';
 import '../../widgets/auth_text_field.dart';
 import '../../widgets/auth_button.dart';
 import '../../services/registration_navigation_helper.dart';
+import 'package:pharmapp_shared/screens/auth/payment_method_screen.dart';
+import 'package:pharmapp_shared/models/payment_preferences.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -23,6 +25,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   String _selectedVehicleType = 'Motorcycle';
+  PaymentPreferences? _paymentPreferences;
 
   final List<String> _vehicleTypes = [
     'Motorcycle',
@@ -42,6 +45,46 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _phoneController.dispose();
     _licensePlateController.dispose();
     super.dispose();
+  }
+
+  // Navigation to payment method screen
+  void _navigateToPaymentMethod() async {
+    final result = await Navigator.of(context).push<PaymentPreferences>(
+      MaterialPageRoute(
+        builder: (context) => PaymentMethodScreen(
+          title: 'Setup Payment Method',
+          subtitle: 'Choose your preferred mobile money operator for courier payments',
+          allowSkip: true,
+          onPaymentMethodSelected: (preferences) {
+            _paymentPreferences = preferences;
+            Navigator.of(context).pop(preferences);
+          },
+        ),
+      ),
+    );
+    
+    if (result != null) {
+      _paymentPreferences = result;
+      // Now proceed with registration
+      _proceedWithRegistration();
+    }
+  }
+
+  // Complete registration with payment preferences
+  void _proceedWithRegistration() {
+    if (!mounted) return;
+    
+    context.read<AuthBloc>().add(
+      AuthSignUpWithPaymentPreferences(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+        fullName: _fullNameController.text.trim(),
+        phoneNumber: _phoneController.text.trim(),
+        vehicleType: _selectedVehicleType,
+        licensePlate: _licensePlateController.text.trim(),
+        paymentPreferences: _paymentPreferences ?? PaymentPreferences.empty(),
+      ),
+    );
   }
 
   @override
@@ -274,23 +317,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     
                     const SizedBox(height: 32),
                     
-                    // Register Button
+                    // Continue to Payment Method Button
                     AuthButton(
-                      text: 'Create Account',
+                      text: 'Continue',
                       backgroundColor: const Color(0xFF4CAF50),
                       isLoading: state is AuthLoading,
                       onPressed: () {
                         if (_formKey.currentState!.validate()) {
-                          context.read<AuthBloc>().add(
-                            AuthSignUpRequested(
-                              email: _emailController.text.trim(),
-                              password: _passwordController.text,
-                              fullName: _fullNameController.text.trim(),
-                              phoneNumber: _phoneController.text.trim(),
-                              vehicleType: _selectedVehicleType,
-                              licensePlate: _licensePlateController.text.trim(),
-                            ),
-                          );
+                          _navigateToPaymentMethod();
                         }
                       },
                     ),

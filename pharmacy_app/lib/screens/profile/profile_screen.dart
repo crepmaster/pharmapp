@@ -6,7 +6,6 @@ import '../../models/pharmacy_user.dart';
 import '../../models/location_data.dart';
 import '../../services/auth_service.dart';
 import '../../widgets/auth_text_field.dart';
-import '../../widgets/auth_button.dart';
 import '../location/location_picker_screen.dart';
 
 /// Comprehensive profile management screen for pharmacies

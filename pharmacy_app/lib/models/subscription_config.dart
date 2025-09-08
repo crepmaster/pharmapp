@@ -221,14 +221,14 @@ class CameroonSubscriptionDefaults {
           monthlyPrice: 6000,      // ~$10 USD = 6,000 XAF
           yearlyPrice: 60000,      // 10 months price for yearly (2 months free)
           trialDays: 14,           // 2 weeks free trial
-          features: [
+          features: const [
             'Up to 100 medicine listings',
             'Create and receive exchange proposals',
             'Basic inventory management',
             'Mobile app access',
             'WhatsApp support',
           ],
-          limits: {
+          limits: const {
             'medicines': 100,
             'proposals_per_month': 50,
             'locations': 1,
@@ -249,7 +249,7 @@ class CameroonSubscriptionDefaults {
           monthlyPrice: 15000,     // ~$25 USD = 15,000 XAF
           yearlyPrice: 150000,     // 10 months price for yearly
           trialDays: 30,           // 1 month free trial for premium
-          features: [
+          features: const [
             'Unlimited medicine listings',
             'Advanced analytics dashboard',
             'Priority customer support',
@@ -257,7 +257,7 @@ class CameroonSubscriptionDefaults {
             'All Essential features included',
             'SMS notifications',
           ],
-          limits: {
+          limits: const {
             'medicines': -1,        // Unlimited
             'proposals_per_month': -1,
             'locations': 3,
@@ -278,7 +278,7 @@ class CameroonSubscriptionDefaults {
           monthlyPrice: 30000,     // ~$50 USD = 30,000 XAF
           yearlyPrice: 300000,     // 10 months price for yearly
           trialDays: 30,           // 1 month free trial
-          features: [
+          features: const [
             'Multi-location management',
             'API access for integrations',
             'Custom reporting tools',
@@ -286,7 +286,7 @@ class CameroonSubscriptionDefaults {
             'All Professional features included',
             'Training and onboarding',
           ],
-          limits: {
+          limits: const {
             'medicines': -1,        // Unlimited
             'proposals_per_month': -1,
             'locations': -1,        // Unlimited

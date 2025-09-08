@@ -13,7 +13,9 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # Shared package - REMOVED to use HTTP-based auth service
+  # Shared package for payment preferences
+  pharmapp_shared:
+    path: ../shared
 
   # Firebase (Updated versions for better web compatibility)
   firebase_core: ^3.6.0

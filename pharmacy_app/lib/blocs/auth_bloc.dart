@@ -3,6 +3,7 @@ import 'package:equatable/equatable.dart';
 import '../services/auth_service.dart';
 import '../models/pharmacy_user.dart';
 import '../models/location_data.dart';
+import 'package:pharmapp_shared/models/payment_preferences.dart';
 
 // Events
 abstract class AuthEvent extends Equatable {
@@ -46,6 +47,29 @@ class AuthSignUpRequested extends AuthEvent {
 
   @override
   List<Object?> get props => [email, password, pharmacyName, phoneNumber, address, locationData];
+}
+
+class AuthSignUpWithPaymentPreferences extends AuthEvent {
+  final String email;
+  final String password;
+  final String pharmacyName;
+  final String phoneNumber;
+  final String address;
+  final PharmacyLocationData? locationData;
+  final PaymentPreferences paymentPreferences;
+
+  const AuthSignUpWithPaymentPreferences({
+    required this.email,
+    required this.password,
+    required this.pharmacyName,
+    required this.phoneNumber,
+    required this.address,
+    this.locationData,
+    required this.paymentPreferences,
+  });
+
+  @override
+  List<Object?> get props => [email, password, pharmacyName, phoneNumber, address, locationData, paymentPreferences];
 }
 
 class AuthSignOutRequested extends AuthEvent {}
@@ -99,6 +123,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<AuthStarted>(_onAuthStarted);
     on<AuthSignInRequested>(_onSignInRequested);
     on<AuthSignUpRequested>(_onSignUpRequested);
+    on<AuthSignUpWithPaymentPreferences>(_onSignUpWithPaymentPreferences);
     on<AuthSignOutRequested>(_onSignOutRequested);
     on<AuthPasswordResetRequested>(_onPasswordResetRequested);
   }
@@ -194,6 +219,41 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       }
     } catch (e) {
       // Debug statement removed for production security
+      emit(AuthError(message: e.toString()));
+    }
+  }
+
+  Future<void> _onSignUpWithPaymentPreferences(
+    AuthSignUpWithPaymentPreferences event,
+    Emitter<AuthState> emit,
+  ) async {
+    emit(AuthLoading());
+
+    try {
+      await AuthService.signUpWithPaymentPreferences(
+        email: event.email,
+        password: event.password,
+        pharmacyName: event.pharmacyName,
+        phoneNumber: event.phoneNumber,
+        address: event.address,
+        locationData: event.locationData,
+        paymentPreferences: event.paymentPreferences,
+      );
+
+      // Get pharmacy data with retry mechanism to handle Firestore consistency
+      final pharmacyData = await AuthService.getPharmacyData(maxRetries: 5);
+      
+      if (pharmacyData != null) {
+        final pharmacyUser = PharmacyUser.fromMap(
+          pharmacyData,
+          AuthService.currentUser!.uid,
+        );
+        emit(AuthAuthenticated(user: pharmacyUser));
+      } else {
+        // If profile still not found after retries, this indicates a backend issue
+        emit(const AuthError(message: 'Registration successful but unable to retrieve profile. Please try signing in.'));
+      }
+    } catch (e) {
       emit(AuthError(message: e.toString()));
     }
   }

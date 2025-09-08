@@ -13,6 +13,9 @@ dependencies:
   flutter:
     sdk: flutter
 
+  # State Management
+  equatable: ^2.0.5
+
   # Firebase
   firebase_core: ^3.6.0
   firebase_auth: ^5.3.1

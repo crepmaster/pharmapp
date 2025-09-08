@@ -6,6 +6,8 @@ import '../../widgets/auth_button.dart';
 import '../../models/location_data.dart';
 import '../location/location_picker_screen.dart';
 import '../../services/registration_navigation_helper.dart';
+import 'package:pharmapp_shared/screens/auth/payment_method_screen.dart';
+import 'package:pharmapp_shared/models/payment_preferences.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -27,6 +29,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _obscureConfirmPassword = true;
   
   PharmacyLocationData? _selectedLocationData;
+  PaymentPreferences? _paymentPreferences;
 
   @override
   void dispose() {
@@ -56,6 +59,46 @@ class _RegisterScreenState extends State<RegisterScreen> {
         _selectedLocationData = result;
       });
     }
+  }
+
+  // Navigation to payment method screen
+  void _navigateToPaymentMethod() async {
+    final result = await Navigator.of(context).push<PaymentPreferences>(
+      MaterialPageRoute(
+        builder: (context) => PaymentMethodScreen(
+          title: 'Setup Payment Method',
+          subtitle: 'Choose your preferred mobile money operator for transactions',
+          allowSkip: true,
+          onPaymentMethodSelected: (preferences) {
+            _paymentPreferences = preferences;
+            Navigator.of(context).pop(preferences);
+          },
+        ),
+      ),
+    );
+    
+    if (result != null) {
+      _paymentPreferences = result;
+      // Now proceed with registration
+      _proceedWithRegistration();
+    }
+  }
+
+  // Complete registration with payment preferences
+  void _proceedWithRegistration() {
+    if (!mounted) return;
+    
+    context.read<AuthBloc>().add(
+      AuthSignUpWithPaymentPreferences(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+        pharmacyName: _pharmacyNameController.text.trim(),
+        phoneNumber: _phoneController.text.trim(),
+        address: _addressController.text.trim(),
+        locationData: _selectedLocationData,
+        paymentPreferences: _paymentPreferences ?? PaymentPreferences.empty(),
+      ),
+    );
   }
 
   @override
@@ -350,22 +393,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     
                     const SizedBox(height: 32),
                     
-                    // Register Button
+                    // Continue to Payment Method Button
                     AuthButton(
-                      text: 'Create Account',
+                      text: 'Continue',
                       isLoading: state is AuthLoading,
                       onPressed: () {
                         if (_formKey.currentState!.validate()) {
-                          context.read<AuthBloc>().add(
-                            AuthSignUpRequested(
-                              email: _emailController.text.trim(),
-                              password: _passwordController.text,
-                              pharmacyName: _pharmacyNameController.text.trim(),
-                              phoneNumber: _phoneController.text.trim(),
-                              address: _addressController.text.trim(),
-                              locationData: _selectedLocationData,
-                            ),
-                          );
+                          _navigateToPaymentMethod();
                         }
                       },
                     ),

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:pharmapp_shared/models/payment_preferences.dart';
 
 /// Unified Authentication Service for Courier App
 /// Calls the backend Firebase Functions instead of duplicating auth logic
@@ -75,6 +76,64 @@ class AuthService {
     } catch (e) {
       // Courier signup failed
       
+      // Convert backend errors to user-friendly messages
+      String userMessage = _handleError(e.toString());
+      throw Exception(userMessage);
+    }
+  }
+
+  /// Sign up courier user with payment preferences using unified backend function
+  static Future<UserCredential?> signUpWithPaymentPreferences({
+    required String email,
+    required String password,
+    required String fullName,
+    required String phoneNumber,
+    required String vehicleType,
+    required String licensePlate,
+    required PaymentPreferences paymentPreferences,
+    String operatingCity = '',
+  }) async {
+    try {
+      // Prepare request data with payment preferences
+      final requestData = {
+        'email': email,
+        'password': password,
+        'fullName': fullName,
+        'phoneNumber': phoneNumber,
+        'vehicleType': vehicleType,
+        'licensePlate': licensePlate,
+        'operatingCity': operatingCity,
+        'paymentPreferences': paymentPreferences.toMap(),
+      };
+
+      // Call unified Firebase Function (same endpoint as pharmacy)
+      final response = await http.post(
+        Uri.parse('$_baseUrl/createCourierUser'),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: json.encode(requestData),
+      );
+
+      if (response.statusCode == 200) {
+        final responseData = json.decode(response.body);
+        
+        if (responseData['success'] == true) {
+          // User was created successfully by the Firebase Function
+          return null; // Return null since we're using existing auth
+        } else {
+          // Handle specific backend errors
+          final errorMessage = responseData['error'] ?? 'Failed to create courier user';
+          throw Exception(errorMessage);
+        }
+      } else {
+        // Handle HTTP errors
+        final errorData = json.decode(response.body);
+        final errorMessage = errorData['error'] ?? 'Server error during registration';
+        throw Exception(errorMessage);
+      }
+
+    } catch (e) {
       // Convert backend errors to user-friendly messages
       String userMessage = _handleError(e.toString());
       throw Exception(userMessage);

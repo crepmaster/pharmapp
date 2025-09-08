@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 import 'location_data.dart';
 import 'subscription.dart';
+import 'package:pharmapp_shared/models/payment_preferences.dart';
 
 class PharmacyUser extends Equatable {
   final String uid;
@@ -18,6 +19,9 @@ class PharmacyUser extends Equatable {
   final DateTime? subscriptionEndDate;
   final bool hasActiveSubscription;
 
+  // Payment preferences
+  final PaymentPreferences paymentPreferences;
+
   const PharmacyUser({
     required this.uid,
     required this.email,
@@ -31,6 +35,12 @@ class PharmacyUser extends Equatable {
     this.subscriptionPlan = SubscriptionPlan.basic,
     this.subscriptionEndDate,
     this.hasActiveSubscription = false,
+    this.paymentPreferences = const PaymentPreferences(
+      defaultMethod: '',
+      defaultPhone: '',
+      autoPayFromWallet: false,
+      isSetupComplete: false,
+    ),
   });
 
   factory PharmacyUser.fromMap(Map<String, dynamic> map, String uid) {
@@ -49,6 +59,9 @@ class PharmacyUser extends Equatable {
       subscriptionPlan: _parseSubscriptionPlan(map['subscriptionPlan']),
       subscriptionEndDate: map['subscriptionEndDate']?.toDate(),
       hasActiveSubscription: map['hasActiveSubscription'] ?? false,
+      paymentPreferences: map['paymentPreferences'] != null
+          ? PaymentPreferences.fromMap(map['paymentPreferences'])
+          : PaymentPreferences.empty(),
     );
   }
 
@@ -65,6 +78,7 @@ class PharmacyUser extends Equatable {
       'subscriptionPlan': subscriptionPlan.toString().split('.').last,
       'subscriptionEndDate': subscriptionEndDate,
       'hasActiveSubscription': hasActiveSubscription,
+      'paymentPreferences': paymentPreferences.toMap(),
     };
   }
 
@@ -101,6 +115,7 @@ class PharmacyUser extends Equatable {
         subscriptionPlan,
         subscriptionEndDate,
         hasActiveSubscription,
+        paymentPreferences,
       ];
 
   PharmacyUser copyWith({
@@ -116,6 +131,7 @@ class PharmacyUser extends Equatable {
     SubscriptionPlan? subscriptionPlan,
     DateTime? subscriptionEndDate,
     bool? hasActiveSubscription,
+    PaymentPreferences? paymentPreferences,
   }) {
     return PharmacyUser(
       uid: uid ?? this.uid,
@@ -130,6 +146,7 @@ class PharmacyUser extends Equatable {
       subscriptionPlan: subscriptionPlan ?? this.subscriptionPlan,
       subscriptionEndDate: subscriptionEndDate ?? this.subscriptionEndDate,
       hasActiveSubscription: hasActiveSubscription ?? this.hasActiveSubscription,
+      paymentPreferences: paymentPreferences ?? this.paymentPreferences,
     );
   }
 

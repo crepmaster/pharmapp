@@ -92,7 +92,7 @@ class _SystemConfigScreenState extends State<SystemConfigScreen>
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
-                    value: _config!.primaryCurrency,
+                    initialValue: _config!.primaryCurrency,
                     decoration: const InputDecoration(
                       labelText: 'Select Primary Currency',
                       border: OutlineInputBorder(),

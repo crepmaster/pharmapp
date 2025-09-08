@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:pharmapp_shared/models/payment_preferences.dart';
 
 class CourierUser extends Equatable {
   final String uid;
@@ -15,6 +16,9 @@ class CourierUser extends Equatable {
   final int totalDeliveries;
   final DateTime? createdAt;
 
+  // Payment preferences for courier withdrawals  
+  final PaymentPreferences paymentPreferences;
+
   const CourierUser({
     required this.uid,
     required this.email,
@@ -29,6 +33,12 @@ class CourierUser extends Equatable {
     this.rating = 0.0,
     this.totalDeliveries = 0,
     this.createdAt,
+    this.paymentPreferences = const PaymentPreferences(
+      defaultMethod: '',
+      defaultPhone: '',
+      autoPayFromWallet: false,
+      isSetupComplete: false,
+    ),
   });
 
   factory CourierUser.fromMap(Map<String, dynamic> map, String uid) {
@@ -46,6 +56,9 @@ class CourierUser extends Equatable {
       rating: (map['rating'] ?? 0.0).toDouble(),
       totalDeliveries: map['totalDeliveries'] ?? 0,
       createdAt: map['createdAt']?.toDate(),
+      paymentPreferences: map['paymentPreferences'] != null
+          ? PaymentPreferences.fromMap(map['paymentPreferences'])
+          : PaymentPreferences.empty(),
     );
   }
 
@@ -63,6 +76,7 @@ class CourierUser extends Equatable {
       'rating': rating,
       'totalDeliveries': totalDeliveries,
       'role': 'courier',
+      'paymentPreferences': paymentPreferences.toMap(),
     };
   }
 
@@ -81,6 +95,7 @@ class CourierUser extends Equatable {
         rating,
         totalDeliveries,
         createdAt,
+        paymentPreferences,
       ];
 
   CourierUser copyWith({
@@ -90,11 +105,14 @@ class CourierUser extends Equatable {
     String? phoneNumber,
     String? vehicleType,
     String? licensePlate,
+    String? operatingCity,
+    List<String>? serviceZones,
     bool? isActive,
     bool? isAvailable,
     double? rating,
     int? totalDeliveries,
     DateTime? createdAt,
+    PaymentPreferences? paymentPreferences,
   }) {
     return CourierUser(
       uid: uid ?? this.uid,
@@ -103,13 +121,14 @@ class CourierUser extends Equatable {
       phoneNumber: phoneNumber ?? this.phoneNumber,
       vehicleType: vehicleType ?? this.vehicleType,
       licensePlate: licensePlate ?? this.licensePlate,
+      operatingCity: operatingCity ?? this.operatingCity,
+      serviceZones: serviceZones ?? this.serviceZones,
       isActive: isActive ?? this.isActive,
       isAvailable: isAvailable ?? this.isAvailable,
       rating: rating ?? this.rating,
       totalDeliveries: totalDeliveries ?? this.totalDeliveries,
-      operatingCity: this.operatingCity, // Keep existing operating city
-      serviceZones: this.serviceZones, // Keep existing service zones
       createdAt: createdAt ?? this.createdAt,
+      paymentPreferences: paymentPreferences ?? this.paymentPreferences,
     );
   }
 }

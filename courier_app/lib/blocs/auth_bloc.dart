@@ -2,6 +2,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import '../services/auth_service.dart';
 import '../models/courier_user.dart';
+import 'package:pharmapp_shared/models/payment_preferences.dart';
 
 // Events
 abstract class AuthEvent extends Equatable {
@@ -45,6 +46,29 @@ class AuthSignUpRequested extends AuthEvent {
 
   @override
   List<Object> get props => [email, password, fullName, phoneNumber, vehicleType, licensePlate];
+}
+
+class AuthSignUpWithPaymentPreferences extends AuthEvent {
+  final String email;
+  final String password;
+  final String fullName;
+  final String phoneNumber;
+  final String vehicleType;
+  final String licensePlate;
+  final PaymentPreferences paymentPreferences;
+
+  const AuthSignUpWithPaymentPreferences({
+    required this.email,
+    required this.password,
+    required this.fullName,
+    required this.phoneNumber,
+    required this.vehicleType,
+    required this.licensePlate,
+    required this.paymentPreferences,
+  });
+
+  @override
+  List<Object> get props => [email, password, fullName, phoneNumber, vehicleType, licensePlate, paymentPreferences];
 }
 
 class AuthSignOutRequested extends AuthEvent {}
@@ -98,6 +122,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<AuthStarted>(_onAuthStarted);
     on<AuthSignInRequested>(_onSignInRequested);
     on<AuthSignUpRequested>(_onSignUpRequested);
+    on<AuthSignUpWithPaymentPreferences>(_onSignUpWithPaymentPreferences);
     on<AuthSignOutRequested>(_onSignOutRequested);
     on<AuthPasswordResetRequested>(_onPasswordResetRequested);
   }
@@ -164,6 +189,36 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         phoneNumber: event.phoneNumber,
         vehicleType: event.vehicleType,
         licensePlate: event.licensePlate,
+      );
+
+      final courierData = await AuthService.getCourierData();
+      if (courierData != null) {
+        final courierUser = CourierUser.fromMap(
+          courierData,
+          AuthService.currentUser!.uid,
+        );
+        emit(AuthAuthenticated(user: courierUser));
+      }
+    } catch (e) {
+      emit(AuthError(message: e.toString()));
+    }
+  }
+
+  Future<void> _onSignUpWithPaymentPreferences(
+    AuthSignUpWithPaymentPreferences event,
+    Emitter<AuthState> emit,
+  ) async {
+    emit(AuthLoading());
+
+    try {
+      await AuthService.signUpWithPaymentPreferences(
+        email: event.email,
+        password: event.password,
+        fullName: event.fullName,
+        phoneNumber: event.phoneNumber,
+        vehicleType: event.vehicleType,
+        licensePlate: event.licensePlate,
+        paymentPreferences: event.paymentPreferences,
       );
 
       final courierData = await AuthService.getCourierData();
