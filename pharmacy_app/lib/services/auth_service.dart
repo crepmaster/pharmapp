@@ -102,6 +102,9 @@ class AuthService {
         if (paymentPreferences.isSetupComplete) 'paymentPreferences': paymentPreferences.toBackendMap(),
       };
 
+      // Debug: Log the request data being sent
+      print('🔍 DEBUG: Sending to backend: ${json.encode(requestData)}');
+      
       // Call unified Firebase Function
       final response = await http.post(
         Uri.parse('$_baseUrl/createPharmacyUser'),
@@ -111,6 +114,9 @@ class AuthService {
         body: json.encode(requestData),
       );
 
+      // Debug: Log the response
+      print('🔍 DEBUG: Backend response: ${response.statusCode} - ${response.body}');
+      
       if (response.statusCode == 200) {
         final responseData = json.decode(response.body);
         
@@ -120,6 +126,7 @@ class AuthService {
         } else {
           // Handle specific backend errors
           final errorMessage = responseData['error'] ?? 'Failed to create pharmacy user';
+          print('🚨 Backend error: $errorMessage');
           throw Exception(errorMessage);
         }
       } else {
