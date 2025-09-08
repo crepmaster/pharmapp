@@ -101,13 +101,15 @@ class PaymentPreferences extends Equatable {
     };
   }
   
-  /// Convert to backend data (includes original phone for processing)
+  /// Convert to backend data (legacy format for compatibility)
   Map<String, dynamic> toBackendMap() {
+    // Send simplified format that backend expects
     return {
       'defaultMethod': defaultMethod,
       'defaultPhone': defaultPhone, // Send original phone to backend
       'autoPayFromWallet': autoPayFromWallet,
       'isSetupComplete': isSetupComplete,
+      // Exclude encrypted fields for backend compatibility
     };
   }
   

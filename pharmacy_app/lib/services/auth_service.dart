@@ -98,7 +98,8 @@ class AuthService {
         'phoneNumber': phoneNumber,
         'address': address,
         if (locationData != null) 'locationData': locationData.toMap(),
-        'paymentPreferences': paymentPreferences.toBackendMap(),
+        // Only include payment preferences if they're properly set up
+        if (paymentPreferences.isSetupComplete) 'paymentPreferences': paymentPreferences.toBackendMap(),
       };
 
       // Call unified Firebase Function
