@@ -4,6 +4,7 @@ library pharmapp_shared;
 export 'services/unified_auth_service.dart';
 export 'services/unified_registration_service.dart';
 export 'services/unified_wallet_service.dart';
+export 'services/encryption_service.dart';
 
 // Export models
 export 'models/unified_user.dart';

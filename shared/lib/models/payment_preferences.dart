@@ -1,10 +1,13 @@
 import 'package:equatable/equatable.dart';
+import '../services/encryption_service.dart';
 
-/// Payment preferences for users (pharmacies and couriers)
+/// Payment preferences for users (pharmacies and couriers) with encryption
 class PaymentPreferences extends Equatable {
   const PaymentPreferences({
     required this.defaultMethod,
     required this.defaultPhone,
+    this.encryptedPhone,
+    this.phoneHash,
     this.autoPayFromWallet = false,
     this.isSetupComplete = false,
   });
@@ -12,8 +15,14 @@ class PaymentPreferences extends Equatable {
   /// Primary mobile money operator: 'mtn', 'orange', 'camtel'
   final String defaultMethod;
   
-  /// Default phone number for mobile money (Cameroon format: +2376XXXXXXXX)
+  /// Default phone number for mobile money (Cameroon format: +2376XXXXXXXX) - for display only
   final String defaultPhone;
+  
+  /// Encrypted phone number for secure storage
+  final String? encryptedPhone;
+  
+  /// Phone number hash for validation and lookup
+  final String? phoneHash;
   
   /// Whether to automatically use wallet balance first before mobile money
   final bool autoPayFromWallet;
@@ -35,8 +44,18 @@ class PaymentPreferences extends Equatable {
     }
   }
 
-  /// Formatted phone number for display
+  /// Masked phone number for secure display
+  String get maskedPhone {
+    return EncryptionService.maskPhoneNumber(defaultPhone);
+  }
+  
+  /// Formatted phone number for display (masked for security)
   String get formattedPhone {
+    return '+237 ${maskedPhone}';
+  }
+  
+  /// Get full phone number (use with caution - for payment processing only)
+  String get fullPhoneNumber {
     if (defaultPhone.startsWith('+237')) {
       return defaultPhone;
     }
@@ -45,31 +64,58 @@ class PaymentPreferences extends Equatable {
 
   /// Validate Cameroon phone number format
   bool get isPhoneValid {
-    // Remove country code if present
-    String phone = defaultPhone.replaceAll('+237', '');
-    // Check if it's 9 digits starting with 6-9
-    final phoneRegex = RegExp(r'^[6-9]\d{8}$');
-    return phoneRegex.hasMatch(phone);
+    return EncryptionService.isValidCameroonPhone(defaultPhone);
+  }
+  
+  /// Cross-validate phone number with selected payment method
+  bool get isPhoneMethodValid {
+    return EncryptionService.validatePhoneWithMethod(defaultPhone, defaultMethod);
+  }
+  
+  /// Check if this is a test/sandbox phone number
+  bool get isTestNumber {
+    return EncryptionService.isTestPhoneNumber(defaultPhone);
   }
 
-  /// Create from Firestore data
+  /// Create from Firestore data (with encryption support)
   factory PaymentPreferences.fromMap(Map<String, dynamic> map) {
     return PaymentPreferences(
       defaultMethod: map['defaultMethod'] as String? ?? '',
       defaultPhone: map['defaultPhone'] as String? ?? '',
+      encryptedPhone: map['encryptedPhone'] as String?,
+      phoneHash: map['phoneHash'] as String?,
       autoPayFromWallet: map['autoPayFromWallet'] as bool? ?? false,
       isSetupComplete: map['isSetupComplete'] as bool? ?? false,
     );
   }
 
-  /// Convert to Firestore data
+  /// Convert to Firestore data (with encryption)
   Map<String, dynamic> toMap() {
     return {
       'defaultMethod': defaultMethod,
-      'defaultPhone': defaultPhone,
+      'defaultPhone': EncryptionService.maskPhoneNumber(defaultPhone), // Store only masked version
+      'encryptedPhone': encryptedPhone ?? EncryptionService.encryptData(defaultPhone),
+      'phoneHash': phoneHash ?? EncryptionService.hashPhoneNumber(defaultPhone),
       'autoPayFromWallet': autoPayFromWallet,
       'isSetupComplete': isSetupComplete,
     };
+  }
+  
+  /// Create secure version with encrypted data
+  static PaymentPreferences createSecure({
+    required String method,
+    required String phoneNumber,
+    bool autoPayFromWallet = false,
+    bool isSetupComplete = false,
+  }) {
+    return PaymentPreferences(
+      defaultMethod: method,
+      defaultPhone: EncryptionService.maskPhoneNumber(phoneNumber),
+      encryptedPhone: EncryptionService.encryptData(phoneNumber),
+      phoneHash: EncryptionService.hashPhoneNumber(phoneNumber),
+      autoPayFromWallet: autoPayFromWallet,
+      isSetupComplete: isSetupComplete,
+    );
   }
 
   /// Create empty preferences (for new users)
@@ -82,16 +128,20 @@ class PaymentPreferences extends Equatable {
     );
   }
 
-  /// Copy with new values
+  /// Copy with new values (maintains encryption)
   PaymentPreferences copyWith({
     String? defaultMethod,
     String? defaultPhone,
+    String? encryptedPhone,
+    String? phoneHash,
     bool? autoPayFromWallet,
     bool? isSetupComplete,
   }) {
     return PaymentPreferences(
       defaultMethod: defaultMethod ?? this.defaultMethod,
       defaultPhone: defaultPhone ?? this.defaultPhone,
+      encryptedPhone: encryptedPhone ?? this.encryptedPhone,
+      phoneHash: phoneHash ?? this.phoneHash,
       autoPayFromWallet: autoPayFromWallet ?? this.autoPayFromWallet,
       isSetupComplete: isSetupComplete ?? this.isSetupComplete,
     );
@@ -101,42 +151,39 @@ class PaymentPreferences extends Equatable {
   List<Object?> get props => [
         defaultMethod,
         defaultPhone,
+        encryptedPhone,
+        phoneHash,
         autoPayFromWallet,
         isSetupComplete,
       ];
 
   @override
   String toString() {
-    return 'PaymentPreferences(method: $defaultMethod, phone: $defaultPhone, autoWallet: $autoPayFromWallet, complete: $isSetupComplete)';
+    return 'PaymentPreferences(method: $defaultMethod, phone: ${maskedPhone}, autoWallet: $autoPayFromWallet, complete: $isSetupComplete)';
   }
 
-  /// Sandbox test phone numbers for development/testing
-  static const Map<String, List<String>> sandboxTestNumbers = {
-    'mtn': [
-      '677123456', // MTN MoMo test number
-      '678987654', // MTN MoMo test number  
-      '679111222', // MTN MoMo test number
-    ],
-    'orange': [
-      '694123456', // Orange Money test number
-      '695987654', // Orange Money test number
-      '696111222', // Orange Money test number
-    ],
-  };
-
-  /// Check if phone number is a sandbox test number
-  bool get isSandboxNumber {
-    final phone = defaultPhone.replaceAll('+237', '');
-    return sandboxTestNumbers['mtn']?.contains(phone) == true ||
-           sandboxTestNumbers['orange']?.contains(phone) == true;
-  }
-
-  /// Get a random sandbox test number for the selected method
+  /// Get sandbox test number (environment-aware)
   static String getSandboxNumber(String method) {
-    final numbers = sandboxTestNumbers[method.toLowerCase()];
-    if (numbers != null && numbers.isNotEmpty) {
-      return numbers.first;
+    // Only return test numbers in development
+    if (EncryptionService.isProductionEnvironment()) {
+      return ''; // No test numbers in production
     }
-    return method.toLowerCase() == 'mtn' ? '677123456' : '694123456';
+    
+    switch (method.toLowerCase()) {
+      case 'mtn':
+        return '677123456'; // MTN test number
+      case 'orange':
+        return '694123456'; // Orange test number
+      default:
+        return '677123456';
+    }
+  }
+  
+  /// Validate payment preferences for security compliance
+  bool get isSecurityCompliant {
+    return isPhoneValid && 
+           isPhoneMethodValid && 
+           EncryptionService.isValidPaymentMethod(defaultMethod) &&
+           (!EncryptionService.isProductionEnvironment() || !isTestNumber);
   }
 }

@@ -27,6 +27,8 @@ class SubscriptionService {
       plan: plan,
       status: SubscriptionStatus.pendingPayment,
       amount: amount,
+      currency: 'XAF', // Default currency for African market
+      isYearly: false, // Default to monthly billing
       startDate: now,
       endDate: endDate,
       createdAt: now,

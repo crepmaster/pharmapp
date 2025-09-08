@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models/payment_preferences.dart';
+import '../../services/encryption_service.dart';
 
 class PaymentMethodScreen extends StatefulWidget {
   const PaymentMethodScreen({
@@ -61,13 +62,20 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
     // Remove country code and spaces
     String phone = value.replaceAll('+237', '').replaceAll(' ', '');
     
-    // Validate Cameroon mobile format (9 digits, starting with 6-9)
-    final phoneRegex = RegExp(r'^[6-9]\d{8}$');
-    
-    if (!phoneRegex.hasMatch(phone)) {
+    // Use EncryptionService for validation
+    if (!EncryptionService.isValidCameroonPhone(phone)) {
       setState(() {
         _phoneError = 'Enter a valid Cameroon mobile number (6XXXXXXXX)';
       });
+      return;
+    }
+    
+    // Cross-validate with selected payment method
+    if (_selectedMethod.isNotEmpty && !EncryptionService.validatePhoneWithMethod(phone, _selectedMethod)) {
+      setState(() {
+        _phoneError = 'This number is not compatible with ${_selectedMethod.toUpperCase()}';
+      });
+      return;
     }
   }
 
@@ -104,9 +112,37 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
     // Clean phone number
     String cleanPhone = _phoneController.text.replaceAll('+237', '').replaceAll(' ', '');
     
-    final preferences = PaymentPreferences(
-      defaultMethod: _selectedMethod,
-      defaultPhone: cleanPhone,
+    // Validate with encryption service
+    if (!EncryptionService.isValidCameroonPhone(cleanPhone)) {
+      setState(() {
+        _isLoading = false;
+        _phoneError = 'Invalid Cameroon phone number format';
+      });
+      return;
+    }
+    
+    // Cross-validate phone with payment method
+    if (!EncryptionService.validatePhoneWithMethod(cleanPhone, _selectedMethod)) {
+      setState(() {
+        _isLoading = false;
+        _phoneError = 'Phone number does not match selected operator';
+      });
+      return;
+    }
+    
+    // Block test numbers in production
+    if (EncryptionService.isProductionEnvironment() && EncryptionService.isTestPhoneNumber(cleanPhone)) {
+      setState(() {
+        _isLoading = false;
+        _phoneError = 'Test numbers not allowed in production';
+      });
+      return;
+    }
+    
+    // Create secure preferences with encryption
+    final preferences = PaymentPreferences.createSecure(
+      method: _selectedMethod,
+      phoneNumber: cleanPhone,
       autoPayFromWallet: _autoPayFromWallet,
       isSetupComplete: true,
     );
@@ -226,14 +262,15 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
                         },
                       ),
                       const SizedBox(height: 8),
-                      Text(
-                        'Sandbox test numbers: ${PaymentPreferences.sandboxTestNumbers[_selectedMethod.toLowerCase()]?.join(', ') ?? 'N/A'}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.blue[600],
-                          fontStyle: FontStyle.italic,
+                      if (!EncryptionService.isProductionEnvironment())
+                        Text(
+                          'Development test number: ${PaymentPreferences.getSandboxNumber(_selectedMethod)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.blue[600],
+                            fontStyle: FontStyle.italic,
+                          ),
                         ),
-                      ),
                     ],
                   ),
                   const SizedBox(height: 16),
