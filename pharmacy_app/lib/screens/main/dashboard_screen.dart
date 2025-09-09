@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../blocs/auth_bloc.dart';
 import '../../services/payment_service.dart';
 import '../../widgets/subscription_status_widget.dart';
 import '../inventory/inventory_browser_screen.dart';
 import '../exchanges/proposals_screen.dart';
 import '../profile/profile_screen.dart';
+import 'package:pharmapp_shared/pharmapp_shared.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -429,117 +431,428 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  void _showTopUpDialog(BuildContext context) {
-    final amountController = TextEditingController();
-    final phoneController = TextEditingController();
-    String selectedMethod = 'MTN_MOMO';
-
+  void _showTopUpDialog(BuildContext context) async {
     showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Top Up Wallet'),
-          content: StatefulBuilder(
-            builder: (BuildContext context, StateSetter setState) {
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  DropdownButtonFormField<String>(
-                    initialValue: selectedMethod,
-                    decoration: const InputDecoration(
-                      labelText: 'Payment Method',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: const [
-                      DropdownMenuItem(value: 'MTN_MOMO', child: Text('MTN MoMo')),
-                      DropdownMenuItem(value: 'ORANGE_MONEY', child: Text('Orange Money')),
-                    ],
-                    onChanged: (value) {
-                      setState(() {
-                        selectedMethod = value!;
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: phoneController,
-                    decoration: const InputDecoration(
-                      labelText: 'Phone Number',
-                      hintText: '+237 6XX XXX XXX',
-                      border: OutlineInputBorder(),
-                    ),
-                    keyboardType: TextInputType.phone,
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: amountController,
-                    decoration: const InputDecoration(
-                      labelText: 'Amount (XAF)',
-                      hintText: 'Minimum: 100 XAF',
-                      border: OutlineInputBorder(),
-                    ),
-                    keyboardType: TextInputType.number,
-                  ),
-                ],
-              );
-            },
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                final amount = int.tryParse(amountController.text);
-                if (amount == null || amount < 100) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Amount must be at least 100 XAF')),
-                  );
-                  return;
-                }
-
-                if (phoneController.text.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Phone number is required')),
-                  );
-                  return;
-                }
-
-                Navigator.pop(context);
-
-                try {
-                  final result = await PaymentService.createTopup(
-                    userId: FirebaseAuth.instance.currentUser!.uid,
-                    amountXAF: amount,
-                    method: selectedMethod,
-                    phoneNumber: phoneController.text,
-                  );
-
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Top-up initiated: ${result['status'] ?? 'Processing'}'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Top-up failed: $e'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF1976D2),
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Top Up'),
-            ),
-          ],
-        );
-      },
+      builder: (BuildContext context) => const _TopUpWalletDialog(),
     );
+  }
+}
+
+/// Enhanced Top-Up Dialog with Payment Preferences Integration
+class _TopUpWalletDialog extends StatefulWidget {
+  const _TopUpWalletDialog();
+
+  @override
+  State<_TopUpWalletDialog> createState() => _TopUpWalletDialogState();
+}
+
+class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _amountController = TextEditingController();
+  final _phoneController = TextEditingController();
+  
+  String _selectedMethod = 'mtn';
+  bool _isLoading = false;
+  PaymentPreferences? _savedPreferences;
+  
+  // Quick amount buttons
+  final List<int> _quickAmounts = [500, 1000, 2500, 5000, 10000, 25000];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedPaymentPreferences();
+  }
+
+  @override
+  void dispose() {
+    _amountController.dispose();
+    _phoneController.dispose();
+    super.dispose();
+  }
+
+  /// Load saved payment preferences for auto-fill
+  Future<void> _loadSavedPaymentPreferences() async {
+    if (!mounted) return;
+    
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        if (data.containsKey('paymentPreferences')) {
+          final prefData = data['paymentPreferences'] as Map<String, dynamic>;
+          final preferences = PaymentPreferences.fromMap(prefData);
+          
+          if (mounted) {
+            setState(() {
+              _savedPreferences = preferences;
+              _selectedMethod = preferences.defaultMethod;
+              // Don't auto-fill phone for security - user must enter
+            });
+          }
+        }
+      }
+    } catch (e) {
+      // Silently handle - user can enter manually
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Row(
+        children: [
+          const Icon(Icons.account_balance_wallet, color: Color(0xFF1976D2)),
+          const SizedBox(width: 8),
+          const Text('Top Up Wallet'),
+        ],
+      ),
+      content: Form(
+        key: _formKey,
+        child: SizedBox(
+          width: MediaQuery.of(context).size.width * 0.9,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Saved preferences info
+              if (_savedPreferences != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.blue.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.blue.shade600, size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Using saved payment method: ${_savedPreferences!.methodDisplayName}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.blue.shade700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              // Quick amount selection
+              Text(
+                'Quick Amount Selection',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _quickAmounts.map((amount) => 
+                  _buildQuickAmountChip(amount)
+                ).toList(),
+              ),
+              const SizedBox(height: 16),
+
+              // Custom amount input
+              TextFormField(
+                controller: _amountController,
+                decoration: const InputDecoration(
+                  labelText: 'Amount (XAF)',
+                  hintText: 'Enter amount or select above',
+                  prefixIcon: Icon(Icons.attach_money),
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.number,
+                validator: (value) {
+                  if (value?.isEmpty ?? true) {
+                    return 'Please enter an amount';
+                  }
+                  final amount = int.tryParse(value!);
+                  if (amount == null || amount < 100) {
+                    return 'Minimum amount is 100 XAF';
+                  }
+                  if (amount > 500000) {
+                    return 'Maximum amount is 500,000 XAF';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // Payment method selection
+              DropdownButtonFormField<String>(
+                value: _selectedMethod,
+                decoration: const InputDecoration(
+                  labelText: 'Payment Method',
+                  prefixIcon: Icon(Icons.payment),
+                  border: OutlineInputBorder(),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'mtn', child: Text('MTN Mobile Money')),
+                  DropdownMenuItem(value: 'orange', child: Text('Orange Money')),
+                ],
+                onChanged: (value) {
+                  setState(() {
+                    _selectedMethod = value!;
+                    // Clear phone if method changes for security
+                    if (_phoneController.text.isNotEmpty) {
+                      _phoneController.clear();
+                    }
+                  });
+                },
+                validator: (value) => value == null ? 'Select payment method' : null,
+              ),
+              const SizedBox(height: 16),
+
+              // Phone number input with validation
+              TextFormField(
+                controller: _phoneController,
+                decoration: InputDecoration(
+                  labelText: 'Phone Number',
+                  hintText: _getPhoneHint(),
+                  prefixIcon: const Icon(Icons.phone),
+                  border: const OutlineInputBorder(),
+                  helperText: _getMethodValidationText(),
+                ),
+                keyboardType: TextInputType.phone,
+                validator: (value) {
+                  if (value?.isEmpty ?? true) {
+                    return 'Phone number is required';
+                  }
+                  
+                  if (!EncryptionService.isValidCameroonPhone(value!)) {
+                    return 'Please enter a valid Cameroon phone number';
+                  }
+
+                  if (!EncryptionService.validatePhoneWithMethod(value, _selectedMethod)) {
+                    return _getMethodValidationError();
+                  }
+                  
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isLoading ? null : () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: _isLoading ? null : _processTopUp,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF1976D2),
+            foregroundColor: Colors.white,
+          ),
+          child: _isLoading
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                )
+              : const Text('Top Up'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQuickAmountChip(int amount) {
+    final isSelected = _amountController.text == amount.toString();
+    
+    return FilterChip(
+      label: Text('${amount.toString().replaceAllMapped(
+        RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), 
+        (Match m) => '${m[1]},',
+      )} XAF'),
+      selected: isSelected,
+      onSelected: (selected) {
+        setState(() {
+          _amountController.text = selected ? amount.toString() : '';
+        });
+      },
+      selectedColor: const Color(0xFF1976D2).withOpacity(0.2),
+      checkmarkColor: const Color(0xFF1976D2),
+    );
+  }
+
+  String _getPhoneHint() {
+    switch (_selectedMethod) {
+      case 'mtn':
+        return '677 XX XX XX (MTN)';
+      case 'orange':
+        return '694 XX XX XX (Orange)';
+      default:
+        return '+237 6XX XXX XXX';
+    }
+  }
+
+  String _getMethodValidationText() {
+    switch (_selectedMethod) {
+      case 'mtn':
+        return 'MTN numbers: 650-659, 670-679, 680-689';
+      case 'orange':
+        return 'Orange numbers: 690-699';
+      default:
+        return '';
+    }
+  }
+
+  String _getMethodValidationError() {
+    switch (_selectedMethod) {
+      case 'mtn':
+        return 'This number is not a valid MTN Mobile Money number';
+      case 'orange':
+        return 'This number is not a valid Orange Money number';
+      default:
+        return 'Invalid phone number for selected method';
+    }
+  }
+
+  Future<void> _processTopUp() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final amount = int.parse(_amountController.text);
+      final phone = _phoneController.text;
+      final user = FirebaseAuth.instance.currentUser!;
+
+      // Show processing message
+      if (mounted) {
+        Navigator.pop(context); // Close dialog first
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+                SizedBox(width: 12),
+                Text('Processing payment request...'),
+              ],
+            ),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+
+      // Create top-up through unified wallet service
+      final result = await UnifiedWalletService.createTopup(
+        userId: user.uid,
+        amountXAF: amount,
+        method: _selectedMethod,
+        phoneNumber: phone,
+        description: 'Pharmacy wallet top-up',
+      );
+
+      if (mounted) {
+        final success = result['status'] == 'success' || 
+                       result['status'] == 'pending' || 
+                       result.containsKey('payment_url');
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(
+                  success ? Icons.check_circle : Icons.error,
+                  color: Colors.white,
+                  size: 20,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    success 
+                        ? 'Top-up request sent! Check your phone for payment prompt.'
+                        : 'Payment request failed: ${result['message'] ?? 'Unknown error'}',
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: success ? Colors.green : Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+
+        // Save payment preferences if successful
+        if (success) {
+          await _savePaymentPreferences();
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error, color: Colors.white, size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text('Network error: ${e.toString()}'),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  /// Save payment preferences for future use (encrypted)
+  Future<void> _savePaymentPreferences() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final preferences = PaymentPreferences.createSecure(
+        method: _selectedMethod,
+        phoneNumber: _phoneController.text,
+        isSetupComplete: true,
+      );
+
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .update({
+        'paymentPreferences': preferences.toMap(),
+        'paymentPreferencesUpdated': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      // Silently handle - not critical for top-up success
+    }
   }
 }

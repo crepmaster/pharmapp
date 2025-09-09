@@ -68,18 +68,8 @@ class UnifiedRegistrationService {
     required String address,
     dynamic locationData,
   }) {
-    // Get pharmacy auth bloc and dashboard screen
-    context.read<dynamic>().add(
-      // This would be the specific registration event
-      RegisterEvent(
-        email: email,
-        password: password,
-        pharmacyName: pharmacyName,
-        phoneNumber: phoneNumber,
-        address: address,
-        locationData: locationData,
-      ),
-    );
+    // This method is a placeholder - specific registration handling should be implemented
+    // in the individual app's registration screens using their specific BLoC events
   }
   
   /// Register with unified success handling for Courier
@@ -92,22 +82,8 @@ class UnifiedRegistrationService {
     required String vehicleType,
     required String licensePlate,
   }) {
-    // Get courier auth bloc
-    context.read<dynamic>().add(
-      // This would be the specific registration event
-      RegisterEvent(
-        email: email,
-        password: password,
-        fullName: fullName,
-        phoneNumber: phoneNumber,
-        vehicleType: vehicleType,
-        licensePlate: licensePlate,
-      ),
-    );
+    // This method is a placeholder - specific registration handling should be implemented
+    // in the individual app's registration screens using their specific BLoC events
   }
 }
 
-/// Generic registration event that can be extended
-abstract class RegisterEvent {
-  const RegisterEvent();
-}

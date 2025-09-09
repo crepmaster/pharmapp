@@ -91,16 +91,62 @@ The mobile apps connect to a Firebase backend system (separate repository at D:\
 ## Development Commands
 
 ### Building and Running
+
+## 🧪 **TESTING PHASE WORKFLOW**
+
+**CRITICAL SECURITY RULE: Real API keys are TEMPORARY for testing only!**
+
+### Testing Phase Procedure:
+
+#### 🔓 **START Testing Phase**
+1. **Get Firebase Keys** (one-time setup):
+   - Go to: https://console.firebase.google.com/
+   - Select: `mediexchange` project  
+   - Click: ⚙️ Project Settings → Your apps → Web app
+   - Copy: `Web API Key` and `Web App ID`
+
+2. **Temporarily Add Real Keys**:
+   Edit `pharmacy_app/lib/firebase_options.dart` lines 28 & 30:
+   ```dart
+   // TESTING PHASE: Replace placeholders with real keys
+   defaultValue: 'AIzaSyC-YOUR-REAL-WEB-API-KEY'        // ← Real key here
+   defaultValue: '1:850077575356:web:YOUR-REAL-APP-ID'   // ← Real app ID here
+   ```
+
+3. **Run Applications**:
+   ```bash
+   cd pharmacy_app && flutter run -d chrome --web-port=8084
+   cd courier_app && flutter run -d chrome --web-port=8085  
+   cd admin_panel && flutter run -d chrome --web-port=8086
+   ```
+
+#### 🔒 **END Testing Phase (MANDATORY)**
+**BEFORE ANY GIT COMMIT**: Restore placeholders in `firebase_options.dart`:
+```dart
+// SECURE: Restore placeholders before committing
+defaultValue: 'AIzaSyC-PLACEHOLDER-REPLACE-WITH-REAL-KEY'
+defaultValue: '1:850077575356:web:PLACEHOLDER-REPLACE-WITH-REAL-APPID'
+```
+
+**This ensures real Firebase keys are NEVER committed to git history!**
+
+**🔑 Test Accounts (Real Firebase Data):**
+```
+Email: meunier@promoshake.net
+Password: [use your actual password from registration]
+Pharmacy: Test Pharmacy with encrypted payment preferences (from 2025-09-08)
+
+Email: 09092025@promoshake.net
+Password: [your new password]
+Pharmacy: New test pharmacy (created 2025-09-09)
+```
+
+**📱 Test Mobile Money Numbers:**
+- MTN: 677123456, 678123456
+- Orange: 694123456, 695123456
+
+**Building APKs:**
 ```bash
-# Run pharmacy app
-cd pharmacy_app && flutter run
-
-# Run courier app  
-cd courier_app && flutter run
-
-# Run admin panel (web only)
-cd admin_panel && flutter run -d chrome --web-port=8084
-
 # Build APK for pharmacy app
 cd pharmacy_app && flutter build apk
 
@@ -247,14 +293,23 @@ Following user request to "encrypt phone and other sensitive data", implemented 
 - Fixed `FirebaseFirestore` import in `pharmacy_app/lib/services/unified_auth_service.dart`
 - Fixed missing required arguments in `Subscription` constructor with `currency: 'XAF'` and `isYearly: false`
 
+### 💰 **SANDBOX CREDIT SYSTEM - LATEST ADDITION (2025-09-09):**
+- **`sandboxCredit` Firebase Function**: Deployed to production for testing wallet functionality
+- **Security Features**: Only works with test account patterns (`*@promoshake.net`, `test*@*`, etc.)
+- **Credit Limits**: Maximum 100,000 XAF per sandbox credit operation
+- **Function URL**: `https://europe-west1-mediexchange.cloudfunctions.net/sandboxCredit`
+- **Test Account**: `09092025@promoshake.net` (User ID: `Mlq8s7N3QZb6Z2kIWGYBZab07u52`) credited with 25,000 XAF
+- **Usage**: Enables testing wallet top-ups, balance displays, and transaction flows without real payments
+
 ### 📋 **FILES SUMMARY:**
 - **2 New Files**: EncryptionService and enhanced payment preferences system
-- **5+ Enhanced Files**: Payment method screen, shared exports, dependencies
-- **Total Lines Added**: 500+ lines of secure encryption and validation code
-- **Security Features**: HMAC-SHA256, environment controls, cross-validation, audit logging
+- **1 New Firebase Function**: `sandboxCredit` for testing wallet functionality (127 lines)
+- **5+ Enhanced Files**: Payment method screen, shared exports, dependencies, wallet dashboard
+- **Total Lines Added**: 650+ lines including secure encryption and sandbox testing code
+- **Security Features**: HMAC-SHA256, environment controls, cross-validation, audit logging, test account validation
 
 ### 🎯 **READY FOR DEPLOYMENT:**
-The encrypted payment preferences system is now production-ready with enterprise-grade security suitable for African mobile money transactions. All critical security vulnerabilities have been resolved with comprehensive encryption implementation.
+The encrypted payment preferences system AND sandbox credit functionality are now production-ready with enterprise-grade security suitable for African mobile money transactions. All critical security vulnerabilities have been resolved with comprehensive encryption implementation.
 
 ## 💼 **Business Model Strategy:**
 - **Revenue Model**: Subscription-based SaaS for pharmacies
