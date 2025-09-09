@@ -13,6 +13,7 @@ import { cancelExchangeTx } from "./lib/exchange.js";
 import { validateFields, validators, sendValidationError, sendError, BusinessErrors, AppError } from "./lib/validation.js";
 // 👉 expose aussi la tâche planifiée
 export { expireExchangeHolds } from "./scheduled.js";
+export { cleanupTestUser } from "./cleanup.js";
 
 // --------- Admin init ---------
 if (getApps().length === 0) initializeApp();
@@ -49,6 +50,15 @@ function walletInit(currency = "XAF") {
 export const health = onRequest({ region: "europe-west1", cors: true }, (_req, res) => {
   res.status(200).send("ok");
 });
+
+// ======================= Unified Authentication Services =======================
+// Import unified auth functions
+export {
+  createPharmacyUser,
+  createCourierUser,
+  createAdminUser,
+  cleanupTestUserUnified
+} from "./auth/unified-auth-functions.js";
 
 // ---------- Get Wallet Balance ----------
 export const getWallet = onRequest({ region: "europe-west1", cors: true }, async (req, res) => {
@@ -99,11 +109,12 @@ export const topupIntent = onRequest({ region: "europe-west1" }, async (req, res
     // Validate payment method
     const validMethods = ["mtn_momo", "orange_money"];
     if (!validMethods.includes(method)) {
-      return sendValidationError(res, [{
+      sendValidationError(res, [{
         field: "method",
         message: `Method must be one of: ${validMethods.join(", ")}`,
         code: "INVALID_METHOD"
       }]);
+      return;
     }
 
     // Validate userId format
@@ -258,6 +269,7 @@ export const momoWebhook = onRequest(
           currency: b?.currency ?? "XAF",
         }),
       });
+      return;
     } catch (error: any) {
       if (error instanceof AppError && error.code === "WEBHOOK_UNAUTHORIZED") {
         return sendError(res, error);
@@ -290,6 +302,7 @@ export const orangeWebhook = onRequest(
           currency: b?.currency ?? "XAF",
         }),
       });
+      return;
     } catch (error: any) {
       if (error instanceof AppError && error.code === "WEBHOOK_UNAUTHORIZED") {
         return sendError(res, error);
@@ -323,19 +336,21 @@ export const createExchangeHold = onRequest({ region: "europe-west1" }, async (r
 
     // Business validation
     if (aId === bId) {
-      return sendValidationError(res, [{
+      sendValidationError(res, [{
         field: "bId",
         message: "User A and User B cannot be the same",
         code: "IDENTICAL_USERS"
       }]);
+      return;
     }
 
     if (exchangeId && typeof exchangeId !== "string") {
-      return sendValidationError(res, [{
+      sendValidationError(res, [{
         field: "exchangeId",
         message: "exchangeId must be a string",
         code: "INVALID_TYPE"
       }]);
+      return;
     }
 
     const holdKey = `hold:${exchangeId ?? idempotencyKey ?? `${aId}:${bId}:${courierFee}:${currency}`}`;
@@ -394,6 +409,7 @@ export const createExchangeHold = onRequest({ region: "europe-west1" }, async (r
         tx.set(lA, { userId: aId, type: "hold", amount: halfA, currency, exchangeId: exId, createdAt: FieldValue.serverTimestamp() });
         tx.set(lB, { userId: bId, type: "hold", amount: halfB, currency, exchangeId: exId, createdAt: FieldValue.serverTimestamp() });
       });
+      return;
     });
 
     res.status(200).json({ ok: true, status: "hold_active", exchangeId: exId });
@@ -421,19 +437,21 @@ export const exchangeCapture = onRequest({ region: "europe-west1" }, async (req,
 
     // Validate optional fields
     if (saleAmount && typeof saleAmount !== "number") {
-      return sendValidationError(res, [{
+      sendValidationError(res, [{
         field: "saleAmount",
         message: "saleAmount must be a number",
         code: "INVALID_TYPE"
       }]);
+      return;
     }
 
     if (saleAmount && saleAmount < 0) {
-      return sendValidationError(res, [{
+      sendValidationError(res, [{
         field: "saleAmount",
         message: "saleAmount must be non-negative",
         code: "INVALID_AMOUNT"
       }]);
+      return;
     }
 
     if (sellerId && validators.userId(sellerId, "sellerId")) {
@@ -446,11 +464,12 @@ export const exchangeCapture = onRequest({ region: "europe-west1" }, async (req,
 
     // Validate that if saleAmount > 0, both seller and buyer must be provided
     if (saleAmount > 0 && (!sellerId || !buyerId)) {
-      return sendValidationError(res, [{
+      sendValidationError(res, [{
         field: saleAmount > 0 && !sellerId ? "sellerId" : "buyerId",
         message: "Both sellerId and buyerId are required when saleAmount > 0",
         code: "REQUIRED_FOR_SALE"
       }]);
+      return;
     }
 
     await withIdempotency(`capture:${exchangeId}`, async () => {
@@ -645,6 +664,7 @@ export const exchangeCapture = onRequest({ region: "europe-west1" }, async (req,
           tx.set(ledgerRef, entry);
         });
       });
+      return;
     });
     res.status(200).json({ ok: true, status: "completed" });
   } catch (error: any) {
@@ -660,19 +680,21 @@ export const exchangeCancel = onRequest({ region: "europe-west1" }, async (req, 
 
     // Validate required field
     if (!exchangeId) {
-      return sendValidationError(res, [{
+      sendValidationError(res, [{
         field: "exchangeId",
         message: "exchangeId is required",
         code: "REQUIRED"
       }]);
+      return;
     }
 
     if (typeof exchangeId !== "string") {
-      return sendValidationError(res, [{
+      sendValidationError(res, [{
         field: "exchangeId",
         message: "exchangeId must be a string",
         code: "INVALID_TYPE"
       }]);
+      return;
     }
 
     await withIdempotency(`cancel:${exchangeId}`, async () => {
@@ -680,6 +702,403 @@ export const exchangeCancel = onRequest({ region: "europe-west1" }, async (req, 
     });
     res.status(200).json({ ok: true, status: "canceled" });
   } catch (error: any) {
+    sendError(res, error);
+  }
+});
+
+// 🔒 SUBSCRIPTION SECURITY FUNCTIONS (CRITICAL FOR REVENUE PROTECTION)
+
+// Helper function to get and validate subscription status
+async function getValidSubscription(userId: string) {
+  const pharmacyDoc = await db.collection("pharmacies").doc(userId).get();
+  
+  if (!pharmacyDoc.exists) {
+    throw BusinessErrors.USER_NOT_FOUND(userId);
+  }
+  
+  const pharmacy = pharmacyDoc.data() as any;
+  const now = new Date();
+  
+  // Check if subscription is active or in trial
+  const isActive = pharmacy.subscriptionStatus === "active" && 
+                  pharmacy.subscriptionEndDate && 
+                  new Date(pharmacy.subscriptionEndDate.toDate()) > now;
+                  
+  const isTrial = pharmacy.subscriptionStatus === "trial" && 
+                 (!pharmacy.subscriptionEndDate || new Date(pharmacy.subscriptionEndDate.toDate()) > now);
+  
+  return {
+    isValid: isActive || isTrial,
+    status: pharmacy.subscriptionStatus,
+    plan: pharmacy.subscriptionPlan || "basic",
+    endDate: pharmacy.subscriptionEndDate,
+    pharmacy
+  };
+}
+
+// Validate inventory creation (server-side enforcement)
+export const validateInventoryAccess = onRequest({ region: "europe-west1" }, async (req, res) => {
+  try {
+    const userId = req.query?.userId as string | undefined;
+    
+    if (!userId) {
+      sendValidationError(res, [{
+        field: "userId",
+        message: "userId is required",
+        code: "REQUIRED"
+      }]);
+      return;
+    }
+
+    const subscription = await getValidSubscription(userId);
+    
+    if (!subscription.isValid) {
+      res.status(403).json({
+        error: "SUBSCRIPTION_REQUIRED",
+        message: "Active subscription required to add inventory",
+        status: subscription.status,
+        canAccess: false
+      });
+      return;
+    }
+
+    // Check plan-specific limits for basic plan
+    if (subscription.plan === "basic") {
+      const inventoryQuery = await db
+        .collection("pharmacy_inventory")
+        .where("pharmacyId", "==", userId)
+        .get();
+      
+      const currentCount = inventoryQuery.size;
+      const maxAllowed = 100;
+      
+      if (currentCount >= maxAllowed) {
+        res.status(403).json({
+          error: "INVENTORY_LIMIT_EXCEEDED",
+          message: `Basic plan allows maximum ${maxAllowed} medicines. Current: ${currentCount}`,
+          currentCount,
+          maxAllowed,
+          plan: subscription.plan,
+          canAccess: false
+        });
+      }
+    }
+
+    // Log successful validation for audit
+    await db.collection("subscription_audit").add({
+      userId,
+      action: "inventory_access_validated",
+      plan: subscription.plan,
+      status: subscription.status,
+      timestamp: FieldValue.serverTimestamp()
+    });
+
+    res.status(200).json({
+      canAccess: true,
+      plan: subscription.plan,
+      status: subscription.status,
+      remainingSlots: subscription.plan === "basic" 
+        ? Math.max(0, 100 - (await db.collection("pharmacy_inventory").where("pharmacyId", "==", userId).get()).size)
+        : -1 // Unlimited
+    });
+
+  } catch (error: any) {
+    sendError(res, error);
+  }
+});
+
+// Validate proposal creation (server-side enforcement) 
+export const validateProposalAccess = onRequest({ region: "europe-west1" }, async (req, res) => {
+  try {
+    const userId = req.query?.userId as string | undefined;
+    
+    if (!userId) {
+      sendValidationError(res, [{
+        field: "userId", 
+        message: "userId is required",
+        code: "REQUIRED"
+      }]);
+      return;
+    }
+
+    const subscription = await getValidSubscription(userId);
+    
+    if (!subscription.isValid) {
+      res.status(403).json({
+        error: "SUBSCRIPTION_REQUIRED",
+        message: "Active subscription required to create proposals",
+        status: subscription.status,
+        canAccess: false
+      });
+      return;
+    }
+
+    // Log successful validation for audit
+    await db.collection("subscription_audit").add({
+      userId,
+      action: "proposal_access_validated", 
+      plan: subscription.plan,
+      status: subscription.status,
+      timestamp: FieldValue.serverTimestamp()
+    });
+
+    res.status(200).json({
+      canAccess: true,
+      plan: subscription.plan,
+      status: subscription.status
+    });
+
+  } catch (error: any) {
+    sendError(res, error);
+  }
+});
+
+// Validate analytics access (server-side enforcement)
+export const validateAnalyticsAccess = onRequest({ region: "europe-west1" }, async (req, res) => {
+  try {
+    const userId = req.query?.userId as string | undefined;
+    
+    if (!userId) {
+      sendValidationError(res, [{
+        field: "userId",
+        message: "userId is required", 
+        code: "REQUIRED"
+      }]);
+      return;
+    }
+
+    const subscription = await getValidSubscription(userId);
+    
+    if (!subscription.isValid) {
+      res.status(403).json({
+        error: "SUBSCRIPTION_REQUIRED",
+        message: "Active subscription required for analytics",
+        status: subscription.status,
+        canAccess: false
+      });
+      return;
+    }
+
+    // Analytics only available for professional and enterprise plans
+    const allowedPlans = ["professional", "enterprise"];
+    if (!allowedPlans.includes(subscription.plan)) {
+      res.status(403).json({
+        error: "PLAN_UPGRADE_REQUIRED",
+        message: "Professional or Enterprise plan required for analytics",
+        currentPlan: subscription.plan,
+        requiredPlans: allowedPlans,
+        canAccess: false
+      });
+      return;
+    }
+
+    res.status(200).json({
+      canAccess: true,
+      plan: subscription.plan,
+      status: subscription.status
+    });
+
+  } catch (error: any) {
+    sendError(res, error);
+  }
+});
+
+// Get comprehensive subscription status (server-side truth source)
+export const getSubscriptionStatus = onRequest({ region: "europe-west1" }, async (req, res) => {
+  try {
+    const userId = req.query?.userId as string | undefined;
+    
+    if (!userId) {
+      sendValidationError(res, [{
+        field: "userId",
+        message: "userId is required",
+        code: "REQUIRED"
+      }]);
+      return;
+    }
+
+    const subscription = await getValidSubscription(userId);
+    
+    // Calculate remaining days
+    let daysRemaining = 0;
+    if (subscription.endDate) {
+      const endDate = new Date(subscription.endDate.toDate());
+      const now = new Date();
+      daysRemaining = Math.max(0, Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+    }
+
+    // Get current usage for basic plan
+    let currentInventoryCount = 0;
+    if (subscription.plan === "basic") {
+      const inventoryQuery = await db
+        .collection("pharmacy_inventory") 
+        .where("pharmacyId", "==", userId)
+        .get();
+      currentInventoryCount = inventoryQuery.size;
+    }
+
+    res.status(200).json({
+      userId,
+      isValid: subscription.isValid,
+      status: subscription.status,
+      plan: subscription.plan,
+      daysRemaining,
+      endDate: subscription.endDate?.toDate(),
+      limits: {
+        inventory: subscription.plan === "basic" ? { max: 100, current: currentInventoryCount } : { unlimited: true },
+        analytics: ["professional", "enterprise"].includes(subscription.plan),
+        multiLocation: subscription.plan === "enterprise",
+        apiAccess: subscription.plan === "enterprise"
+      }
+    });
+
+  } catch (error: any) {
+    sendError(res, error);
+  }
+});
+
+// ========== SANDBOX TESTING ==========
+
+/**
+ * Sandbox Credit Function for Testing
+ * Credits test wallets with fake money for development/testing purposes
+ * 
+ * Security: Only works for test accounts and development environment
+ */
+export const sandboxCredit = onRequest({ 
+  region: "europe-west1", 
+  cors: true 
+}, async (req, res) => {
+  try {
+    if (requireJson(req, res)) return;
+
+    const { userId, amount, description = "Sandbox test credit" } = req.body ?? {};
+
+    // Validate required fields
+    const errors = validateFields({ userId, amount }, {
+      userId: validators.required,
+      amount: (v, f) => validators.required(v, f) || (typeof v !== "number" || v <= 0 ? 
+        { field: f, message: `${f} must be a positive number`, code: 'INVALID_AMOUNT' } : null)
+    });
+
+    if (errors.length > 0) {
+      return sendValidationError(res, errors);
+    }
+
+    // Security: Only allow test accounts
+    const testAccountPatterns = [
+      /^.*@promoshake\.net$/,
+      /^test.*@.*$/,
+      /^.*test.*@.*$/,
+      /^sandbox.*@.*$/,
+      /^dev.*@.*$/
+    ];
+
+    // Get user document from pharmacies or couriers collection
+    let userDoc = await db.collection("pharmacies").doc(userId).get();
+    let userData = null;
+    
+    if (!userDoc.exists) {
+      userDoc = await db.collection("couriers").doc(userId).get();
+    }
+    
+    if (!userDoc.exists) {
+      res.status(404).json({ 
+        error: "User not found in pharmacies or couriers collection",
+        code: "USER_NOT_FOUND" 
+      });
+      return;
+    }
+
+    userData = userDoc.data();
+    const userEmail = userData?.email || "";
+
+    // Check if email matches test patterns
+    const isTestAccount = testAccountPatterns.some(pattern => pattern.test(userEmail));
+    
+    if (!isTestAccount) {
+      res.status(403).json({ 
+        error: "Sandbox credit only allowed for test accounts",
+        code: "NOT_TEST_ACCOUNT",
+        hint: "Use email patterns: *@promoshake.net, test*@*, *test*@*, sandbox*@*, dev*@*"
+      });
+      return;
+    }
+
+    // Limit sandbox credits
+    if (amount > 100000) { // Max 100,000 XAF
+      res.status(400).json({
+        error: "Maximum sandbox credit is 100,000 XAF",
+        code: "AMOUNT_TOO_HIGH"
+      });
+      return;
+    }
+
+    const currency = "XAF";
+    const amountCents = Math.round(amount * 100); // Convert to cents
+
+    // Credit wallet with transaction
+    await db.runTransaction(async (tx) => {
+      const walletRef = db.collection("wallets").doc(userId);
+      const walletDoc = await tx.get(walletRef);
+      
+      let currentWallet;
+      if (!walletDoc.exists) {
+        // Create new wallet
+        currentWallet = walletInit(currency);
+        tx.set(walletRef, {
+          ...currentWallet,
+          userId,
+          userType: userData?.userType || "unknown",
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      } else {
+        currentWallet = walletDoc.data()!;
+      }
+
+      // Update wallet balance
+      const newAvailable = (currentWallet.available || 0) + amountCents;
+      tx.update(walletRef, {
+        available: newAvailable,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      // Add ledger entry
+      const ledgerRef = db.collection("ledger").doc();
+      tx.set(ledgerRef, {
+        userId,
+        type: "sandbox_credit",
+        amount: amountCents,
+        currency,
+        description,
+        createdAt: FieldValue.serverTimestamp(),
+        metadata: {
+          isSandbox: true,
+          userEmail,
+          originalAmount: amount
+        }
+      });
+    });
+
+    logger.info("Sandbox credit applied", { 
+      userId, 
+      amount, 
+      userEmail,
+      description 
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Sandbox credit applied successfully",
+      userId,
+      creditedAmount: amount,
+      currency,
+      isSandbox: true,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error: any) {
+    logger.error("Sandbox credit failed", { error: error.message });
     sendError(res, error);
   }
 });
