@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 🚀 **CURRENT PROJECT STATUS - 2025-09-08 (AUTHENTICATION SYSTEM FIXES COMPLETE)**
+## 🚀 **CURRENT PROJECT STATUS - 2025-09-18 (TRIAL SUBSCRIPTION SYSTEM IMPLEMENTED)**
 
 ### ✅ **PAYMENT SYSTEM INTEGRATION COMPLETE - PRODUCTION READY**
 - **Security Score**: 9.5/10 (Enterprise-grade encryption + comprehensive security hardening)
@@ -99,21 +99,28 @@ The mobile apps connect to a Firebase backend system (separate repository at D:\
 ### Testing Phase Procedure:
 
 #### 🔓 **START Testing Phase**
-1. **Get Firebase Keys** (one-time setup):
-   - Go to: https://console.firebase.google.com/
-   - Select: `mediexchange` project  
-   - Click: ⚙️ Project Settings → Your apps → Web app
-   - Copy: `Web API Key` and `Web App ID`
+1. **Get Firebase Keys** (automated via Firebase CLI):
+   ```bash
+   # Get real API keys from Firebase project
+   firebase apps:sdkconfig web --project=mediexchange
+   ```
+   Copy the `apiKey` and `appId` values from the output.
 
 2. **Temporarily Add Real Keys**:
    Edit `pharmacy_app/lib/firebase_options.dart` lines 28 & 30:
    ```dart
-   // TESTING PHASE: Replace placeholders with real keys
-   defaultValue: 'AIzaSyC-YOUR-REAL-WEB-API-KEY'        // ← Real key here
-   defaultValue: '1:850077575356:web:YOUR-REAL-APP-ID'   // ← Real app ID here
+   // TESTING PHASE: Replace placeholders with real keys (from firebase CLI)
+   defaultValue: 'AIzaSyDrM96tzLwGkVaCvqEP9cWAXZYqvOEGyAs',      // ← Real key here
+   defaultValue: '1:850077575356:web:67c7130629f17dd57708b9',   // ← Real app ID here
    ```
 
-3. **Run Applications**:
+3. **Deploy CORS-enabled Functions** (if needed):
+   ```bash
+   cd functions && npm run build
+   cd functions && firebase deploy --only functions:topupIntent
+   ```
+
+4. **Run Applications**:
    ```bash
    cd pharmacy_app && flutter run -d chrome --web-port=8084
    cd courier_app && flutter run -d chrome --web-port=8085  
@@ -144,6 +151,59 @@ Pharmacy: New test pharmacy (created 2025-09-09)
 **📱 Test Mobile Money Numbers:**
 - MTN: 677123456, 678123456
 - Orange: 694123456, 695123456
+
+## 💰 **WALLET TESTING PROCEDURES**
+
+### **Frontend Wallet Testing Steps**:
+
+1. **Login to Test Account**:
+   - Use: `09092025@promoshake.net` (has 25,000 XAF pre-credited)
+   - Navigate to: http://localhost:8084
+   
+2. **Check Initial Balance**:
+   - Dashboard should display current wallet balance
+   - Should show: 25,000 XAF from previous sandboxCredit operations
+
+3. **Test Wallet Top-up (Frontend)**:
+   - Click "Add Money" or "Top-up Wallet" button
+   - Select payment method (MTN/Orange)
+   - Enter amount (e.g., 10,000 XAF)
+   - Enter test mobile number
+   - **Known Issue**: CORS error may occur with `topupIntent` function
+   
+4. **Alternative: Direct API Testing**:
+   ```bash
+   # Test sandboxCredit function directly (working alternative)
+   curl -X POST https://europe-west1-mediexchange.cloudfunctions.net/sandboxCredit \
+     -H "Content-Type: application/json" \
+     -d '{
+       "email": "09092025@promoshake.net",
+       "amount": 10000,
+       "currency": "XAF"
+     }'
+   ```
+
+5. **CORS Troubleshooting** (if topupIntent fails):
+   ```bash
+   # Verify CORS is enabled on topupIntent
+   curl -i -X OPTIONS https://europe-west1-mediexchange.cloudfunctions.net/topupIntent \
+     -H "Origin: http://localhost:8084" \
+     -H "Access-Control-Request-Method: POST"
+   
+   # Should return: access-control-allow-origin: http://localhost:8084
+   ```
+
+6. **Backend Wallet Verification**:
+   ```bash
+   # Check wallet balance via backend
+   cd functions && pwsh ./scripts/test-cloudrun.ps1 -GetWallet 09092025@promoshake.net
+   ```
+
+### **Expected Test Results**:
+- ✅ Wallet balance displays correctly in frontend
+- ✅ sandboxCredit function works (CORS enabled)
+- ⚠️  topupIntent may have CORS issues (requires deployment fix)
+- ✅ Backend wallet queries work via PowerShell script
 
 **Building APKs:**
 ```bash
@@ -300,6 +360,14 @@ Following user request to "encrypt phone and other sensitive data", implemented 
 - **Function URL**: `https://europe-west1-mediexchange.cloudfunctions.net/sandboxCredit`
 - **Test Account**: `09092025@promoshake.net` (User ID: `Mlq8s7N3QZb6Z2kIWGYBZab07u52`) credited with 25,000 XAF
 - **Usage**: Enables testing wallet top-ups, balance displays, and transaction flows without real payments
+
+### 🆕 **TRIAL SUBSCRIPTION SYSTEM - IMPLEMENTED (2025-09-18):**
+- **Automatic Trial Creation**: New pharmacy registrations get 30-day trial subscriptions automatically
+- **Migration Script**: `migratePharmacySubscriptions` function to update existing pharmacies
+- **Backend Functions**: `createTrialSubscription`, `checkMigrationStatus` implemented
+- **Subscription Validation**: All subscription guard services updated for trial support
+- **Field Type Fixes**: Proper Firestore timestamp fields for subscription dates
+- **Status**: ✅ Backend implementation complete, pending deployment for existing users
 
 ### 📋 **FILES SUMMARY:**
 - **2 New Files**: EncryptionService and enhanced payment preferences system
