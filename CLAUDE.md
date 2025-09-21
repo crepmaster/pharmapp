@@ -398,3 +398,195 @@ The platform is now **PRODUCTION READY** with:
 - ✅ Complete Firebase backend deployment
 
 **Full project history and detailed implementation notes are available in CLAUDE-BACKUP-2025-09-08.md**
+
+---
+
+# 🚀 FLUTTER TRANSFER AGENTS - ENVIRONMENT MIGRATION SYSTEM
+
+## Overview
+Specialized transfer agents have been created to handle complete Flutter multi-app development environment migration between laptops. These agents are specifically designed for the PharmApp Mobile ecosystem with its three Flutter applications and Firebase backend.
+
+## 📋 Agent 1: Flutter Backup Agent
+**File**: `.claude/flutter-backup-agent.md`
+**Purpose**: Prepares old laptop for transfer by documenting complete Flutter development environment
+
+### Key Capabilities for PharmApp Mobile:
+- **Flutter SDK Documentation**: Complete Flutter/Dart version capture
+- **Multi-App Dependencies**: Backs up all three apps (Pharmacy, Courier, Admin Panel)
+- **Firebase Configuration**: Documents Firebase project connections and configurations
+- **VS Code Extensions**: Exports Flutter/Dart specific development extensions
+- **Platform Tools**: Documents Android SDK, iOS tools (macOS), Java environment
+- **Shared Package Handling**: Manages monorepo structure with shared dependencies
+- **Cross-Platform Support**: Handles Windows, macOS, and Linux differences
+
+### Generated Backup Files:
+- `flutter-version-backup.txt` - Complete Flutter environment
+- `pubspec-dependencies-backup.txt` - All app dependencies
+- `firebase-config-backup/` - Firebase configurations
+- `platform-tools-backup.txt` - Android/iOS tool info
+- `vscode-flutter-extensions.txt` - Development extensions
+- `shared-packages-backup.txt` - Monorepo structure
+- `FLUTTER_BACKUP_SUMMARY.txt` - Master restoration guide
+
+## 🔄 Agent 2: Flutter Restoration Agent
+**File**: `.claude/flutter-restoration-agent.md`
+**Purpose**: Sets up new laptop with complete Flutter development environment from backup
+
+### Key Capabilities for PharmApp Mobile:
+- **Minimal Prerequisites**: Only requires VS Code + Claude Code + Git clone
+- **Smart SDK Installation**: Detects OS and installs appropriate Flutter SDK version
+- **Multi-App Setup**: Configures all three Flutter applications automatically
+- **Firebase Integration**: Sets up Firebase CLI and project connections
+- **VS Code Configuration**: Installs extensions and creates optimal settings
+- **Platform-Specific Tools**: Android SDK, iOS tools (macOS), emulators/simulators
+- **Build Validation**: Tests that all three apps build successfully
+- **Comprehensive Testing**: Validates complete development environment
+
+### Special Features for PharmApp Mobile:
+- **Firebase Multi-Project**: Handles different Firebase configurations per app
+- **Mobile Money Testing**: Sets up environment for MTN MoMo, Orange Money testing
+- **Encrypted Payment System**: Configures encryption services and secure payment testing
+- **Multi-Currency Support**: Sets up testing for XAF, KES, NGN, GHS currencies
+- **Healthcare Compliance**: Ensures security configurations for medical data
+
+## 🚀 Usage Instructions for PharmApp Mobile
+
+### On Old Laptop (Preparation Phase):
+1. **Launch Flutter Backup Agent**: Use Claude Code to launch the backup agent
+2. **Automated Documentation**: Agent documents complete Flutter environment
+3. **Multi-App Analysis**: Backs up all three apps and shared packages
+4. **Firebase Configuration**: Documents Firebase project connections
+5. **Commit Backup**: All backup files committed to repository
+
+### On New Laptop (Restoration Phase):
+1. **Initial Setup**: Install VS Code + Claude Code extension + Git
+2. **Clone Repository**: `git clone <pharmapp-mobile-repository-url>`
+3. **Open Project**: Open in VS Code and launch Claude Code
+4. **Launch Flutter Restoration Agent**: Use the restoration agent
+5. **Automated Setup**: Agent reads backups and reconstructs environment
+6. **Multi-App Validation**: Tests all three apps build and run correctly
+
+## 📦 What Gets Transferred (PharmApp Mobile Specific)
+
+### Flutter Development Environment:
+- Flutter SDK version (>=3.13.0) and configuration
+- Dart SDK (>=3.1.0) and global packages
+- Platform-specific tools (Android SDK, Xcode for iOS)
+- Firebase CLI and project configurations
+
+### Multi-App Structure:
+- **Pharmacy App**: All dependencies and configurations
+- **Courier App**: Google Maps integration and camera permissions
+- **Admin Panel**: Web-specific build configurations
+- **Shared Package**: Encrypted payment preferences system
+
+### Firebase Integration:
+- Project ID: `mediexchange`
+- Authentication configuration
+- Firestore rules and indexes
+- Cloud Functions deployment settings
+- Push notification configurations
+
+### Payment System Configuration:
+- Mobile money integration (MTN MoMo, Orange Money)
+- Encrypted payment preferences system
+- HMAC-SHA256 encryption services
+- Multi-currency support (XAF, KES, NGN, GHS)
+- Sandbox testing environment
+
+### VS Code Environment:
+- Flutter and Dart extensions
+- Workspace settings optimized for multi-app development
+- Debug configurations for all three apps
+- Flutter development tools integration
+
+## 🔒 Security Considerations for PharmApp Mobile
+
+### What's Backed Up Safely:
+- Flutter SDK versions and configurations
+- pubspec.yaml dependencies for all apps
+- VS Code extension lists and settings
+- Firebase project structure (no sensitive keys)
+- Build configurations and deployment settings
+
+### What's NOT Backed Up (Security):
+- Firebase API keys (google-services.json)
+- Production environment secrets
+- Payment API credentials
+- Private certificates or signing keys
+- Encrypted user data or payment information
+
+### Healthcare Data Security:
+- Backup process excludes any patient or medical data
+- Encryption keys are not transferred
+- Production database connections excluded
+- GDPR/NDPR compliance maintained
+
+## 🛠️ Flutter-Specific Technical Features
+
+### Cross-Platform Compatibility:
+- **Windows**: Flutter installation via direct download
+- **macOS**: Homebrew integration, Xcode setup for iOS development
+- **Linux**: Package manager integration, complete Android setup
+
+### Multi-App Build System:
+- Gradle configurations for Android builds
+- CocoaPods setup for iOS (macOS only)
+- Web build configurations for Admin Panel
+- Shared package dependency resolution
+
+### Firebase Multi-Project Setup:
+- Automatic Firebase CLI installation
+- Project switching and configuration
+- Function deployment verification
+- Emulator setup for local development
+
+### Development Tools Integration:
+- Android Studio integration
+- VS Code Flutter extensions
+- Dart analysis and formatting
+- Hot reload and debugging setup
+
+## 📋 Transfer Checklist for PharmApp Mobile
+
+### Pre-Transfer (Old Laptop):
+- [ ] Run Flutter backup agent via Claude Code
+- [ ] Verify all three apps build successfully
+- [ ] Ensure all changes are committed to Git
+- [ ] Validate backup file generation
+- [ ] Push backup files to repository
+
+### Post-Transfer (New Laptop):
+- [ ] Install VS Code + Claude Code + Git
+- [ ] Clone PharmApp Mobile repository
+- [ ] Run Flutter restoration agent
+- [ ] Verify all three apps build: Pharmacy, Courier, Admin
+- [ ] Test Flutter doctor passes all checks
+- [ ] Configure Firebase project connections
+- [ ] Test encrypted payment system setup
+- [ ] Verify mobile money testing environment
+
+### Validation Tests:
+- [ ] `flutter doctor` reports no critical issues
+- [ ] Pharmacy App builds APK successfully
+- [ ] Courier App builds APK successfully
+- [ ] Admin Panel builds web version successfully
+- [ ] Firebase authentication works
+- [ ] Encrypted payment preferences system functional
+- [ ] Mobile money testing environment operational
+
+## 🎯 Success Criteria for PharmApp Mobile
+
+**Transfer is successful when:**
+1. ✅ All three Flutter apps build without errors
+2. ✅ Flutter doctor shows no critical issues
+3. ✅ Firebase project is properly connected
+4. ✅ VS Code Flutter development environment is functional
+5. ✅ Encrypted payment system is configured
+6. ✅ Mobile money testing environment is operational
+7. ✅ Android/iOS development tools are working
+8. ✅ Shared package dependencies resolve correctly
+
+**Estimated Total Time: 3-5 hours** (including Firebase setup and multi-app validation)
+
+The Flutter transfer agents provide a robust, secure, and comprehensive solution for migrating the PharmApp Mobile development environment between machines, ensuring developers can immediately continue working on all three applications with full functionality.
