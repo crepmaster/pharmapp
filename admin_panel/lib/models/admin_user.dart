@@ -39,6 +39,9 @@ class AdminUser extends Equatable {
   /// Check if admin can view financial reports
   bool get canViewFinancials => hasPermission('view_financials');
 
+  /// Check if user is super admin
+  bool get isSuperAdmin => role == 'super_admin';
+
   /// Get role display name
   String get roleDisplayName {
     switch (role) {

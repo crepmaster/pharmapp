@@ -508,11 +508,11 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Row(
+      title: const Row(
         children: [
-          const Icon(Icons.account_balance_wallet, color: Color(0xFF1976D2)),
-          const SizedBox(width: 8),
-          const Text('Top Up Wallet'),
+          Icon(Icons.account_balance_wallet, color: Color(0xFF1976D2)),
+          SizedBox(width: 8),
+          Text('Top Up Wallet'),
         ],
       ),
       content: Form(
@@ -597,7 +597,7 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
 
               // Payment method selection
               DropdownButtonFormField<String>(
-                value: _selectedMethod,
+                initialValue: _selectedMethod,
                 decoration: const InputDecoration(
                   labelText: 'Payment Method',
                   prefixIcon: Icon(Icons.payment),

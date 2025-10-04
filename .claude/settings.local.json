@@ -69,7 +69,9 @@
       "Bash(setup_test_keys.bat)",
       "Bash(copy pharmacy_app\\lib\\firebase_options.dart pharmacy_app\\lib\\firebase_options.dart.backup)",
       "Bash(copy:*)",
-      "Bash(del nul)"
+      "Bash(del nul)",
+      "Bash(tasklist)",
+      "Bash(firebase login:*)"
     ],
     "deny": [],
     "ask": []
