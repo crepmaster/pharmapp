@@ -71,7 +71,16 @@
       "Bash(copy:*)",
       "Bash(del nul)",
       "Bash(tasklist)",
-      "Bash(firebase login:*)"
+      "Bash(firebase login:*)",
+      "Bash(where firebase)",
+      "Bash(npm:*)",
+      "Bash(dir:*)",
+      "Bash(firebase:*)",
+      "Read(//c/Users/user/AppData/Roaming/npm/node_modules/firebase-tools/lib/**)",
+      "Bash(cat:*)",
+      "Read(//c/Users/user/AppData/Roaming/npm/node_modules/firebase-tools/**)",
+      "Bash(echo $VSCODE_PID)",
+      "Bash(echo $VSCODE_CWD)"
     ],
     "deny": [],
     "ask": []
