@@ -86,24 +86,14 @@ class _LoginScreenState extends State<LoginScreen> {
                     
                     // Error display
                     if (errorWidget != null) errorWidget,
-                    
-                    // Logo and Title
-                    const Icon(
-                      Icons.local_pharmacy,
-                      size: 80,
-                      color: Color(0xFF1976D2),
+
+                    // Logo
+                    Image.asset(
+                      'assets/images/logo.png',
+                      width: 200,
+                      height: 200,
                     ),
                     const SizedBox(height: 20),
-                    
-                    const Text(
-                      'Pharmacy Exchange',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF1976D2),
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
                     
                     const SizedBox(height: 8),
                     Text(

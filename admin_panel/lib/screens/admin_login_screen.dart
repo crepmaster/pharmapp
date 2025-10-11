@@ -144,27 +144,21 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          // Logo and title
-                          Icon(
-                            Icons.admin_panel_settings,
-                            size: 64,
-                            color: Colors.blue.shade600,
+                          // Logo
+                          Center(
+                            child: Image.asset(
+                              'assets/images/logo.png',
+                              width: 180,
+                              height: 180,
+                            ),
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            'MediExchange',
-                            style: GoogleFonts.inter(
-                              fontSize: 28,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey.shade800,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          Text(
                             'Admin Control Panel',
                             style: GoogleFonts.inter(
-                              fontSize: 16,
-                              color: Colors.grey.shade600,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey.shade800,
                             ),
                             textAlign: TextAlign.center,
                           ),

@@ -1,11 +1,11 @@
 {
-    "name": "courier_app",
-    "short_name": "courier_app",
+    "name": "NoWasteMed Courier",
+    "short_name": "NoWasteMed",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "NoWasteMed - Courier Medicine Delivery Platform",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

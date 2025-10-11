@@ -123,14 +123,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Header
-                    const Icon(
-                      Icons.delivery_dining,
-                      size: 60,
-                      color: Color(0xFF4CAF50),
+                    // Logo
+                    Center(
+                      child: Image.asset(
+                        'assets/images/logo.png',
+                        width: 150,
+                        height: 150,
+                      ),
                     ),
                     const SizedBox(height: 16),
-                    
+
                     const Text(
                       'Become a Courier',
                       style: TextStyle(

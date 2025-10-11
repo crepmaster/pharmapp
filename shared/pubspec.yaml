@@ -1,5 +1,5 @@
 name: pharmapp_shared
-description: Shared authentication and models for PharmApp applications
+description: Shared authentication and models for NoWasteMed applications
 
 publish_to: 'none'
 
@@ -15,14 +15,18 @@ dependencies:
 
   # State Management
   equatable: ^2.0.5
+  flutter_bloc: ^8.1.6
 
   # Firebase
   firebase_core: ^3.6.0
   firebase_auth: ^5.3.1
   cloud_firestore: ^5.4.3
-  
+
   # Security
   crypto: ^3.0.3
+
+  # HTTP
+  http: ^1.2.0
 
 dev_dependencies:
   flutter_test:

@@ -50,20 +50,20 @@ class _LoginScreenState extends State<LoginScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const SizedBox(height: 60),
-                    
-                    // Logo and Title
-                    const Icon(
-                      Icons.delivery_dining,
-                      size: 80,
-                      color: Color(0xFF4CAF50),
+
+                    // Logo
+                    Image.asset(
+                      'assets/images/logo.png',
+                      width: 200,
+                      height: 200,
                     ),
                     const SizedBox(height: 20),
-                    
+
                     const Text(
-                      'Courier Delivery',
+                      'Courier',
                       style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w500,
                         color: Color(0xFF4CAF50),
                       ),
                       textAlign: TextAlign.center,

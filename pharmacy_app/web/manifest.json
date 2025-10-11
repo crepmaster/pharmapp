@@ -1,11 +1,11 @@
 {
-    "name": "pharmacy_app",
-    "short_name": "pharmacy_app",
+    "name": "NoWasteMed Pharmacy",
+    "short_name": "NoWasteMed",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "NoWasteMed - Pharmacy Medicine Exchange Platform",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

@@ -80,7 +80,11 @@
       "Bash(cat:*)",
       "Read(//c/Users/user/AppData/Roaming/npm/node_modules/firebase-tools/**)",
       "Bash(echo $VSCODE_PID)",
-      "Bash(echo $VSCODE_CWD)"
+      "Bash(echo $VSCODE_CWD)",
+      "Bash(ls:*)",
+      "Bash(convert:*)",
+      "Bash(git checkout:*)",
+      "Bash(mkdir:*)"
     ],
     "deny": [],
     "ask": []

@@ -164,16 +164,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Header
-                    const Icon(
-                      Icons.local_pharmacy,
-                      size: 60,
-                      color: Color(0xFF1976D2),
+                    // Logo
+                    Center(
+                      child: Image.asset(
+                        'assets/images/logo.png',
+                        width: 150,
+                        height: 150,
+                      ),
                     ),
                     const SizedBox(height: 16),
-                    
+
                     const Text(
-                      'Join Pharmacy Exchange',
+                      'Join NoWasteMed',
                       style: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,

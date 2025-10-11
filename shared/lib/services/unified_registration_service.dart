@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import 'unified_wallet_service.dart';
 
 /// Unified Registration Service for all PharmApp applications
