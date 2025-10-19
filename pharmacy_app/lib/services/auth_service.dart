@@ -98,9 +98,10 @@ class AuthService {
         'phoneNumber': phoneNumber,
         'address': address,
         if (locationData != null) 'locationData': locationData.toMap(),
-        // TEMPORARY: Disable payment preferences to fix backend registration
-        // TODO: Handle payment preferences separately after user creation
-        // if (paymentPreferences.isSetupComplete) 'paymentPreferences': paymentPreferences.toBackendMap(),
+        // 🌍 ADD: Country and currency from payment preferences
+        if (paymentPreferences.country.isNotEmpty) 'country': paymentPreferences.country,
+        if (paymentPreferences.currency.isNotEmpty) 'currency': paymentPreferences.currency,
+        // Payment preferences saved separately after user creation
       };
 
       // Debug: Log the request data being sent
