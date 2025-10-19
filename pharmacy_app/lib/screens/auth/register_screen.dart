@@ -6,7 +6,7 @@ import '../../widgets/auth_button.dart';
 import '../../models/location_data.dart';
 import '../location/location_picker_screen.dart';
 import '../../services/registration_navigation_helper.dart';
-import 'package:pharmapp_shared/screens/auth/payment_method_screen.dart';
+import 'package:pharmapp_shared/screens/auth/country_payment_selection_screen.dart';
 import 'package:pharmapp_shared/models/payment_preferences.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -24,11 +24,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _pharmacyNameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
-  
+
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   bool _registrationInProgress = false; // 🔧 FIX: Add registration guard
-  
+
+  // 🌍 NEW: Two-step registration - Country FIRST, then pharmacy details
+  int _currentStep = 0; // 0 = Country/Payment Selection, 1 = Pharmacy Details
+
   PharmacyLocationData? _selectedLocationData;
   PaymentPreferences? _paymentPreferences;
 
@@ -62,14 +65,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  // Navigation to payment method screen
-  void _navigateToPaymentMethod() async {
+  // 🌍 STEP 1: Show country/payment selection FIRST
+  void _showCountrySelection() async {
     final result = await Navigator.of(context).push<PaymentPreferences>(
       MaterialPageRoute(
-        builder: (context) => PaymentMethodScreen(
-          title: 'Setup Payment Method',
-          subtitle: 'Choose your preferred mobile money operator for transactions',
-          allowSkip: true,
+        builder: (context) => CountryPaymentSelectionScreen(
+          title: 'Step 1: Select Your Country & Payment',
+          subtitle: 'This determines your currency, phone format, and payment operators',
+          allowSkip: false, // MUST select country first!
           onPaymentMethodSelected: (preferences) {
             _paymentPreferences = preferences;
             Navigator.of(context).pop(preferences);
@@ -77,11 +80,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
       ),
     );
-    
+
     if (result != null) {
-      _paymentPreferences = result;
-      // Now proceed with registration
-      _proceedWithRegistration();
+      setState(() {
+        _paymentPreferences = result;
+        _currentStep = 1; // Move to pharmacy details form
+      });
     }
   }
 
@@ -120,7 +124,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Create Account'),
+        title: Text(_currentStep == 0 ? 'Step 1: Select Country' : 'Step 2: Pharmacy Details'),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -145,7 +149,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               userName: state.user.pharmacyName,
               successColor: const Color(0xFF1976D2), // Pharmacy blue
             );
-            
+
             // Reset guard after navigation
             if (mounted) {
               setState(() {
@@ -156,6 +160,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
           }
         },
         builder: (context, state) {
+          // 🌍 STEP 0: Show country selection FIRST!
+          if (_currentStep == 0) {
+            return _buildCountrySelectionPrompt();
+          }
+
+          // STEP 1: Show pharmacy details form (after country selected)
           return SafeArea(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24.0),
@@ -422,13 +432,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     
                     const SizedBox(height: 32),
                     
-                    // Continue to Payment Method Button
+                    // Complete Registration Button
                     AuthButton(
-                      text: 'Continue',
+                      text: 'Complete Registration',
                       isLoading: state is AuthLoading,
                       onPressed: () {
                         if (_formKey.currentState!.validate()) {
-                          _navigateToPaymentMethod();
+                          _proceedWithRegistration();
                         }
                       },
                     ),
@@ -462,6 +472,137 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+
+  // 🌍 Build the country selection prompt (Step 0)
+  Widget _buildCountrySelectionPrompt() {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // Logo
+            Image.asset(
+              'assets/images/logo.png',
+              width: 150,
+              height: 150,
+            ),
+            const SizedBox(height: 32),
+
+            // Title
+            const Text(
+              'Welcome to PharmApp!',
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF1976D2),
+              ),
+              textAlign: TextAlign.center,
+            ),
+
+            const SizedBox(height: 16),
+
+            // Subtitle
+            Text(
+              'Let\'s start by selecting your country and payment method',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey[600],
+              ),
+              textAlign: TextAlign.center,
+            ),
+
+            const SizedBox(height: 48),
+
+            // Big button to select country
+            ElevatedButton.icon(
+              onPressed: _showCountrySelection,
+              icon: const Icon(Icons.public, size: 32),
+              label: const Text(
+                'Select Country & Payment Method',
+                style: TextStyle(fontSize: 18),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1976D2),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
+                minimumSize: const Size(double.infinity, 60),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            // Info card
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.blue[50],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.blue[200]!),
+              ),
+              child: Column(
+                children: [
+                  const Icon(
+                    Icons.info_outline,
+                    color: Color(0xFF1976D2),
+                    size: 40,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Why choose country first?',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Colors.blue[900],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '• Sets your currency (XAF, KES, NGN, etc.)\n'
+                    '• Shows correct phone format\n'
+                    '• Displays available payment operators\n'
+                    '• Helps group pharmacies by city/region',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.blue[800],
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 32),
+
+            // Sign In Link
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  "Already have an account? ",
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                  },
+                  child: const Text(
+                    'Sign In',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
