@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter --version)",
+      "Bash(flutter doctor -v)",
+      "Bash(firebase --version)",
+      "Bash(git --version)",
+      "Bash(node --version)",
+      "Bash(npm --version)",
+      "Bash(code --version)",
+      "Read(//c/Users/aebon/**)",
+      "Bash(powershell.exe -Command \"Get-Command flutter -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source\")",
+      "Read(//c//**)",
+      "Bash(export PATH=\"/c/tools/flutter/bin:$PATH\")",
+      "Bash(yes)",
+      "Bash(flutter doctor --android-licenses)",
+      "Bash(npm install -g firebase-tools)",
+      "Bash(dart pub global activate flutterfire_cli)",
+      "Bash(cat README.md)",
+      "Bash(git add BACKUP_VERIFICATION_REPORT.txt FLUTTER_BACKUP_README.txt FLUTTER_BACKUP_SUMMARY.txt POST_REBOOT_CHECKLIST.md QUICK_START_GUIDE.txt firebase-setup-instructions.txt flutter-version-backup.txt platform-tools-backup.txt pubspec-dependencies-backup.txt vscode-flutter-extensions.txt)",
+      "Bash(git add .claude/)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
