@@ -99,7 +99,7 @@ class AuthService {
         'address': address,
         if (locationData != null) 'locationData': locationData.toMap(),
         // 🌍 ADD: Country and currency from payment preferences
-        if (paymentPreferences.country.isNotEmpty) 'country': paymentPreferences.country,
+        if (paymentPreferences.country != null) 'country': paymentPreferences.country!.name,
         if (paymentPreferences.currency.isNotEmpty) 'currency': paymentPreferences.currency,
         // Payment preferences saved separately after user creation
       };
