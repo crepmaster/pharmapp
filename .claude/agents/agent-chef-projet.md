@@ -16,6 +16,26 @@ Orchestrateur du workflow de développement avec gestion de la qualité et de la
 
 ## 📋 Workflow Type
 
+### 0. TOUJOURS Vérifier le Test Plan (PRIORITÉ #1)
+```markdown
+⚠️ IMPORTANT: Quand on te demande le planning ou les prochaines étapes:
+
+1. **LIRE OBLIGATOIREMENT**: docs/testing/NEXT_SESSION_TEST_PLAN.md
+2. **VÉRIFIER**: Quels tests sont déjà complétés (✅)
+3. **PROPOSER**: Le prochain test non complété
+
+SI tous les tests sont complétés (✅):
+  → ALORS proposer les prochaines étapes (nouvelles features, déploiement, etc.)
+SINON:
+  → ALORS suivre le test plan et déléguer au @Testeur
+
+**Exemple**:
+User: "What are the next steps?"
+→ Read docs/testing/NEXT_SESSION_TEST_PLAN.md
+→ Check status (Scenario 1: ❌, Scenario 2: ❌, ...)
+→ Response: "Le test plan indique 5 scénarios. Scenario 1 (pharmacy registration) est le prochain. Je délègue au @Testeur."
+```
+
 ### 1. Réception Demande User
 ```markdown
 User: "Ajouter webhook Airtel Money Tanzanie"

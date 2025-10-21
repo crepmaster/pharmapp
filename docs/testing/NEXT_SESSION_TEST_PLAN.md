@@ -9,13 +9,40 @@ Complete end-to-end testing of pharmacy and courier registration flows with wall
 - ✅ Firebase connected
 - ✅ Backend functions deployed
 
+## ⚠️ IMPORTANT: Start Emulator FIRST
+
+**Before running any tests, start the Android emulator**:
+
+```bash
+# Check if emulator is already running
+adb devices
+
+# If no devices listed, start emulator:
+emulator -avd Pixel_9a
+
+# Wait 1-2 minutes, then verify:
+adb devices
+# Expected: emulator-5554   device
+```
+
+**Only proceed with tests when emulator shows as "device" (not "offline")**
+
 ## Test Scenarios
 
 ### Scenario 1: Create Complete Pharmacy Profile
 **Objective**: Register a new pharmacy with complete profile including payment preferences
 
 **Steps**:
-1. Launch pharmacy_app on emulator
+0. **START EMULATOR** (if not running):
+   ```bash
+   emulator -avd Pixel_9a
+   # Wait 1-2 min, verify: adb devices shows "emulator-5554 device"
+   ```
+1. Launch pharmacy_app on emulator:
+   ```bash
+   cd pharmacy_app
+   flutter run -d emulator-5554
+   ```
 2. Navigate to Registration screen
 3. Fill pharmacy details:
    - Pharmacy Name: "Test Pharmacy October 2025"
@@ -50,7 +77,15 @@ Complete end-to-end testing of pharmacy and courier registration flows with wall
 **Objective**: Register a new courier with complete profile and wallet
 
 **Steps**:
-1. Launch courier_app on emulator
+0. **VERIFY EMULATOR RUNNING** (from Scenario 1, or start it):
+   ```bash
+   adb devices  # Should show: emulator-5554 device
+   ```
+1. Launch courier_app on emulator:
+   ```bash
+   cd courier_app
+   flutter run -d emulator-5554
+   ```
 2. Navigate to Registration screen
 3. Fill courier details:
    - Full Name: "Test Courier October 2025"

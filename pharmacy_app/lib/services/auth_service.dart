@@ -86,6 +86,7 @@ class AuthService {
     required String pharmacyName,
     required String phoneNumber,
     required String address,
+    String? city,
     PharmacyLocationData? locationData,
     required PaymentPreferences paymentPreferences,
   }) async {
@@ -97,6 +98,7 @@ class AuthService {
         'pharmacyName': pharmacyName,
         'phoneNumber': phoneNumber,
         'address': address,
+        if (city != null && city.isNotEmpty) 'city': city,
         if (locationData != null) 'locationData': locationData.toMap(),
         // 🌍 ADD: Country and currency from payment preferences
         if (paymentPreferences.country != null) 'country': paymentPreferences.country!.name,

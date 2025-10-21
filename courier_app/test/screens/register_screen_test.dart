@@ -4,30 +4,26 @@ import 'package:pharmapp_shared/models/country_config.dart';
 
 void main() {
   group('Phone Storage Tests - Courier App', () {
-    test('RegisterScreen accepts city parameter', () {
+    test('RegisterScreen accepts country and city parameters', () {
       // Verify the widget accepts the required parameters
-      final screen = RegisterScreen(
+      const screen = RegisterScreen(
         selectedCountry: Country.cameroon,
         selectedCity: 'Douala',
-        selectedOperator: PaymentOperator.mtnCameroon,
       );
 
       expect(screen.selectedCountry, Country.cameroon);
       expect(screen.selectedCity, 'Douala');
-      expect(screen.selectedOperator, PaymentOperator.mtnCameroon);
     });
 
     test('RegisterScreen can be created with null city', () {
       // Verify optional parameters work
-      final screen = RegisterScreen(
+      const screen = RegisterScreen(
         selectedCountry: Country.cameroon,
         selectedCity: null,
-        selectedOperator: null,
       );
 
       expect(screen.selectedCountry, Country.cameroon);
       expect(screen.selectedCity, isNull);
-      expect(screen.selectedOperator, isNull);
     });
 
     test('RegisterScreen can be created with no parameters', () {
@@ -36,7 +32,6 @@ void main() {
 
       expect(screen.selectedCountry, isNull);
       expect(screen.selectedCity, isNull);
-      expect(screen.selectedOperator, isNull);
     });
   });
 

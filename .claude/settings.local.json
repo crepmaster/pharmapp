@@ -104,7 +104,12 @@
       "Bash(flutter pub get)",
       "Bash(flutter run -d emulator-5554)",
       "Bash(systeminfo)",
-      "Bash(findstr /C:\"Hyper-V\")"
+      "Bash(findstr /C:\"Hyper-V\")",
+      "Bash(tree -L 2 docs/testing/)",
+      "Bash(flutterfire configure:*)",
+      "Bash(where:*)",
+      "Bash(tree:*)",
+      "Bash(awk:*)"
     ],
     "deny": [],
     "ask": []

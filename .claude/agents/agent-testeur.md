@@ -27,9 +27,12 @@ cat code_explanation.md
 ```
 
 ### Fichiers à Créer APRÈS Testing
-**OBLIGATOIRE**:
-1. `test_proof_report.md` - Rapport complet avec TOUTES les preuves
-2. `test_feedback.md` - Feedback pour les autres agents
+**OBLIGATOIRE** - **TOUJOURS dans docs/testing/**:
+1. `docs/testing/test_proof_report.md` - Rapport complet avec TOUTES les preuves
+2. `docs/testing/test_feedback.md` - Feedback pour les autres agents
+3. `docs/testing/SESSION_[DATE]_RESULTS.md` - Résultats de session (si applicable)
+
+**IMPORTANT**: TOUS les rapports de test doivent être créés dans `docs/testing/`, JAMAIS à la racine du projet.
 
 ## 📋 ÉTAPE 1: Planification des Tests
 
@@ -69,48 +72,57 @@ cat code_explanation.md
 
 ### Pour Unit Tests
 ```bash
-# Exécuter et capturer
+# Exécuter et capturer - TOUJOURS dans docs/testing/evidence/
 cd functions
-npm test > ../test_proofs/unit_test_output.txt 2>&1
-echo "Exit code: $?" >> ../test_proofs/unit_test_output.txt
+mkdir -p ../docs/testing/evidence
+npm test > ../docs/testing/evidence/unit_test_output.txt 2>&1
+echo "Exit code: $?" >> ../docs/testing/evidence/unit_test_output.txt
 
 # Coverage
-npm run test:coverage > ../test_proofs/coverage_report.txt
+npm run test:coverage > ../docs/testing/evidence/coverage_report.txt
 ```
+
+**RÈGLE**: Tous les fichiers de preuve (logs, outputs, screenshots) vont dans `docs/testing/evidence/`
 
 ### Pour Webhook Tests
 ```bash
+# Créer le répertoire de preuves
+mkdir -p docs/testing/evidence
+
 # État AVANT
 curl -s "http://127.0.0.1:8080/v1/.../wallets/user123" \
-  | jq '.' > test_proofs/wallet_before.json
+  | jq '.' > docs/testing/evidence/wallet_before.json
 
 # Test webhook
 curl -X POST http://localhost:5001/.../momoWebhook \
   -H "Content-Type: application/json" \
   -H "X-Callback-Token: $MOMO_TOKEN" \
   -d @test_payload.json \
-  > test_proofs/webhook_response.txt 2>&1
+  > docs/testing/evidence/webhook_response.txt 2>&1
 
 # État APRÈS
 curl -s "http://127.0.0.1:8080/v1/.../wallets/user123" \
-  | jq '.' > test_proofs/wallet_after.json
+  | jq '.' > docs/testing/evidence/wallet_after.json
 
 # Diff
-diff test_proofs/wallet_before.json test_proofs/wallet_after.json \
-  > test_proofs/wallet_diff.txt
+diff docs/testing/evidence/wallet_before.json docs/testing/evidence/wallet_after.json \
+  > docs/testing/evidence/wallet_diff.txt
 ```
 
 ### Pour E2E Tests
 ```bash
-# Screenshot à chaque étape
+# Créer le répertoire de preuves
+mkdir -p docs/testing/evidence/screenshots
+
+# Screenshot à chaque étape - sauvegarder dans docs/testing/evidence/screenshots/
 # [Capture manuelle ou automatisée]
 
 # État Firebase après chaque action
 curl -s "http://127.0.0.1:8080/v1/.../pharmacies/user123" \
-  | jq '.' > test_proofs/e2e_step1_pharmacy.json
+  | jq '.' > docs/testing/evidence/e2e_step1_pharmacy.json
 
 curl -s "http://127.0.0.1:8080/v1/.../wallets/user123" \
-  | jq '.' > test_proofs/e2e_step1_wallet.json
+  | jq '.' > docs/testing/evidence/e2e_step1_wallet.json
 ```
 
 ## 📊 ÉTAPE 3: Vérifications Firebase Obligatoires
@@ -154,7 +166,7 @@ curl -s "http://127.0.0.1:8080/v1/.../exchanges/{exchangeId}" \
 
 ## 📝 ÉTAPE 4: Création du Test Proof Report
 
-Créer `test_proof_report.md`:
+**IMPORTANT**: Créer `docs/testing/test_proof_report.md` (PAS à la racine!):
 
 ```markdown
 # Test Proof Report - [Feature] - [Date]
@@ -316,7 +328,7 @@ AUCUN ✅
 
 ## 📋 ÉTAPE 5: Création du Test Feedback
 
-Créer `test_feedback.md`:
+**IMPORTANT**: Créer `docs/testing/test_feedback.md` (PAS à la racine!):
 
 ```markdown
 # Test Feedback - [Feature] - [Date]
@@ -355,7 +367,7 @@ Créer `test_feedback.md`:
 AUCUNE nouvelle erreur à documenter ✅
 
 ## Preuves Archivées
-`test_proofs/2025-10-20_15h30/` (250 MB)
+`docs/testing/evidence/2025-10-20_15h30/` (250 MB)
 - 15 test outputs
 - 30 Firebase states
 - 10 diffs
@@ -370,10 +382,11 @@ Avant de dire "tests passés":
 - [ ] J'ai vérifié Firebase AVANT et APRÈS chaque test
 - [ ] J'ai créé un diff pour chaque modification de state
 - [ ] J'ai capturé les logs applicatifs
-- [ ] J'ai créé `test_proof_report.md` avec TOUTES les preuves
-- [ ] J'ai créé `test_feedback.md` pour les autres agents
-- [ ] Tous les fichiers sont dans `test_proofs/{test_run_id}/`
+- [ ] J'ai créé `docs/testing/test_proof_report.md` avec TOUTES les preuves
+- [ ] J'ai créé `docs/testing/test_feedback.md` pour les autres agents
+- [ ] Tous les fichiers de preuve sont dans `docs/testing/evidence/{test_run_id}/`
 - [ ] Je peux reproduire chaque test en suivant mes instructions
+- [ ] AUCUN fichier de test à la racine du projet
 
 ## 🚫 Erreurs à Éviter
 
@@ -419,6 +432,50 @@ Avant de dire "tests passés":
 
 ---
 
-**EN RÉSUMÉ**: Consulte `test_requirements.md` pour standards, exécute TOUS les tests avec capture de preuves, vérifie Firebase systématiquement, crée `test_proof_report.md` (détaillé avec preuves) et `test_feedback.md` (feedback pour agents).
+---
+
+## 📁 RÈGLES DE GESTION DES FICHIERS (CRITIQUE)
+
+### Emplacement des Fichiers - OBLIGATOIRE
+
+**TOUJOURS créer dans `docs/testing/`**:
+- ✅ `docs/testing/test_proof_report.md` - Rapport principal
+- ✅ `docs/testing/test_feedback.md` - Feedback pour agents
+- ✅ `docs/testing/SESSION_[DATE]_RESULTS.md` - Résultats de session
+- ✅ `docs/testing/evidence/` - Tous les fichiers de preuve (logs, JSON, screenshots)
+- ✅ `docs/testing/evidence/screenshots/` - Captures d'écran
+- ✅ `docs/testing/evidence/[test_run_id]/` - Preuves organisées par session
+
+**JAMAIS créer à la racine du projet**:
+- ❌ `test_proof_report.md` (racine)
+- ❌ `test_feedback.md` (racine)
+- ❌ `test_proofs/` (racine)
+- ❌ `test_evidence/` (racine)
+
+### Structure Recommandée
+```
+docs/testing/
+├── test_proof_report.md          # Rapport actuel
+├── test_feedback.md              # Feedback actuel
+├── SESSION_2025-10-21_RESULTS.md # Résultats de session
+├── NEXT_SESSION_TEST_PLAN.md     # Plan de test
+├── evidence/                     # Tous les fichiers de preuve
+│   ├── 2025-10-21_scenario1/     # Session actuelle
+│   │   ├── app_launch.log
+│   │   ├── wallet_before.json
+│   │   ├── wallet_after.json
+│   │   └── screenshots/
+│   │       ├── 01_registration.png
+│   │       ├── 02_firebase_auth.png
+│   │       └── ...
+│   └── 2025-10-20_previous/      # Sessions précédentes
+└── archive/                      # Tests archivés
+```
+
+**RAPPEL**: Avant de créer un fichier, TOUJOURS vérifier que le chemin commence par `docs/testing/`
+
+---
+
+**EN RÉSUMÉ**: Consulte `test_requirements.md` pour standards, exécute TOUS les tests avec capture de preuves dans `docs/testing/evidence/`, vérifie Firebase systématiquement, crée `docs/testing/test_proof_report.md` (détaillé avec preuves) et `docs/testing/test_feedback.md` (feedback pour agents).
 
 Voir docs/agent_knowledge/test_requirements.md pour détails complets.

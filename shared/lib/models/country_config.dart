@@ -49,6 +49,7 @@ class CountryConfig {
   final String currencySymbol; // e.g., "FCFA"
   final List<PaymentOperator> availableOperators;
   final Map<PaymentOperator, OperatorConfig> operatorConfigs;
+  final List<String> majorCities; // Major cities for geographic grouping
 
   const CountryConfig({
     required this.country,
@@ -58,6 +59,7 @@ class CountryConfig {
     required this.currencySymbol,
     required this.availableOperators,
     required this.operatorConfigs,
+    required this.majorCities,
   });
 
   /// Get operator config by operator
@@ -148,6 +150,18 @@ class Countries {
       PaymentOperator.mtnCameroon,
       PaymentOperator.orangeCameroon,
     ],
+    majorCities: [
+      'Douala',
+      'Yaoundé',
+      'Bafoussam',
+      'Bamenda',
+      'Garoua',
+      'Maroua',
+      'Ngaoundéré',
+      'Bertoua',
+      'Kumba',
+      'Limbe',
+    ],
     operatorConfigs: {
       PaymentOperator.mtnCameroon: OperatorConfig(
         operator: PaymentOperator.mtnCameroon,
@@ -182,6 +196,13 @@ class Countries {
     availableOperators: [
       PaymentOperator.mpesaKenya,
       PaymentOperator.airtelKenya,
+    ],
+    majorCities: [
+      'Nairobi',
+      'Mombasa',
+      'Kisumu',
+      'Nakuru',
+      'Eldoret',
     ],
     operatorConfigs: {
       PaymentOperator.mpesaKenya: OperatorConfig(
@@ -218,6 +239,13 @@ class Countries {
       PaymentOperator.mpesaTanzania,
       PaymentOperator.tigoTanzania,
       PaymentOperator.airtelTanzania,
+    ],
+    majorCities: [
+      'Dar es Salaam',
+      'Dodoma',
+      'Mwanza',
+      'Arusha',
+      'Mbeya',
     ],
     operatorConfigs: {
       PaymentOperator.mpesaTanzania: OperatorConfig(
@@ -264,6 +292,13 @@ class Countries {
       PaymentOperator.mtnUganda,
       PaymentOperator.airtelUganda,
     ],
+    majorCities: [
+      'Kampala',
+      'Gulu',
+      'Lira',
+      'Mbarara',
+      'Jinja',
+    ],
     operatorConfigs: {
       PaymentOperator.mtnUganda: OperatorConfig(
         operator: PaymentOperator.mtnUganda,
@@ -300,6 +335,13 @@ class Countries {
       PaymentOperator.airtelNigeria,
       PaymentOperator.gloNigeria,
       PaymentOperator.nineMobile,
+    ],
+    majorCities: [
+      'Lagos',
+      'Abuja',
+      'Kano',
+      'Ibadan',
+      'Port Harcourt',
     ],
     operatorConfigs: {
       PaymentOperator.mtnNigeria: OperatorConfig(

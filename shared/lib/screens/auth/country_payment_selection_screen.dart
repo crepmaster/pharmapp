@@ -10,7 +10,6 @@
 /// - Encrypted payment preferences creation
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../models/country_config.dart';
 import '../../models/payment_preferences.dart';
 
@@ -18,14 +17,16 @@ class CountryPaymentSelectionScreen extends StatefulWidget {
   final String title;
   final String subtitle;
   final bool allowSkip;
-  final Function(PaymentPreferences) onPaymentMethodSelected;
+  final Function(PaymentPreferences)? onPaymentMethodSelected;
+  final Widget Function(Country selectedCountry, String selectedCity)? registrationScreenBuilder;
 
   const CountryPaymentSelectionScreen({
     super.key,
     required this.title,
     required this.subtitle,
     this.allowSkip = false,
-    required this.onPaymentMethodSelected,
+    this.onPaymentMethodSelected,
+    this.registrationScreenBuilder,
   });
 
   @override
@@ -36,12 +37,10 @@ class CountryPaymentSelectionScreen extends StatefulWidget {
 class _CountryPaymentSelectionScreenState
     extends State<CountryPaymentSelectionScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _phoneController = TextEditingController();
 
   Country? _selectedCountry;
   CountryConfig? _countryConfig;
-  PaymentOperator? _selectedOperator;
-  OperatorConfig? _operatorConfig;
+  String? _selectedCity;
   bool _isLoading = false;
 
   @override
@@ -53,7 +52,6 @@ class _CountryPaymentSelectionScreenState
 
   @override
   void dispose() {
-    _phoneController.dispose();
     super.dispose();
   }
 
@@ -61,26 +59,8 @@ class _CountryPaymentSelectionScreenState
     setState(() {
       _selectedCountry = country;
       _countryConfig = Countries.getByCountry(country);
-      _selectedOperator = null; // Reset operator when country changes
-      _operatorConfig = null;
-      _phoneController.clear(); // Clear phone when country changes
+      _selectedCity = null; // Reset city when country changes
     });
-  }
-
-  void _selectOperator(PaymentOperator operator) {
-    setState(() {
-      _selectedOperator = operator;
-      _operatorConfig = _countryConfig?.getOperatorConfig(operator);
-    });
-  }
-
-  /// Safe color parser to prevent runtime crashes from malformed hex colors
-  Color _parseColor(String hexColor, Color fallback) {
-    try {
-      return Color(int.parse(hexColor.replaceFirst('#', '0xFF')));
-    } catch (e) {
-      return fallback;
-    }
   }
 
   Future<void> _submit() async {
@@ -88,11 +68,11 @@ class _CountryPaymentSelectionScreenState
       return;
     }
 
-    if (_selectedCountry == null || _selectedOperator == null) {
-      if (!mounted) return; // ✅ FIX: Add mounted check
+    if (_selectedCountry == null || _selectedCity == null) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please select a country and payment operator'),
+          content: Text('Please select a country and city'),
           backgroundColor: Colors.red,
         ),
       );
@@ -104,45 +84,25 @@ class _CountryPaymentSelectionScreenState
     });
 
     try {
-      // ✅ FIX: Sanitize input to remove non-digits (except +)
-      final phoneNumber = _phoneController.text
-          .trim()
-          .replaceAll(RegExp(r'[^\d+]'), '');
-
-      // Validate phone number
-      if (_countryConfig != null && _selectedOperator != null) {
-        if (!_countryConfig!.isValidPhoneNumber(phoneNumber, _selectedOperator!)) {
-          if (!mounted) return; // ✅ FIX: Add mounted check
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                  'Invalid ${_operatorConfig?.displayName ?? "selected operator"} number. '
-                  'Must start with: ${_operatorConfig?.validPrefixes.take(3).join(", ")}...'),
-              backgroundColor: Colors.red,
+      // Navigate to registration screen with country and city only
+      if (widget.registrationScreenBuilder != null) {
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (context) => widget.registrationScreenBuilder!(
+              _selectedCountry!,
+              _selectedCity!,
             ),
-          );
-          if (mounted) {
-            setState(() {
-              _isLoading = false;
-            });
-          }
-          return;
-        }
+          ),
+        );
+        return;
       }
 
-      // Create secure payment preferences
-      final preferences = PaymentPreferences.createSecure(
-        method: _selectedOperator!.toString().split('.').last,
-        phoneNumber: phoneNumber,
-        country: _selectedCountry,
-        operator: _selectedOperator,
-        isSetupComplete: true,
-      );
-
-      if (!mounted) return; // ✅ FIX: Add mounted check before callback
-      widget.onPaymentMethodSelected(preferences);
+      // Legacy pattern: Create empty payment preferences
+      if (!mounted) return;
+      widget.onPaymentMethodSelected!(PaymentPreferences.empty());
     } catch (e) {
-      if (!mounted) return; // ✅ FIX: Add mounted check
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error: ${e.toString()}'),
@@ -198,30 +158,20 @@ class _CountryPaymentSelectionScreenState
                   const SizedBox(height: 24),
                 ],
 
-                // Payment Operator Selection
+                // City Selection (appears after country selection)
                 if (_countryConfig != null) ...[
-                  _buildSectionHeader('Select Payment Method'),
+                  _buildSectionHeader('Select Your City'),
                   const SizedBox(height: 16),
-                  _buildOperatorsList(),
+                  _buildCityDropdown(),
                   const SizedBox(height: 24),
                 ],
 
-                // Phone Number Input
-                if (_selectedOperator != null) ...[
-                  _buildSectionHeader('Enter Mobile Money Number'),
-                  const SizedBox(height: 16),
-                  _buildPhoneNumberInput(),
-                  const SizedBox(height: 32),
-                ],
-
-                // Submit Button
-                if (_selectedOperator != null)
+                // Submit Button (appears after city selection)
+                if (_selectedCity != null)
                   ElevatedButton(
                     onPressed: _isLoading ? null : _submit,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: _operatorConfig != null
-                          ? _parseColor(_operatorConfig!.primaryColor, Theme.of(context).primaryColor)
-                          : Theme.of(context).primaryColor,
+                      backgroundColor: Theme.of(context).primaryColor,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.all(16),
                       minimumSize: const Size(double.infinity, 56),
@@ -229,7 +179,7 @@ class _CountryPaymentSelectionScreenState
                     child: _isLoading
                         ? const CircularProgressIndicator(color: Colors.white)
                         : const Text(
-                            'Continue',
+                            'Continue to Registration',
                             style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
@@ -242,7 +192,9 @@ class _CountryPaymentSelectionScreenState
                   const SizedBox(height: 16),
                   TextButton(
                     onPressed: () {
-                      widget.onPaymentMethodSelected(PaymentPreferences.empty());
+                      if (widget.onPaymentMethodSelected != null) {
+                        widget.onPaymentMethodSelected!(PaymentPreferences.empty());
+                      }
                     },
                     child: const Text('Skip for now'),
                   ),
@@ -370,174 +322,44 @@ class _CountryPaymentSelectionScreenState
     );
   }
 
-  Widget _buildOperatorsList() {
-    return Column(
-      children: _countryConfig!.availableOperators.map((operator) {
-        final config = _countryConfig!.getOperatorConfig(operator);
-        if (config == null) return const SizedBox.shrink();
-
-        final isSelected = _selectedOperator == operator;
-
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          child: InkWell(
-            onTap: () => _selectOperator(operator),
-            child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                border: Border.all(
-                  color: isSelected
-                      ? _parseColor(config.primaryColor, Theme.of(context).primaryColor)
-                      : Colors.grey[300]!,
-                  width: isSelected ? 2 : 1,
-                ),
-                borderRadius: BorderRadius.circular(12),
-                color: isSelected
-                    ? _parseColor(config.primaryColor, Theme.of(context).primaryColor)
-                        .withValues(alpha: 0.1)
-                    : Colors.white,
-              ),
-              child: Row(
-                children: [
-                  // Icon placeholder (you can add actual logos later)
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: _parseColor(config.primaryColor, Colors.grey)
-                          .withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Center(
-                      child: Text(
-                        config.name.substring(0, 1),
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: _parseColor(config.primaryColor, Colors.grey),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          config.displayName,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: isSelected
-                                ? _parseColor(config.primaryColor, Theme.of(context).primaryColor)
-                                : Colors.black,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Prefixes: ${config.validPrefixes.take(3).join(", ")}...',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (isSelected)
-                    Icon(
-                      Icons.check_circle,
-                      color: _parseColor(config.primaryColor, Theme.of(context).primaryColor),
-                      size: 28,
-                    ),
-                ],
-              ),
-            ),
-          ),
+  Widget _buildCityDropdown() {
+    return DropdownButtonFormField<String>(
+      initialValue: _selectedCity,
+      decoration: InputDecoration(
+        labelText: 'City',
+        hintText: 'Select your city',
+        prefixIcon: const Icon(Icons.location_city),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.grey.shade300),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Theme.of(context).primaryColor, width: 2),
+        ),
+        filled: true,
+        fillColor: Colors.white,
+      ),
+      items: _countryConfig!.majorCities.map((city) {
+        return DropdownMenuItem<String>(
+          value: city,
+          child: Text(city),
         );
       }).toList(),
-    );
-  }
-
-  Widget _buildPhoneNumberInput() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.grey[100],
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Enter number starting with: ${_operatorConfig?.validPrefixes.take(3).join(", ") ?? "valid prefixes"}',  // ✅ FIX CRIT-004: Null-safety check
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[700],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            // Country code prefix
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
-              decoration: BoxDecoration(
-                color: Colors.grey[200],
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey[300]!),
-              ),
-              child: Text(
-                '+${_countryConfig!.countryCode}',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            // Phone number input
-            Expanded(
-              child: TextFormField(
-                controller: _phoneController,
-                keyboardType: TextInputType.phone,
-                inputFormatters: [
-                  FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(_operatorConfig!.maxLength),
-                ],
-                decoration: InputDecoration(
-                  hintText: 'Mobile number',
-                  prefixIcon: const Icon(Icons.phone),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  filled: true,
-                  fillColor: Colors.white,
-                ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter phone number';
-                  }
-                  if (!_operatorConfig!.isValidLocalNumber(value)) {
-                    return 'Invalid number for ${_operatorConfig!.displayName}';
-                  }
-                  return null;
-                },
-              ),
-            ),
-          ],
-        ),
-      ],
+      onChanged: (value) {
+        setState(() {
+          _selectedCity = value;
+        });
+      },
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return 'Please select your city';
+        }
+        return null;
+      },
     );
   }
 

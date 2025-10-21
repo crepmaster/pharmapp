@@ -8,9 +8,17 @@ import '../location/location_picker_screen.dart';
 import '../../services/registration_navigation_helper.dart';
 import 'package:pharmapp_shared/screens/auth/country_payment_selection_screen.dart';
 import 'package:pharmapp_shared/models/payment_preferences.dart';
+import 'package:pharmapp_shared/models/country_config.dart';
 
 class RegisterScreen extends StatefulWidget {
-  const RegisterScreen({super.key});
+  final Country? selectedCountry;
+  final String? selectedCity;
+
+  const RegisterScreen({
+    super.key,
+    this.selectedCountry,
+    this.selectedCity,
+  });
 
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
@@ -24,16 +32,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _pharmacyNameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
+  final _paymentPhoneController = TextEditingController();
 
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   bool _registrationInProgress = false; // 🔧 FIX: Add registration guard
-
-  // 🌍 NEW: Two-step registration - Country FIRST, then pharmacy details
-  int _currentStep = 0; // 0 = Country/Payment Selection, 1 = Pharmacy Details
+  bool _useDifferentPaymentPhone = false;
+  PaymentOperator? _selectedPaymentOperator;
 
   PharmacyLocationData? _selectedLocationData;
-  PaymentPreferences? _paymentPreferences;
 
   @override
   void dispose() {
@@ -43,6 +50,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _pharmacyNameController.dispose();
     _phoneController.dispose();
     _addressController.dispose();
+    _paymentPhoneController.dispose();
     super.dispose();
   }
 
@@ -57,7 +65,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
       ),
     );
-    
+
     if (result != null) {
       setState(() {
         _selectedLocationData = result;
@@ -65,28 +73,62 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  // 🌍 STEP 1: Show country/payment selection FIRST
-  void _showCountrySelection() async {
-    final result = await Navigator.of(context).push<PaymentPreferences>(
+  // Payment helper methods
+  List<PaymentOperator> _getAvailableOperators() {
+    if (widget.selectedCountry == null) return [];
+
+    final countryConfig = Countries.getByCountry(widget.selectedCountry!);
+    return countryConfig?.availableOperators ?? [];
+  }
+
+  IconData _getOperatorIcon(PaymentOperator operator) {
+    switch (operator) {
+      case PaymentOperator.mtnCameroon:
+      case PaymentOperator.mtnUganda:
+      case PaymentOperator.mtnNigeria:
+        return Icons.phone_android;
+      case PaymentOperator.orangeCameroon:
+        return Icons.phone_iphone;
+      case PaymentOperator.mpesaKenya:
+      case PaymentOperator.mpesaTanzania:
+        return Icons.account_balance_wallet;
+      case PaymentOperator.airtelKenya:
+      case PaymentOperator.airtelTanzania:
+      case PaymentOperator.airtelUganda:
+      case PaymentOperator.airtelNigeria:
+        return Icons.mobile_friendly;
+      case PaymentOperator.tigoTanzania:
+        return Icons.payment;
+      case PaymentOperator.gloNigeria:
+      case PaymentOperator.nineMobile:
+        return Icons.smartphone;
+    }
+  }
+
+  String _getOperatorDisplayName(PaymentOperator operator) {
+    final countryConfig = Countries.getByCountry(widget.selectedCountry!);
+    final operatorConfig = countryConfig?.getOperatorConfig(operator);
+    return operatorConfig?.displayName ?? operator.toString().split('.').last;
+  }
+
+  // 🌍 STEP 1: Show country/city selection FIRST
+  void _showCountrySelection() {
+    Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => CountryPaymentSelectionScreen(
-          title: 'Step 1: Select Your Country & Payment',
-          subtitle: 'This determines your currency, phone format, and payment operators',
-          allowSkip: false, // MUST select country first!
-          onPaymentMethodSelected: (preferences) {
-            _paymentPreferences = preferences;
-            Navigator.of(context).pop(preferences);
+          title: 'Step 1: Select Your Location',
+          subtitle: 'Choose your country and city',
+          allowSkip: false,
+          registrationScreenBuilder: (selectedCountry, selectedCity) {
+            // Navigate to registration form with country and city
+            return RegisterScreen(
+              selectedCountry: selectedCountry,
+              selectedCity: selectedCity,
+            );
           },
         ),
       ),
     );
-
-    if (result != null) {
-      setState(() {
-        _paymentPreferences = result;
-        _currentStep = 1; // Move to pharmacy details form
-      });
-    }
   }
 
   // Complete registration with payment preferences
@@ -106,7 +148,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
     
     print('🚀 REG: Proceeding with registration, guard set to true');
-    
+
+    // Determine payment phone number
+    final paymentPhone = _useDifferentPaymentPhone
+        ? _paymentPhoneController.text.trim()
+        : _phoneController.text.trim();
+
+    // Create payment preferences with phone from registration form
+    final paymentPreferences = _selectedPaymentOperator != null
+        ? PaymentPreferences.createSecure(
+            method: _selectedPaymentOperator!.toString().split('.').last,
+            phoneNumber: paymentPhone,
+            country: widget.selectedCountry,
+            operator: _selectedPaymentOperator,
+            isSetupComplete: true,
+          )
+        : PaymentPreferences.empty();
+
     context.read<AuthBloc>().add(
       AuthSignUpWithPaymentPreferences(
         email: _emailController.text.trim(),
@@ -114,17 +172,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
         pharmacyName: _pharmacyNameController.text.trim(),
         phoneNumber: _phoneController.text.trim(),
         address: _addressController.text.trim(),
+        city: widget.selectedCity,
         locationData: _selectedLocationData,
-        paymentPreferences: _paymentPreferences ?? PaymentPreferences.empty(),
+        paymentPreferences: paymentPreferences,
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    // If no country/city selected yet, show country selection prompt
+    final bool hasCountryAndCity = widget.selectedCountry != null && widget.selectedCity != null;
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(_currentStep == 0 ? 'Step 1: Select Country' : 'Step 2: Pharmacy Details'),
+        title: Text(hasCountryAndCity ? 'Step 2: Pharmacy Details' : 'Step 1: Select Country'),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -160,12 +222,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
           }
         },
         builder: (context, state) {
-          // 🌍 STEP 0: Show country selection FIRST!
-          if (_currentStep == 0) {
+          // Show country selection prompt if no country/city selected
+          if (!hasCountryAndCity) {
             return _buildCountrySelectionPrompt();
           }
 
-          // STEP 1: Show pharmacy details form (after country selected)
+          // Show pharmacy details form (after country and city selected)
           return SafeArea(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24.0),
@@ -371,9 +433,121 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         ],
                       ),
                     ),
-                    
+
+                    const SizedBox(height: 32),
+
+                    // Payment Information Section
+                    Row(
+                      children: [
+                        Icon(Icons.payment, color: Theme.of(context).primaryColor),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Payment Information',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).primaryColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Select how you want to receive payments',
+                      style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                    ),
                     const SizedBox(height: 16),
-                    
+
+                    // Payment Operator Dropdown
+                    DropdownButtonFormField<PaymentOperator>(
+                      initialValue: _selectedPaymentOperator,
+                      decoration: InputDecoration(
+                        labelText: 'Payment Method',
+                        hintText: 'Select payment operator',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        prefixIcon: const Icon(Icons.account_balance_wallet),
+                        filled: true,
+                        fillColor: Colors.grey.shade50,
+                      ),
+                      items: _getAvailableOperators().map((operator) {
+                        return DropdownMenuItem(
+                          value: operator,
+                          child: Row(
+                            children: [
+                              Icon(_getOperatorIcon(operator), size: 20),
+                              const SizedBox(width: 8),
+                              Text(_getOperatorDisplayName(operator)),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (value) {
+                        setState(() {
+                          _selectedPaymentOperator = value;
+                        });
+                      },
+                      validator: (value) {
+                        if (value == null) {
+                          return 'Please select a payment method';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Payment Phone Info
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blue.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Your phone number above will be used for payments',
+                              style: TextStyle(fontSize: 13, color: Colors.blue.shade900),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Optional: Different Payment Phone
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Use a different phone number for payments'),
+                      value: _useDifferentPaymentPhone,
+                      onChanged: (value) {
+                        setState(() {
+                          _useDifferentPaymentPhone = value ?? false;
+                        });
+                      },
+                    ),
+
+                    if (_useDifferentPaymentPhone) ...[
+                      const SizedBox(height: 8),
+                      AuthTextField(
+                        controller: _paymentPhoneController,
+                        label: 'Payment Phone Number',
+                        keyboardType: TextInputType.phone,
+                        prefixIcon: Icons.phone,
+                        validator: (value) {
+                          if (_useDifferentPaymentPhone && (value == null || value.isEmpty)) {
+                            return 'Please enter payment phone number';
+                          }
+                          return null;
+                        },
+                      ),
+                    ],
+
+                    const SizedBox(height: 16),
+
                     // Password
                     AuthTextField(
                       controller: _passwordController,

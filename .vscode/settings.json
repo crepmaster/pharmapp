@@ -1,0 +1,7 @@
+{
+  "dart.flutterSdkPath": "C:\\flutter",
+  "android.sdk.path": "C:\\Users\\aebon\\AppData\\Local\\Android\\Sdk",
+  "dart.flutterAdditionalArgs": [
+    "--no-sound-null-safety"
+  ]
+}

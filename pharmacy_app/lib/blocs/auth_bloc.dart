@@ -55,6 +55,7 @@ class AuthSignUpWithPaymentPreferences extends AuthEvent {
   final String pharmacyName;
   final String phoneNumber;
   final String address;
+  final String? city;
   final PharmacyLocationData? locationData;
   final PaymentPreferences paymentPreferences;
 
@@ -64,6 +65,7 @@ class AuthSignUpWithPaymentPreferences extends AuthEvent {
     required this.pharmacyName,
     required this.phoneNumber,
     required this.address,
+    this.city,
     this.locationData,
     required this.paymentPreferences,
   });
@@ -248,6 +250,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         pharmacyName: event.pharmacyName,
         phoneNumber: event.phoneNumber,
         address: event.address,
+        city: event.city,
         locationData: event.locationData,
         paymentPreferences: event.paymentPreferences,
       );
