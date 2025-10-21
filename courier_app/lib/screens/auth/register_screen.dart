@@ -4,11 +4,20 @@ import '../../blocs/auth_bloc.dart';
 import '../../widgets/auth_text_field.dart';
 import '../../widgets/auth_button.dart';
 import '../../services/registration_navigation_helper.dart';
-import 'package:pharmapp_shared/screens/auth/payment_method_screen.dart';
 import 'package:pharmapp_shared/models/payment_preferences.dart';
+import 'package:pharmapp_shared/models/country_config.dart';
 
 class RegisterScreen extends StatefulWidget {
-  const RegisterScreen({super.key});
+  final Country? selectedCountry;
+  final String? selectedCity;
+  final PaymentOperator? selectedOperator;
+
+  const RegisterScreen({
+    super.key,
+    this.selectedCountry,
+    this.selectedCity,
+    this.selectedOperator,
+  });
 
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
@@ -25,7 +34,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   String _selectedVehicleType = 'Motorcycle';
-  PaymentPreferences? _paymentPreferences;
 
   final List<String> _vehicleTypes = [
     'Motorcycle',
@@ -47,33 +55,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  // Navigation to payment method screen
-  void _navigateToPaymentMethod() async {
-    final result = await Navigator.of(context).push<PaymentPreferences>(
-      MaterialPageRoute(
-        builder: (context) => PaymentMethodScreen(
-          title: 'Setup Payment Method',
-          subtitle: 'Choose your preferred mobile money operator for courier payments',
-          allowSkip: true,
-          onPaymentMethodSelected: (preferences) {
-            _paymentPreferences = preferences;
-            Navigator.of(context).pop(preferences);
-          },
-        ),
-      ),
-    );
-    
-    if (result != null) {
-      _paymentPreferences = result;
-      // Now proceed with registration
-      _proceedWithRegistration();
-    }
-  }
-
   // Complete registration with payment preferences
   void _proceedWithRegistration() {
     if (!mounted) return;
-    
+
+    // Create payment preferences with phone from registration form
+    final paymentPreferences = widget.selectedOperator != null
+        ? PaymentPreferences.createSecure(
+            method: widget.selectedOperator!.toString().split('.').last,
+            phoneNumber: _phoneController.text.trim(),
+            country: widget.selectedCountry,
+            operator: widget.selectedOperator,
+            isSetupComplete: true,
+          )
+        : PaymentPreferences.empty();
+
     context.read<AuthBloc>().add(
       AuthSignUpWithPaymentPreferences(
         email: _emailController.text.trim(),
@@ -82,7 +78,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
         phoneNumber: _phoneController.text.trim(),
         vehicleType: _selectedVehicleType,
         licensePlate: _licensePlateController.text.trim(),
-        paymentPreferences: _paymentPreferences ?? PaymentPreferences.empty(),
+        city: widget.selectedCity,
+        paymentPreferences: paymentPreferences,
       ),
     );
   }
@@ -326,7 +323,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       isLoading: state is AuthLoading,
                       onPressed: () {
                         if (_formKey.currentState!.validate()) {
-                          _navigateToPaymentMethod();
+                          _proceedWithRegistration();
                         }
                       },
                     ),

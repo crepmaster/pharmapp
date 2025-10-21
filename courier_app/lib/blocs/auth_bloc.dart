@@ -55,6 +55,7 @@ class AuthSignUpWithPaymentPreferences extends AuthEvent {
   final String phoneNumber;
   final String vehicleType;
   final String licensePlate;
+  final String? city;
   final PaymentPreferences paymentPreferences;
 
   const AuthSignUpWithPaymentPreferences({
@@ -64,11 +65,21 @@ class AuthSignUpWithPaymentPreferences extends AuthEvent {
     required this.phoneNumber,
     required this.vehicleType,
     required this.licensePlate,
+    this.city,
     required this.paymentPreferences,
   });
 
   @override
-  List<Object> get props => [email, password, fullName, phoneNumber, vehicleType, licensePlate, paymentPreferences];
+  List<Object> get props => [
+        email,
+        password,
+        fullName,
+        phoneNumber,
+        vehicleType,
+        licensePlate,
+        if (city != null) city!,
+        paymentPreferences,
+      ];
 }
 
 class AuthSignOutRequested extends AuthEvent {}
@@ -219,6 +230,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         vehicleType: event.vehicleType,
         licensePlate: event.licensePlate,
         paymentPreferences: event.paymentPreferences,
+        operatingCity: event.city ?? '',
       );
 
       final courierData = await AuthService.getCourierData();
