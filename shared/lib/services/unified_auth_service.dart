@@ -111,20 +111,36 @@ class UnifiedAuthService {
       );
 
       // Store in Firestore with transaction for data consistency
-      await _firestore.runTransaction((transaction) async {
-        final docRef = _firestore.collection('users').doc(credential.user!.uid);
-        transaction.set(docRef, user.toFirestore());
-        
-        // Also store in role-specific collection for easy querying
-        final roleRef = _firestore.collection('${userType.toString()}s').doc(credential.user!.uid);
-        transaction.set(roleRef, {
-          'userId': credential.user!.uid,
-          'email': email,
-          'createdAt': FieldValue.serverTimestamp(),
-          'isActive': true,
-          ...user.roleData,
+      try {
+        await _firestore.runTransaction((transaction) async {
+          final docRef = _firestore.collection('users').doc(credential.user!.uid);
+          transaction.set(docRef, user.toFirestore());
+
+          // Also store in role-specific collection for easy querying
+          final roleRef = _firestore.collection('${userType.toString()}s').doc(credential.user!.uid);
+          final roleData = {
+            'userId': credential.user!.uid,
+            'email': email,
+            'createdAt': FieldValue.serverTimestamp(),
+            'isActive': true,
+            'role': _mapUserTypeToRole(userType).toString().split('.').last,
+            ...user.roleData,
+          };
+
+          // Debug: Log what we're sending to Firestore
+          print('🔍 DEBUG: Writing to ${userType.toString()}s collection');
+          print('🔍 DEBUG: Data keys: ${roleData.keys.toList()}');
+          print('🔍 DEBUG: Has fullName: ${roleData.containsKey('fullName')}');
+          print('🔍 DEBUG: fullName value: ${roleData['fullName']}');
+
+          transaction.set(roleRef, roleData);
         });
-      });
+
+        print('🔍 DEBUG: Firestore transaction completed successfully!');
+      } catch (e) {
+        print('🔍 DEBUG: Firestore transaction FAILED: $e');
+        rethrow;
+      }
 
       // Security: Clear rate limiting on success
       _clearRateLimit(email);

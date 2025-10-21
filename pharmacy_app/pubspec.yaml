@@ -17,6 +17,10 @@ dependencies:
   pharmapp_shared:
     path: ../shared
 
+  # Unified authentication module
+  pharmapp_unified:
+    path: ../pharmapp_unified
+
   # Firebase (Updated versions for better web compatibility)
   firebase_core: ^3.6.0
   firebase_auth: ^5.3.1

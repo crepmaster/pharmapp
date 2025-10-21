@@ -613,6 +613,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       onPressed: () {
                         if (_formKey.currentState!.validate()) {
                           _proceedWithRegistration();
+                        } else {
+                          // Validation failed - show error message and scroll to top
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Please fill in all required fields above'),
+                              backgroundColor: Colors.orange,
+                              duration: Duration(seconds: 3),
+                            ),
+                          );
+                          // Scroll to top to show validation errors
+                          Scrollable.ensureVisible(
+                            _formKey.currentContext!,
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeInOut,
+                          );
                         }
                       },
                     ),

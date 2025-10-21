@@ -129,11 +129,63 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
+  // Build country selection prompt (Screen 1)
+  Widget _buildCountrySelectionPrompt() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(
+              Icons.public,
+              size: 100,
+              color: Color(0xFF4CAF50),
+            ),
+            const SizedBox(height: 32),
+            const Text(
+              'Select Your Country First',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF4CAF50),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Please go back and select your country and city from the previous screen to continue with courier registration.',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey[600],
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 32),
+            ElevatedButton.icon(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.arrow_back),
+              label: const Text('Go Back to Country Selection'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF4CAF50),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // If no country/city selected yet, show country selection prompt
+    final bool hasCountryAndCity = widget.selectedCountry != null && widget.selectedCity != null;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Join as Courier'),
+        title: Text(hasCountryAndCity ? 'Step 2: Courier Details' : 'Step 1: Select Country'),
         backgroundColor: Colors.transparent,
         elevation: 0,
         foregroundColor: const Color(0xFF4CAF50),
@@ -157,6 +209,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
           }
         },
         builder: (context, state) {
+          // Show country selection prompt if no country/city selected
+          if (!hasCountryAndCity) {
+            return _buildCountrySelectionPrompt();
+          }
+
+          // Show courier details form (after country and city selected)
           return SafeArea(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24.0),
@@ -481,6 +539,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       onPressed: () {
                         if (_formKey.currentState!.validate()) {
                           _proceedWithRegistration();
+                        } else {
+                          // Validation failed - show error message and scroll to top
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Please fill in all required fields above'),
+                              backgroundColor: Colors.orange,
+                              duration: Duration(seconds: 3),
+                            ),
+                          );
+                          // Scroll to top to show validation errors
+                          Scrollable.ensureVisible(
+                            _formKey.currentContext!,
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeInOut,
+                          );
                         }
                       },
                     ),

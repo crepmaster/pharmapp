@@ -1,21 +1,85 @@
+# 🏗️ CODEUR BRIEF - Create Unified Registration Screen
+
+**Date**: 2025-10-21
+**From**: Chef de Projet (@Chef) + User Decision
+**To**: Développeur (@Codeur)
+**Priority**: 🔴 **HIGH - ARCHITECTURE COMPLETION**
+**Applications**: pharmapp_unified (then integrate to pharmacy_app + courier_app)
+
+---
+
+## 🎯 MISSION OBJECTIVE
+
+Complete the unified authentication module by creating the missing unified registration screen.
+
+**User Feedback**:
+> "Check pharmapp_unified, I think there is already a module, we just need to update it with our new requirement"
+
+**Analysis Result**: User was RIGHT!
+- ✅ 70% of unified auth module exists (UnifiedAuthService, UnifiedUser, UnifiedAuthBloc)
+- ❌ 30% missing: Unified registration screen
+- 🎯 **Your task**: Create the missing 30% with our UX improvements integrated
+
+---
+
+## ✅ **WHAT ALREADY EXISTS**
+
+### **Foundation (Production-Ready)**:
+
+1. ✅ **`shared/lib/services/unified_auth_service.dart`** (700 lines)
+   - `signUp()` method with role-based registration
+   - Security: Rate limiting, validation, sanitization
+   - Firestore integration with transactions
+   - Complete error handling
+
+2. ✅ **`shared/lib/models/unified_user.dart`** (200 lines)
+   - `UnifiedUser` class with roleData
+   - `PharmacyData` and `CourierData` classes
+   - Firestore serialization
+
+3. ✅ **`pharmapp_unified/lib/blocs/unified_auth_bloc.dart`** (250 lines)
+   - Complete state management
+   - Multi-role support
+
+4. ✅ **`shared/lib/screens/auth/country_payment_selection_screen.dart`** (380 lines)
+   - Country + City selection (with our Fix #2)
+
+5. ✅ **`shared/lib/models/payment_preferences.dart`** (190 lines)
+   - Payment encryption (HMAC-SHA256)
+
+---
+
+## 📝 **WHAT YOU NEED TO CREATE**
+
+### **File**: `pharmapp_unified/lib/screens/auth/unified_registration_screen.dart`
+
+**Purpose**: Single registration screen that adapts based on user type (pharmacy/courier/admin)
+
+**Key Features**:
+1. ✅ Common fields for all user types (email, password, phone)
+2. ✅ Payment section (from our UX improvement)
+3. ✅ Role-specific fields (pharmacy name vs courier vehicle)
+4. ✅ Integration with UnifiedAuthService
+5. ✅ Integration with UnifiedAuthBloc
+6. ✅ Payment preferences encryption
+
+---
+
+## 🔧 **IMPLEMENTATION SPECIFICATION**
+
+### **Part 1: Screen Structure**
+
+```dart
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pharmapp_shared/services/unified_auth_service.dart';
+import 'package:pharmapp_shared/models/unified_user.dart';
 import 'package:pharmapp_shared/models/payment_preferences.dart';
 import 'package:pharmapp_shared/models/country_config.dart';
-import '../../blocs/unified_auth_bloc.dart';
+import '../blocs/unified_auth_bloc.dart';
 
-/// Unified Registration Screen for all user types
-///
-/// Features:
-/// - Multi-role support (pharmacy, courier, admin)
-/// - Encrypted payment preferences integration
-/// - Role-specific fields that adapt based on user type
-/// - Payment operator selection
-/// - Complete form validation
-/// - Integration with UnifiedAuthService and UnifiedAuthBloc
 class UnifiedRegistrationScreen extends StatefulWidget {
-  final UserType userType;
+  final UserType userType; // pharmacy, courier, or admin
   final Country selectedCountry;
   final String selectedCity;
 
@@ -41,7 +105,7 @@ class _UnifiedRegistrationScreenState
   final _confirmPasswordController = TextEditingController();
   final _phoneController = TextEditingController();
 
-  // PAYMENT CONTROLLERS
+  // PAYMENT CONTROLLERS (from UX improvement)
   final _paymentPhoneController = TextEditingController();
   PaymentOperator? _selectedPaymentOperator;
   bool _useDifferentPaymentPhone = false;
@@ -120,14 +184,13 @@ class _UnifiedRegistrationScreenState
                 const SizedBox(height: 32),
 
                 // ROLE-SPECIFIC FIELDS SECTION
-                _buildSectionHeader(
-                    _getRoleSpecificSectionTitle(), _getRoleSpecificIcon()),
+                _buildSectionHeader(_getRoleSpecificSectionTitle(), _getRoleSpecificIcon()),
                 const SizedBox(height: 16),
                 _buildRoleSpecificFields(),
 
                 const SizedBox(height: 32),
 
-                // PAYMENT SECTION
+                // PAYMENT SECTION (from UX improvement)
                 _buildSectionHeader('Payment Information', Icons.payment),
                 const SizedBox(height: 16),
                 _buildPaymentSection(),
@@ -157,6 +220,8 @@ class _UnifiedRegistrationScreenState
         return 'Courier Registration';
       case UserType.admin:
         return 'Admin Registration';
+      default:
+        return 'Registration';
     }
   }
 
@@ -168,6 +233,8 @@ class _UnifiedRegistrationScreenState
         return 'Courier Details';
       case UserType.admin:
         return 'Admin Details';
+      default:
+        return 'Details';
     }
   }
 
@@ -179,6 +246,8 @@ class _UnifiedRegistrationScreenState
         return Icons.delivery_dining;
       case UserType.admin:
         return Icons.admin_panel_settings;
+      default:
+        return Icons.person;
     }
   }
 
@@ -186,7 +255,7 @@ class _UnifiedRegistrationScreenState
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
+        color: Theme.of(context).primaryColor.withOpacity(0.1),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -273,7 +342,7 @@ class _UnifiedRegistrationScreenState
             if (value == null || value.isEmpty) {
               return 'Please enter your email';
             }
-            if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
+            if (!value.contains('@')) {
               return 'Please enter a valid email';
             }
             return null;
@@ -289,10 +358,8 @@ class _UnifiedRegistrationScreenState
             hintText: 'Enter your password',
             prefixIcon: const Icon(Icons.lock),
             suffixIcon: IconButton(
-              icon: Icon(
-                  _obscurePassword ? Icons.visibility : Icons.visibility_off),
-              onPressed: () =>
-                  setState(() => _obscurePassword = !_obscurePassword),
+              icon: Icon(_obscurePassword ? Icons.visibility : Icons.visibility_off),
+              onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
             ),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
@@ -317,11 +384,8 @@ class _UnifiedRegistrationScreenState
             hintText: 'Re-enter your password',
             prefixIcon: const Icon(Icons.lock_outline),
             suffixIcon: IconButton(
-              icon: Icon(_obscureConfirmPassword
-                  ? Icons.visibility
-                  : Icons.visibility_off),
-              onPressed: () => setState(
-                  () => _obscureConfirmPassword = !_obscureConfirmPassword),
+              icon: Icon(_obscureConfirmPassword ? Icons.visibility : Icons.visibility_off),
+              onPressed: () => setState(() => _obscureConfirmPassword = !_obscureConfirmPassword),
             ),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
@@ -365,6 +429,8 @@ class _UnifiedRegistrationScreenState
         return _buildCourierFields();
       case UserType.admin:
         return _buildAdminFields();
+      default:
+        return const SizedBox.shrink();
     }
   }
 
@@ -433,7 +499,7 @@ class _UnifiedRegistrationScreenState
 
         // Vehicle Type
         DropdownButtonFormField<String>(
-          initialValue: _selectedVehicleType,
+          value: _selectedVehicleType,
           decoration: InputDecoration(
             labelText: 'Vehicle Type',
             prefixIcon: const Icon(Icons.directions_bike),
@@ -508,7 +574,7 @@ class _UnifiedRegistrationScreenState
     );
   }
 
-  // PAYMENT SECTION
+  // PAYMENT SECTION (from UX improvement)
   Widget _buildPaymentSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -521,7 +587,7 @@ class _UnifiedRegistrationScreenState
 
         // Payment Operator Dropdown
         DropdownButtonFormField<PaymentOperator>(
-          initialValue: _selectedPaymentOperator,
+          value: _selectedPaymentOperator,
           decoration: InputDecoration(
             labelText: 'Payment Method',
             hintText: 'Select payment operator',
@@ -593,13 +659,11 @@ class _UnifiedRegistrationScreenState
               labelText: 'Payment Phone Number',
               hintText: 'Enter phone for payments',
               prefixIcon: const Icon(Icons.phone),
-              border:
-                  OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             ),
             keyboardType: TextInputType.phone,
             validator: (value) {
-              if (_useDifferentPaymentPhone &&
-                  (value == null || value.isEmpty)) {
+              if (_useDifferentPaymentPhone && (value == null || value.isEmpty)) {
                 return 'Please enter payment phone number';
               }
               return null;
@@ -618,6 +682,8 @@ class _UnifiedRegistrationScreenState
         return 'Select how you want to receive your delivery earnings';
       case UserType.admin:
         return 'Select your payment method';
+      default:
+        return 'Select your payment method';
     }
   }
 
@@ -628,38 +694,33 @@ class _UnifiedRegistrationScreenState
   }
 
   CountryConfig? _getCountryConfig() {
-    return Countries.getByCountry(widget.selectedCountry);
+    switch (widget.selectedCountry) {
+      case Country.cameroon:
+        return Countries.cameroon;
+      case Country.kenya:
+        return Countries.kenya;
+      case Country.tanzania:
+        return Countries.tanzania;
+      case Country.uganda:
+        return Countries.uganda;
+      case Country.nigeria:
+        return Countries.nigeria;
+    }
   }
 
   IconData _getOperatorIcon(PaymentOperator operator) {
-    switch (operator) {
-      case PaymentOperator.mtnCameroon:
-      case PaymentOperator.mtnUganda:
-      case PaymentOperator.mtnNigeria:
-        return Icons.phone_android;
-      case PaymentOperator.orangeCameroon:
-        return Icons.phone_iphone;
-      case PaymentOperator.mpesaKenya:
-      case PaymentOperator.mpesaTanzania:
-        return Icons.account_balance_wallet;
-      case PaymentOperator.airtelKenya:
-      case PaymentOperator.airtelTanzania:
-      case PaymentOperator.airtelUganda:
-      case PaymentOperator.airtelNigeria:
-        return Icons.mobile_friendly;
-      case PaymentOperator.tigoTanzania:
-        return Icons.payment;
-      case PaymentOperator.gloNigeria:
-      case PaymentOperator.nineMobile:
-        return Icons.smartphone;
-    }
+    final config = _getCountryConfig();
+    if (config == null) return Icons.payment;
+
+    final operatorConfig = config.operatorConfigs[operator];
+    return operatorConfig?.icon ?? Icons.payment;
   }
 
   String _getOperatorDisplayName(PaymentOperator operator) {
     final config = _getCountryConfig();
     if (config == null) return operator.toString();
 
-    final operatorConfig = config.getOperatorConfig(operator);
+    final operatorConfig = config.operatorConfigs[operator];
     return operatorConfig?.displayName ?? operator.toString().split('.').last;
   }
 
@@ -691,6 +752,8 @@ class _UnifiedRegistrationScreenState
         return 'Courier';
       case UserType.admin:
         return 'Admin';
+      default:
+        return '';
     }
   }
 
@@ -727,6 +790,7 @@ class _UnifiedRegistrationScreenState
         phoneNumber: paymentPhone,
         country: widget.selectedCountry,
         operator: _selectedPaymentOperator,
+        city: widget.selectedCity,
         isSetupComplete: true,
       );
 
@@ -761,8 +825,7 @@ class _UnifiedRegistrationScreenState
     }
   }
 
-  Map<String, dynamic> _buildProfileData(
-      PaymentPreferences paymentPreferences) {
+  Map<String, dynamic> _buildProfileData(PaymentPreferences paymentPreferences) {
     final commonData = {
       'phoneNumber': _phoneController.text.trim(),
       'country': widget.selectedCountry.toString().split('.').last,
@@ -782,7 +845,6 @@ class _UnifiedRegistrationScreenState
       case UserType.courier:
         return {
           ...commonData,
-          'fullName': _fullNameController.text.trim(),
           'displayName': _fullNameController.text.trim(),
           'name': _fullNameController.text.trim(),
           'vehicleType': _selectedVehicleType,
@@ -797,12 +859,76 @@ class _UnifiedRegistrationScreenState
           'name': _adminNameController.text.trim(),
           'department': _departmentController.text.trim(),
         };
+
+      default:
+        return commonData;
     }
   }
 
   void _navigateToDashboard(UserType userType) {
-    // Navigate to appropriate dashboard
-    final route = '/${userType.toString()}/dashboard';
-    Navigator.of(context).pushReplacementNamed(route);
+    // TODO: Navigate to appropriate dashboard
+    // This will be implemented when connecting to actual dashboard screens
+    Navigator.of(context).pushReplacementNamed('/${userType.toString()}/dashboard');
   }
 }
+```
+
+---
+
+## ✅ **DELIVERABLES**
+
+1. **Create File**: `pharmapp_unified/lib/screens/auth/unified_registration_screen.dart`
+2. **Export in Main**: Add to `pharmapp_unified/lib/screens/auth/auth_screens.dart` (create if needed)
+3. **Tests**: Create unit tests for unified registration
+4. **Documentation**: Update code_explanation_unified_auth_module.md
+
+---
+
+## 🧪 **TESTING REQUIREMENTS**
+
+### **Unit Tests** (create in `pharmapp_unified/test/screens/auth/`):
+
+1. **Test Common Fields Render**
+2. **Test Pharmacy Fields Render** (when userType = pharmacy)
+3. **Test Courier Fields Render** (when userType = courier)
+4. **Test Admin Fields Render** (when userType = admin)
+5. **Test Payment Section Renders**
+6. **Test Form Validation**
+7. **Test Registration Flow**
+
+---
+
+## ⚡ **SUCCESS CRITERIA**
+
+- [ ] File created: `unified_registration_screen.dart` (~600 lines)
+- [ ] Common fields work for all user types
+- [ ] Role-specific fields switch based on userType
+- [ ] Payment section integrated (from UX improvement)
+- [ ] UnifiedAuthService integration working
+- [ ] Form validation working
+- [ ] `flutter analyze` passes (0 errors)
+- [ ] Unit tests created and passing
+- [ ] Documentation updated
+
+---
+
+## 📝 **NOTES**
+
+**Reuse These Implementations**:
+1. ✅ Payment section UI - From pharmacy_app register_screen.dart (lines 450-600)
+2. ✅ Form validation - From existing register screens
+3. ✅ Common fields - From pharmacy_app/courier_app
+
+**Key Integration Points**:
+- `UnifiedAuthService.signUp()` - Already exists
+- `PaymentPreferences.createSecure()` - Already exists
+- `UnifiedAuthBloc.SignInRequested` - Already exists
+
+**After This File is Created**:
+- Next step: Update pharmacy_app to use this screen
+- Next step: Update courier_app to use this screen
+- Result: Eliminate 1,302 lines of duplicate code!
+
+---
+
+**BON COURAGE @Codeur!** This completes the unified auth module! 🚀
