@@ -117,7 +117,11 @@ class UnifiedAuthService {
           transaction.set(docRef, user.toFirestore());
 
           // Also store in role-specific collection for easy querying
-          final roleRef = _firestore.collection('${userType.toString()}s').doc(credential.user!.uid);
+          // Get the correct plural collection name (pharmacy → pharmacies, courier → couriers)
+          final collectionName = userType == UserType.pharmacy
+              ? 'pharmacies'
+              : '${userType.toString()}s';
+          final roleRef = _firestore.collection(collectionName).doc(credential.user!.uid);
           final roleData = {
             'userId': credential.user!.uid,
             'email': email,
