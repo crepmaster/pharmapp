@@ -3,7 +3,17 @@
     "allow": [
       "Bash(nc:*)",
       "Read(//c/**)",
-      "Read(//c/Users/aebon/**)"
+      "Read(//c/Users/aebon/**)",
+      "Bash(adb devices:*)",
+      "Bash(firebase functions:list:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\n✨ UNIFIED AUTH MODULE COMPLETE: Create unified registration screen\n\n**Documentation Updates:**\n- Updated NEXT_SESSION_TEST_PLAN.md with detailed Scenarios 3-5 testing procedures\n- Marked Scenarios 1-2 as COMPLETED (2025-10-22)\n- Added comprehensive testing steps for wallet functionality\n- Added comprehensive testing steps for payment preferences verification\n- Added comprehensive testing steps for Firebase integration\n\n**New Files:**\n- docs/testing/NEXT_SESSION_BRIEFING.md - Quick start guide for next session\n\n**Test Plan Enhancements:**\n- Scenario 3: Wallet testing with sandboxCredit, Firestore verification, UI checks\n- Scenario 4: Payment security validation (encrypted phone numbers, masked display)\n- Scenario 5: Firebase services testing (auth, Firestore, Cloud Functions)\n- Added evidence collection checklists\n- Added success/blocker criteria\n- Added estimated time for each scenario (45-60 min total)\n\n**Session Progress:**\n- ✅ Scenarios 1-2: COMPLETED (Pharmacy + Courier registration)\n- ⏳ Scenarios 3-5: Ready for next session (Infrastructure validation)\n- 📋 Scenarios 6-8: Future sessions (Business workflows)\n\n**Next Session Focus:**\nConservative approach to validate infrastructure foundation (wallet, payment security, Firebase) before proceeding to core business workflow testing.\n\n🤖 Generated with Claude Code\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git push:*)",
+      "Bash(curl:*)",
+      "Bash(emulator:*)",
+      "Bash(timeout 60 bash:*)",
+      "Bash(flutter run:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []

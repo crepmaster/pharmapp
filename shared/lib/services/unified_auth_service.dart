@@ -132,7 +132,7 @@ class UnifiedAuthService {
           };
 
           // Debug: Log what we're sending to Firestore
-          print('🔍 DEBUG: Writing to ${userType.toString()}s collection');
+          print('🔍 DEBUG: Writing to $collectionName collection');
           print('🔍 DEBUG: Data keys: ${roleData.keys.toList()}');
           print('🔍 DEBUG: Has fullName: ${roleData.containsKey('fullName')}');
           print('🔍 DEBUG: fullName value: ${roleData['fullName']}');
