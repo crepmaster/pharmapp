@@ -15,7 +15,20 @@
       "Bash(flutter run:*)",
       "Bash(git commit:*)",
       "Bash(timeout:*)",
-      "Bash(flutter pub get:*)"
+      "Bash(flutter pub get:*)",
+      "Bash(start ms-settings:developers)",
+      "Bash(if exist build rmdir /s /q build)",
+      "Bash(if exist .dart_tool rmdir /s /q .dart_tool)",
+      "Bash(powershell -Command:*)",
+      "Bash(flutter clean:*)",
+      "Bash(adb logcat:*)",
+      "Bash(tasklist:*)",
+      "Bash(git checkout:*)",
+      "Bash(flutter analyze:*)",
+      "Bash(taskkill:*)",
+      "Bash(findstr:*)",
+      "Bash(dir clean_and_rebuild.ps1)",
+      "Bash(powershell -ExecutionPolicy Bypass -File clean_and_rebuild.ps1:*)"
     ],
     "deny": [],
     "ask": []

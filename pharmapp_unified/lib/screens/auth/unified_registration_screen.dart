@@ -519,38 +519,54 @@ class _UnifiedRegistrationScreenState
         ),
         const SizedBox(height: 16),
 
-        // Payment Operator Dropdown
-        DropdownButtonFormField<PaymentOperator>(
-          initialValue: _selectedPaymentOperator,
-          decoration: InputDecoration(
-            labelText: 'Payment Method',
-            hintText: 'Select payment operator',
-            prefixIcon: const Icon(Icons.account_balance_wallet),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-          // 🔧 FIX: Remove duplicates from operators list before creating dropdown items
-          // This prevents "duplicate value" error in DropdownButton
-          items: _getAvailableOperators()
-              .toSet() // Remove duplicates
-              .map((operator) => DropdownMenuItem(
-                    value: operator,
-                    child: Row(
-                      children: [
-                        Icon(_getOperatorIcon(operator), size: 20),
-                        const SizedBox(width: 8),
-                        Text(_getOperatorDisplayName(operator)),
-                      ],
-                    ),
-                  ))
-              .toList(),
-          onChanged: (value) {
-            setState(() => _selectedPaymentOperator = value);
-          },
-          validator: (value) {
-            if (value == null) {
-              return 'Please select a payment method';
+        // Payment Operator Dropdown with manual deduplication
+        Builder(
+          builder: (context) {
+            // 🔧 FIX v3: Manual deduplication to prevent duplicate dropdown items
+            final operators = _getAvailableOperators();
+            print('🔍 DROPDOWN FIX v3: Got ${operators.length} operators from config');
+            final uniqueOperators = <PaymentOperator>[];
+            final seenOperators = <String>{};
+
+            for (final op in operators) {
+              final key = op.toString();
+              if (!seenOperators.contains(key)) {
+                seenOperators.add(key);
+                uniqueOperators.add(op);
+              }
             }
-            return null;
+            print('🔍 DROPDOWN FIX v3: After dedup: ${uniqueOperators.length} unique operators');
+
+            return DropdownButtonFormField<PaymentOperator>(
+              value: _selectedPaymentOperator,
+              decoration: InputDecoration(
+                labelText: 'Payment Method',
+                hintText: 'Select payment operator',
+                prefixIcon: const Icon(Icons.account_balance_wallet),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              items: uniqueOperators
+                  .map((operator) => DropdownMenuItem(
+                        value: operator,
+                        child: Row(
+                          children: [
+                            Icon(_getOperatorIcon(operator), size: 20),
+                            const SizedBox(width: 8),
+                            Text(_getOperatorDisplayName(operator)),
+                          ],
+                        ),
+                      ))
+                  .toList(),
+              onChanged: (value) {
+                setState(() => _selectedPaymentOperator = value);
+              },
+              validator: (value) {
+                if (value == null) {
+                  return 'Please select a payment method';
+                }
+                return null;
+              },
+            );
           },
         ),
         const SizedBox(height: 16),
@@ -804,8 +820,7 @@ class _UnifiedRegistrationScreenState
   }
 
   void _navigateToDashboard(UserType userType) {
-    // Navigate to appropriate dashboard
-    final route = '/${userType.toString()}/dashboard';
-    Navigator.of(context).pushReplacementNamed(route);
+    // Pop back to root - BlocBuilder will show dashboard for authenticated user
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 }

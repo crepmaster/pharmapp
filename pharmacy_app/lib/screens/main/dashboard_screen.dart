@@ -508,7 +508,15 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
           if (mounted) {
             setState(() {
               _savedPreferences = preferences;
-              _selectedMethod = preferences.defaultMethod;
+              // Convert operator to simple string format for dropdown ('mtn' or 'orange')
+              final method = preferences.defaultMethod.toLowerCase();
+              if (method.contains('mtn')) {
+                _selectedMethod = 'mtn';
+              } else if (method.contains('orange')) {
+                _selectedMethod = 'orange';
+              } else {
+                _selectedMethod = 'mtn'; // Default fallback
+              }
               // Auto-fill phone since user already provided it during registration
               if (preferences.encryptedPhone?.isNotEmpty ?? false) {
                 // Use the masked phone as a hint - user provided it during registration
