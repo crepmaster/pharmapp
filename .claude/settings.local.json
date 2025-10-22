@@ -13,7 +13,9 @@
       "Bash(emulator:*)",
       "Bash(timeout 60 bash:*)",
       "Bash(flutter run:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(timeout:*)",
+      "Bash(flutter pub get:*)"
     ],
     "deny": [],
     "ask": []

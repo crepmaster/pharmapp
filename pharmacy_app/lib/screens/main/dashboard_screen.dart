@@ -475,7 +475,7 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
   /// Load saved payment preferences for auto-fill
   Future<void> _loadSavedPaymentPreferences() async {
     if (!mounted) return;
-    
+
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
@@ -487,15 +487,38 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
 
       if (doc.exists) {
         final data = doc.data() as Map<String, dynamic>;
-        if (data.containsKey('paymentPreferences')) {
-          final prefData = data['paymentPreferences'] as Map<String, dynamic>;
+
+        // 🔧 FIX: Payment preferences are stored in roleData during registration
+        // Check both locations for backwards compatibility
+        Map<String, dynamic>? prefData;
+
+        if (data.containsKey('roleData') && data['roleData'] is Map) {
+          final roleData = data['roleData'] as Map<String, dynamic>;
+          if (roleData.containsKey('paymentPreferences')) {
+            prefData = roleData['paymentPreferences'] as Map<String, dynamic>;
+          }
+        } else if (data.containsKey('paymentPreferences')) {
+          // Fallback to root level for backwards compatibility
+          prefData = data['paymentPreferences'] as Map<String, dynamic>;
+        }
+
+        if (prefData != null) {
           final preferences = PaymentPreferences.fromMap(prefData);
-          
+
           if (mounted) {
             setState(() {
               _savedPreferences = preferences;
               _selectedMethod = preferences.defaultMethod;
-              // Don't auto-fill phone for security - user must enter
+              // Auto-fill phone since user already provided it during registration
+              if (preferences.encryptedPhone?.isNotEmpty ?? false) {
+                // Use the masked phone as a hint - user provided it during registration
+                // The maskedPhone getter returns the phone in masked format (e.g., 677****56)
+                final masked = preferences.maskedPhone;
+                if (masked.isNotEmpty) {
+                  // Extract visible digits from masked phone (e.g., "677****56" -> "67756")
+                  _phoneController.text = masked.replaceAll('*', '');
+                }
+              }
             });
           }
         }

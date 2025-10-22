@@ -528,7 +528,10 @@ class _UnifiedRegistrationScreenState
             prefixIcon: const Icon(Icons.account_balance_wallet),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
+          // 🔧 FIX: Remove duplicates from operators list before creating dropdown items
+          // This prevents "duplicate value" error in DropdownButton
           items: _getAvailableOperators()
+              .toSet() // Remove duplicates
               .map((operator) => DropdownMenuItem(
                     value: operator,
                     child: Row(
