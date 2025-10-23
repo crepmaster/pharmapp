@@ -21,15 +21,14 @@ class RegistrationNavigationHelper {
         duration: delay,
       ),
     );
-    
-    // Navigate to dashboard after delay
-    Future.delayed(delay, () {
-      if (context.mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (context) => const DashboardScreen()),
-          (route) => false,
-        );
-      }
-    });
+
+    // Navigate to dashboard IMMEDIATELY (don't wait for delay)
+    // The SnackBar will still be visible on the dashboard
+    if (context.mounted) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => const DashboardScreen()),
+        (route) => false,
+      );
+    }
   }
 }

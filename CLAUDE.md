@@ -2,6 +2,24 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 🚨 **CRITICAL: BEFORE MODIFYING REGISTRATION/AUTH CODE**
+
+**⚠️ READ THIS FIRST:** [`docs/FILE_STRUCTURE_ACTIVE_VS_OBSOLETE.md`](docs/FILE_STRUCTURE_ACTIVE_VS_OBSOLETE.md)
+
+**We have lost multiple days modifying obsolete/unused files!**
+
+Before making ANY changes to registration screens, authentication flows, or login screens:
+1. **CHECK** the file structure document above
+2. **VERIFY** the file is marked as ACTIVE (not obsolete)
+3. **CONFIRM** via git logs and console output
+
+**Key Active Files:**
+- Registration Flow: `pharmacy_app/lib/screens/auth/register_screen.dart`
+- Navigation Helper: `pharmacy_app/lib/services/registration_navigation_helper.dart`
+- Auth Service: `shared/lib/services/unified_auth_service.dart`
+
+**DO NOT modify files without checking the documentation first!**
+
 ## 🚀 **CURRENT PROJECT STATUS - 2025-10-20 (ANDROID EMULATOR WORKING + PROJECT ORGANIZATION)**
 
 ### 🎉 **LATEST SESSION ACHIEVEMENTS - 2025-10-20:**
