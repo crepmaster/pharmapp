@@ -458,39 +458,58 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Payment Operator Dropdown
-                    DropdownButtonFormField<PaymentOperator>(
-                      initialValue: _selectedPaymentOperator,
-                      decoration: InputDecoration(
-                        labelText: 'Payment Method',
-                        hintText: 'Select payment operator',
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        prefixIcon: const Icon(Icons.account_balance_wallet),
-                        filled: true,
-                        fillColor: Colors.grey.shade50,
-                      ),
-                      items: _getAvailableOperators().map((operator) {
-                        return DropdownMenuItem(
-                          value: operator,
-                          child: Row(
-                            children: [
-                              Icon(_getOperatorIcon(operator), size: 20),
-                              const SizedBox(width: 8),
-                              Text(_getOperatorDisplayName(operator)),
-                            ],
-                          ),
-                        );
-                      }).toList(),
-                      onChanged: (value) {
-                        setState(() {
-                          _selectedPaymentOperator = value;
-                        });
-                      },
-                      validator: (value) {
-                        if (value == null) {
-                          return 'Please select a payment method';
+                    // Payment Operator Dropdown with manual deduplication
+                    Builder(
+                      builder: (context) {
+                        // 🔧 FIX v3: Manual deduplication to prevent duplicate dropdown items
+                        final operators = _getAvailableOperators();
+                        print('🔍 DROPDOWN FIX v3: Got ${operators.length} operators from config');
+                        final uniqueOperators = <PaymentOperator>[];
+                        final seenOperators = <String>{};
+
+                        for (final op in operators) {
+                          final key = op.toString();
+                          if (!seenOperators.contains(key)) {
+                            seenOperators.add(key);
+                            uniqueOperators.add(op);
+                          }
                         }
-                        return null;
+                        print('🔍 DROPDOWN FIX v3: After dedup: ${uniqueOperators.length} unique operators');
+
+                        return DropdownButtonFormField<PaymentOperator>(
+                          initialValue: _selectedPaymentOperator,
+                          decoration: InputDecoration(
+                            labelText: 'Payment Method',
+                            hintText: 'Select payment operator',
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                            prefixIcon: const Icon(Icons.account_balance_wallet),
+                            filled: true,
+                            fillColor: Colors.grey.shade50,
+                          ),
+                          items: uniqueOperators.map((operator) {
+                            return DropdownMenuItem(
+                              value: operator,
+                              child: Row(
+                                children: [
+                                  Icon(_getOperatorIcon(operator), size: 20),
+                                  const SizedBox(width: 8),
+                                  Text(_getOperatorDisplayName(operator)),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (value) {
+                            setState(() {
+                              _selectedPaymentOperator = value;
+                            });
+                          },
+                          validator: (value) {
+                            if (value == null) {
+                              return 'Please select a payment method';
+                            }
+                            return null;
+                          },
+                        );
                       },
                     ),
                     const SizedBox(height: 16),
