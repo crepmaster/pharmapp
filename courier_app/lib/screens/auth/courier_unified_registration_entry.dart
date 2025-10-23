@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:pharmapp_unified/blocs/unified_auth_bloc.dart';
 import 'package:pharmapp_unified/screens/auth/unified_registration_screen.dart';
 import 'package:pharmapp_shared/screens/auth/country_payment_selection_screen.dart';
 import 'package:pharmapp_shared/services/unified_auth_service.dart';
@@ -17,14 +15,12 @@ class CourierUnifiedRegistrationEntry extends StatelessWidget {
       subtitle: 'Choose your country and city',
       allowSkip: false,
       registrationScreenBuilder: (selectedCountry, selectedCity) {
-        // Return unified registration screen with UnifiedAuthBloc provider
-        return BlocProvider(
-          create: (context) => UnifiedAuthBloc(),
-          child: UnifiedRegistrationScreen(
-            userType: UserType.courier,
-            selectedCountry: selectedCountry,
-            selectedCity: selectedCity,
-          ),
+        // Return unified registration screen - uses UnifiedAuthBloc from main.dart
+        // No new BlocProvider needed - registration events go to the SAME bloc that AuthWrapper listens to
+        return UnifiedRegistrationScreen(
+          userType: UserType.courier,
+          selectedCountry: selectedCountry,
+          selectedCity: selectedCity,
         );
       },
     );

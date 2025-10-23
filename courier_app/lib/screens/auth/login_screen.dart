@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../blocs/auth_bloc.dart';
+import 'package:pharmapp_unified/blocs/unified_auth_bloc.dart';
 import '../../widgets/auth_text_field.dart';
 import '../../widgets/auth_button.dart';
 import 'courier_unified_registration_entry.dart';
@@ -29,12 +29,12 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: BlocConsumer<AuthBloc, AuthState>(
+      body: BlocConsumer<UnifiedAuthBloc, UnifiedAuthState>(
         listener: (context, state) {
           if (state is AuthError) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text(state.message),
+                content: Text(state.error),
                 backgroundColor: Colors.red,
               ),
             );
@@ -151,8 +151,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       isLoading: state is AuthLoading,
                       onPressed: () {
                         if (_formKey.currentState!.validate()) {
-                          context.read<AuthBloc>().add(
-                            AuthSignInRequested(
+                          context.read<UnifiedAuthBloc>().add(
+                            SignInRequested(
                               email: _emailController.text.trim(),
                               password: _passwordController.text,
                             ),

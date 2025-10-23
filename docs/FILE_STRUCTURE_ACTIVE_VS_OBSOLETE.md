@@ -186,13 +186,23 @@ How It Works:
 
 ### **⚠️ Old Authentication System (PERMANENTLY REMOVED)**
 
-#### ❌ **auth_bloc.dart**
+#### ❌ **auth_bloc.dart (Pharmacy App)**
 ```dart
 File: pharmacy_app/lib/blocs/auth_bloc.dart
 Status: ❌ DELETED - 2025-10-24
 Reason: Replaced by UnifiedAuthBloc from pharmapp_unified package
 Replacement: Use pharmapp_unified/lib/blocs/unified_auth_bloc.dart
 Migration: pharmacy_app now uses UnifiedAuthBloc exclusively
+```
+
+#### ❌ **auth_bloc.dart (Courier App)**
+```dart
+File: courier_app/lib/blocs/auth_bloc.dart
+Status: ❌ DELETED - 2025-10-24
+Reason: Replaced by UnifiedAuthBloc from pharmapp_unified package
+Replacement: Use pharmapp_unified/lib/blocs/unified_auth_bloc.dart
+Migration: courier_app now uses UnifiedAuthBloc exclusively
+Architecture Fix: Removed duplicate BlocProvider from courier_unified_registration_entry.dart
 ```
 
 #### ❌ **register_screen.dart**
