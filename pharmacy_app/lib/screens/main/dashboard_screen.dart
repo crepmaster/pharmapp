@@ -517,15 +517,11 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
               } else {
                 _selectedMethod = 'mtn'; // Default fallback
               }
-              // Auto-fill phone since user already provided it during registration
-              if (preferences.encryptedPhone?.isNotEmpty ?? false) {
-                // Use the masked phone as a hint - user provided it during registration
-                // The maskedPhone getter returns the phone in masked format (e.g., 677****56)
-                final masked = preferences.maskedPhone;
-                if (masked.isNotEmpty) {
-                  // Extract visible digits from masked phone (e.g., "677****56" -> "67756")
-                  _phoneController.text = masked.replaceAll('*', '');
-                }
+
+              // 🔧 FIX: Auto-fill phone from payment preferences
+              // Now stores FULL phone number (not masked) for payment processing
+              if (preferences.defaultPhone.isNotEmpty) {
+                _phoneController.text = preferences.defaultPhone;
               }
             });
           }
@@ -722,7 +718,7 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
           _amountController.text = selected ? amount.toString() : '';
         });
       },
-      selectedColor: const Color(0xFF1976D2).withOpacity(0.2),
+      selectedColor: const Color(0xFF1976D2).withValues(alpha: 0.2),
       checkmarkColor: const Color(0xFF1976D2),
     );
   }
