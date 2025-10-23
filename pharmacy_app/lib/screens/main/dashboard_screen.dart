@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -21,6 +22,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Key to force rebuild of wallet balance FutureBuilder
   int _walletRefreshKey = 0;
 
+  // Polling timer for wallet balance updates (async webhook payments)
+  Timer? _walletPollingTimer;
+  int _pollingAttempts = 0;
+  bool _isPolling = false; // 🔧 FIX #2: Prevent race conditions in async polling
+  bool _isWaitingForPayment = false; // User feedback for polling status
+  static const int _maxPollingAttempts = 20; // 🔧 FIX #5: Poll for ~60 seconds (3s intervals) for African mobile money
+
+  @override
+  void dispose() {
+    // 🔧 FIX #1: Clean up timer and reset state
+    _walletPollingTimer?.cancel();
+    _walletPollingTimer = null;
+    _isPolling = false;
+    super.dispose();
+  }
+
   void _refreshWalletBalance() {
     // 🔒 SAFETY FIX: Check mounted before setState
     if (mounted) {
@@ -28,6 +45,55 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _walletRefreshKey++;
       });
     }
+  }
+
+  void _startWalletPolling() {
+    // 🔧 FIX #1: Cancel any existing polling to prevent memory leaks
+    _walletPollingTimer?.cancel();
+    _walletPollingTimer = null;
+    _pollingAttempts = 0;
+
+    // Set waiting status for UI feedback
+    if (mounted) {
+      setState(() => _isWaitingForPayment = true);
+    }
+
+    // Start polling every 3 seconds
+    _walletPollingTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+      _pollingAttempts++;
+
+      // 🔧 FIX #2: Prevent race conditions - don't start new poll if one is running
+      if (!mounted || _isPolling) {
+        if (!mounted) {
+          timer.cancel();
+          _walletPollingTimer = null;
+        }
+        return;
+      }
+
+      // 🔧 FIX #2: Mark polling as active
+      _isPolling = true;
+
+      try {
+        // Refresh wallet balance
+        _refreshWalletBalance();
+      } finally {
+        // 🔧 FIX #2: Always reset polling flag, even on error
+        _isPolling = false;
+      }
+
+      // Stop polling after max attempts
+      if (_pollingAttempts >= _maxPollingAttempts) {
+        timer.cancel();
+        _walletPollingTimer = null;
+        if (mounted) {
+          setState(() => _isWaitingForPayment = false);
+        }
+      }
+    });
+
+    // Also do an immediate refresh
+    _refreshWalletBalance();
   }
 
   @override
@@ -210,14 +276,49 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 final available = wallet['available'] ?? 0;
                                 final held = wallet['held'] ?? 0;
                                 
-                                return Column(
+return Column(
                                   children: [
+                                    // 🔧 FIX #4: Show polling status feedback
+                                    if (_isWaitingForPayment) ...[
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                                        decoration: BoxDecoration(
+                                          color: Colors.blue.shade50,
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: Colors.blue.shade200),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            SizedBox(
+                                              width: 14,
+                                              height: 14,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                valueColor: AlwaysStoppedAnimation<Color>(Colors.blue.shade700),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Text(
+                                                'Waiting for payment confirmation... (up to 60s)',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.blue.shade700,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                    ],
                                     Row(
                                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                       children: [
                                         const Row(
                                           children: [
-                                            Icon(Icons.account_balance_wallet, 
+                                            Icon(Icons.account_balance_wallet,
                                                      color: Color(0xFF1976D2)),
                                             SizedBox(width: 8),
                                             Text('Wallet Balance',
@@ -241,7 +342,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
-                                            Text('Available', 
+                                            Text('Available',
                                                  style: TextStyle(color: Colors.grey[600], fontSize: 12)),
                                             Text('${(available / 100).toStringAsFixed(0)} XAF',
                                                  style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -250,10 +351,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         Column(
                                           crossAxisAlignment: CrossAxisAlignment.end,
                                           children: [
-                                            Text('Held', 
+                                            Text('Held',
                                                  style: TextStyle(color: Colors.grey[600], fontSize: 12)),
                                             Text('${(held / 100).toStringAsFixed(0)} XAF',
-                                                 style: TextStyle(color: Colors.orange[700], 
+                                                 style: TextStyle(color: Colors.orange[700],
                                                                   fontWeight: FontWeight.bold)),
                                           ],
                                         ),
@@ -453,7 +554,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     showDialog(
       context: context,
       builder: (BuildContext context) => _TopUpWalletDialog(
-        onTopUpSuccess: _refreshWalletBalance, // 🔧 FIX: Pass refresh callback
+        onTopUpSuccess: _startWalletPolling, // 🔧 FIX: Start polling after top-up (async webhook)
       ),
     );
   }
@@ -863,7 +964,9 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
         if (success) {
           await _savePaymentPreferences();
 
-          // 🔒 SAFETY FIX: Check mounted before calling setState callback
+          // 🔧 FIX: Start polling for wallet balance updates (async payment via webhook)
+          // Mobile money payments are processed asynchronously, so we poll for ~30 seconds
+          // to catch the balance update when the webhook fires
           if (mounted) {
             widget.onTopUpSuccess?.call();
           }
