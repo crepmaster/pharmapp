@@ -10,8 +10,22 @@ import '../exchanges/proposals_screen.dart';
 import '../profile/profile_screen.dart';
 import 'package:pharmapp_shared/pharmapp_shared.dart';
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  // Key to force rebuild of wallet balance FutureBuilder
+  int _walletRefreshKey = 0;
+
+  void _refreshWalletBalance() {
+    setState(() {
+      _walletRefreshKey++;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -124,6 +138,7 @@ class DashboardScreen extends StatelessWidget {
                               border: Border.all(color: Colors.grey[200]!),
                             ),
                             child: FutureBuilder<Map<String, dynamic>>(
+                              key: ValueKey(_walletRefreshKey), // 🔧 FIX: Force rebuild when key changes
                               future: PaymentService.getWalletBalance(
                                 userId: FirebaseAuth.instance.currentUser!.uid,
                               ),
@@ -434,14 +449,18 @@ class DashboardScreen extends StatelessWidget {
   void _showTopUpDialog(BuildContext context) async {
     showDialog(
       context: context,
-      builder: (BuildContext context) => const _TopUpWalletDialog(),
+      builder: (BuildContext context) => _TopUpWalletDialog(
+        onTopUpSuccess: _refreshWalletBalance, // 🔧 FIX: Pass refresh callback
+      ),
     );
   }
 }
 
 /// Enhanced Top-Up Dialog with Payment Preferences Integration
 class _TopUpWalletDialog extends StatefulWidget {
-  const _TopUpWalletDialog();
+  final VoidCallback? onTopUpSuccess; // 🔧 FIX: Callback to refresh wallet balance
+
+  const _TopUpWalletDialog({super.key, this.onTopUpSuccess});
 
   @override
   State<_TopUpWalletDialog> createState() => _TopUpWalletDialogState();
@@ -832,6 +851,9 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
         // Save payment preferences if successful
         if (success) {
           await _savePaymentPreferences();
+
+          // 🔧 FIX: Refresh wallet balance on dashboard
+          widget.onTopUpSuccess?.call();
         }
       }
     } catch (e) {
