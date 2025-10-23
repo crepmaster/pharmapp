@@ -538,7 +538,7 @@ class _UnifiedRegistrationScreenState
             print('🔍 DROPDOWN FIX v3: After dedup: ${uniqueOperators.length} unique operators');
 
             return DropdownButtonFormField<PaymentOperator>(
-              value: _selectedPaymentOperator,
+              initialValue: _selectedPaymentOperator,
               decoration: InputDecoration(
                 labelText: 'Payment Method',
                 hintText: 'Select payment operator',
@@ -820,7 +820,8 @@ class _UnifiedRegistrationScreenState
   }
 
   void _navigateToDashboard(UserType userType) {
-    // Pop back to root - BlocBuilder will show dashboard for authenticated user
+    // Pop all registration screens to go back to root (AuthWrapper)
+    // AuthWrapper's BlocBuilder will automatically show DashboardScreen when it detects Authenticated state
     Navigator.of(context).popUntil((route) => route.isFirst);
   }
 }

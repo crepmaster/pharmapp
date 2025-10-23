@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../blocs/auth_bloc.dart';
+import 'package:pharmapp_unified/blocs/unified_auth_bloc.dart';
 import '../../widgets/auth_text_field.dart';
 import '../../widgets/auth_button.dart';
 import 'pharmacy_unified_registration_entry.dart';
@@ -29,19 +29,19 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: BlocConsumer<AuthBloc, AuthState>(
+      body: BlocConsumer<UnifiedAuthBloc, UnifiedAuthState>(
         listener: (context, state) {
           // Debug statement removed for production security
           if (state is AuthError) {
             // Debug statement removed for production security
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text(state.message),
+                content: Text(state.error),
                 backgroundColor: Colors.red,
                 duration: const Duration(seconds: 5),
               ),
             );
-          } else if (state is AuthAuthenticated) {
+          } else if (state is Authenticated) {
             // Debug statement removed for production security
           } else if (state is AuthLoading) {
             // Debug statement removed for production security
@@ -65,7 +65,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      state.message,
+                      state.error,
                       style: TextStyle(color: Colors.red.shade700),
                     ),
                   ),
@@ -178,8 +178,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         if (_formKey.currentState!.validate()) {
                           final email = _emailController.text.trim();
                           // Debug statement removed for production security
-                          context.read<AuthBloc>().add(
-                            AuthSignInRequested(
+                          context.read<UnifiedAuthBloc>().add(
+                            SignInRequested(
                               email: email,
                               password: _passwordController.text,
                             ),

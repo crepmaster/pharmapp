@@ -33,6 +33,15 @@ class SwitchRole extends UnifiedAuthEvent {
   List<Object?> get props => [newRole];
 }
 
+class PasswordResetRequested extends UnifiedAuthEvent {
+  final String email;
+
+  PasswordResetRequested({required this.email});
+
+  @override
+  List<Object?> get props => [email];
+}
+
 // States
 abstract class UnifiedAuthState extends Equatable {
   @override
@@ -78,6 +87,8 @@ class AuthError extends UnifiedAuthState {
   List<Object?> get props => [error];
 }
 
+class PasswordResetSent extends UnifiedAuthState {}
+
 // BLoC
 class UnifiedAuthBloc extends Bloc<UnifiedAuthEvent, UnifiedAuthState> {
   UnifiedAuthBloc() : super(AuthInitial()) {
@@ -85,6 +96,7 @@ class UnifiedAuthBloc extends Bloc<UnifiedAuthEvent, UnifiedAuthState> {
     on<SignInRequested>(_onSignInRequested);
     on<SignOutRequested>(_onSignOutRequested);
     on<SwitchRole>(_onSwitchRole);
+    on<PasswordResetRequested>(_onPasswordResetRequested);
   }
 
   Future<void> _onCheckAuthStatus(
@@ -205,6 +217,20 @@ class UnifiedAuthBloc extends Bloc<UnifiedAuthEvent, UnifiedAuthState> {
       ));
     } catch (e) {
       emit(AuthError('Role switch failed: ${e.toString()}'));
+    }
+  }
+
+  Future<void> _onPasswordResetRequested(
+    PasswordResetRequested event,
+    Emitter<UnifiedAuthState> emit,
+  ) async {
+    emit(AuthLoading());
+
+    try {
+      await UnifiedAuthService.resetPassword(event.email);
+      emit(PasswordResetSent());
+    } catch (e) {
+      emit(AuthError('Password reset failed: ${e.toString()}'));
     }
   }
 

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../../blocs/auth_bloc.dart';
+import 'package:pharmapp_unified/blocs/unified_auth_bloc.dart';
 import '../../models/pharmacy_user.dart';
 import '../../models/location_data.dart';
 import '../../services/auth_service.dart';
@@ -49,9 +49,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() => _isLoading = true);
     
     try {
-      final authState = context.read<AuthBloc>().state;
-      if (authState is AuthAuthenticated) {
-        _currentUser = authState.user;
+      final authState = context.read<UnifiedAuthBloc>().state;
+      if (authState is Authenticated) {
+        // Note: UnifiedAuthBloc uses userData Map, need to reconstruct PharmacyUser
+        _currentUser = PharmacyUser.fromMap(authState.userData, authState.user.uid);
         _populateFields();
       } else {
         // Reload user data from Firebase
@@ -129,7 +130,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       if (mounted) {
         // Update the auth state with new profile data
-        context.read<AuthBloc>().add(AuthStarted());
+        context.read<UnifiedAuthBloc>().add(CheckAuthStatus());
         
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

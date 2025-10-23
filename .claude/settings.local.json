@@ -28,7 +28,14 @@
       "Bash(taskkill:*)",
       "Bash(findstr:*)",
       "Bash(dir clean_and_rebuild.ps1)",
-      "Bash(powershell -ExecutionPolicy Bypass -File clean_and_rebuild.ps1:*)"
+      "Bash(powershell -ExecutionPolicy Bypass -File clean_and_rebuild.ps1:*)",
+      "Bash(for i in {1..30})",
+      "Bash(do adb devices)",
+      "Bash(break)",
+      "Bash(echo:*)",
+      "Bash(done)",
+      "Bash(firebase apps:sdkconfig:*)",
+      "Bash(firebase login:list:*)"
     ],
     "deny": [],
     "ask": []

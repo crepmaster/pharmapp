@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'firebase_options.dart';
-import 'blocs/auth_bloc.dart';
+import 'package:pharmapp_unified/blocs/unified_auth_bloc.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/main/dashboard_screen.dart';
 
@@ -29,8 +29,8 @@ class PharmacyApp extends StatelessWidget {
     return BlocProvider(
       create: (context) {
         // Debug statement removed for production security
-        final bloc = AuthBloc();
-        bloc.add(AuthStarted());
+        final bloc = UnifiedAuthBloc();
+        bloc.add(CheckAuthStatus());
         return bloc;
       },
       child: MaterialApp(
@@ -53,17 +53,17 @@ class AuthWrapper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocListener<AuthBloc, AuthState>(
+    return BlocListener<UnifiedAuthBloc, UnifiedAuthState>(
       listener: (context, state) {
         // Debug statement removed for production security
         if (state is AuthError) {
           // Debug statement removed for production security
         }
       },
-      child: BlocBuilder<AuthBloc, AuthState>(
+      child: BlocBuilder<UnifiedAuthBloc, UnifiedAuthState>(
         builder: (context, state) {
           // Debug statement removed for production security
-          
+
           if (state is AuthLoading) {
             return const Scaffold(
               body: Center(
@@ -91,7 +91,7 @@ class AuthWrapper extends StatelessWidget {
                 ),
               ),
             );
-          } else if (state is AuthAuthenticated) {
+          } else if (state is Authenticated) {
             // Debug statement removed for production security
             return const DashboardScreen();
           } else if (state is AuthError) {
@@ -107,14 +107,14 @@ class AuthWrapper extends StatelessWidget {
                     ),
                     const SizedBox(height: 20),
                     Text(
-                      'Auth Error: ${state.message}',
+                      'Auth Error: ${state.error}',
                       textAlign: TextAlign.center,
                       style: const TextStyle(color: Colors.red),
                     ),
                     const SizedBox(height: 20),
                     ElevatedButton(
                       onPressed: () {
-                        context.read<AuthBloc>().add(AuthStarted());
+                        context.read<UnifiedAuthBloc>().add(CheckAuthStatus());
                       },
                       child: const Text('Retry'),
                     ),

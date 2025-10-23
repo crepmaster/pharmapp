@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../../blocs/auth_bloc.dart';
+import 'package:pharmapp_unified/blocs/unified_auth_bloc.dart';
 import '../../services/payment_service.dart';
 import '../../widgets/subscription_status_widget.dart';
 import '../inventory/inventory_browser_screen.dart';
@@ -31,7 +31,7 @@ class DashboardScreen extends StatelessWidget {
                   ),
                 );
               } else if (value == 'logout') {
-                context.read<AuthBloc>().add(AuthSignOutRequested());
+                context.read<UnifiedAuthBloc>().add(SignOutRequested());
               }
             },
             itemBuilder: (context) => <PopupMenuEntry>[
@@ -64,9 +64,9 @@ class DashboardScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: BlocBuilder<AuthBloc, AuthState>(
+      body: BlocBuilder<UnifiedAuthBloc, UnifiedAuthState>(
         builder: (context, state) {
-          if (state is AuthAuthenticated) {
+          if (state is Authenticated) {
             return SingleChildScrollView(
               padding: const EdgeInsets.all(16.0),
               child: Column(
@@ -101,7 +101,7 @@ class DashboardScreen extends StatelessWidget {
                                       ),
                                     ),
                                     Text(
-                                      state.user.pharmacyName,
+                                      state.userData['pharmacyName'] ?? 'Pharmacy',
                                       style: const TextStyle(
                                         fontSize: 16,
                                         color: Color(0xFF1976D2),
