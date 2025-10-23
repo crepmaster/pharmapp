@@ -5,7 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'firebase_options.dart';
 import 'navigation/role_router.dart';
 import 'blocs/unified_auth_bloc.dart';
-import 'screens/auth/unified_login_screen.dart';
+import 'screens/landing/app_selection_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -77,8 +77,8 @@ class PharmAppUnified extends StatelessWidget {
               );
             }
 
-            // Show unified login screen
-            return const UnifiedLoginScreen();
+            // Show app selection landing page (choose pharmacy or courier)
+            return const AppSelectionScreen();
           },
         ),
       ),
