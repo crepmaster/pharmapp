@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../blocs/auth_bloc.dart';
+import 'package:pharmapp_unified/blocs/unified_auth_bloc.dart';
 import '../../services/delivery_service.dart';
 import '../../models/delivery.dart';
 import '../deliveries/available_orders_screen.dart';
@@ -29,7 +29,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             icon: const Icon(Icons.more_vert),
             onSelected: (value) {
               if (value == 'logout') {
-                context.read<AuthBloc>().add(AuthSignOutRequested());
+                context.read<UnifiedAuthBloc>().add(SignOutRequested());
               }
             },
             itemBuilder: (context) => <PopupMenuEntry>[
@@ -62,9 +62,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ],
       ),
-      body: BlocBuilder<AuthBloc, AuthState>(
+      body: BlocBuilder<UnifiedAuthBloc, UnifiedAuthState>(
         builder: (context, state) {
-          if (state is AuthAuthenticated) {
+          if (state is Authenticated) {
             return SingleChildScrollView(
               padding: const EdgeInsets.all(16.0),
               child: Column(
@@ -99,7 +99,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       ),
                                     ),
                                     Text(
-                                      state.user.fullName,
+                                      state.userData['fullName'] ?? 'Courier',
                                       style: const TextStyle(
                                         fontSize: 16,
                                         color: Color(0xFF4CAF50),
@@ -111,7 +111,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                               // Availability Toggle
                               Switch(
-                                value: state.user.isAvailable,
+                                value: state.userData['isAvailable'] ?? false,
                                 onChanged: (bool value) {
                                   // TODO: Implement availability toggle
                                 },
@@ -129,7 +129,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                '${state.user.vehicleType} • ${state.user.licensePlate}',
+                                '${state.userData['vehicleType'] ?? 'Vehicle'} • ${state.userData['licensePlate'] ?? 'N/A'}',
                                 style: TextStyle(
                                   color: Colors.grey[600],
                                   fontSize: 14,
@@ -143,7 +143,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                '${state.user.rating.toStringAsFixed(1)} (${state.user.totalDeliveries} deliveries)',
+                                '${(state.userData['rating'] ?? 0.0).toStringAsFixed(1)} (${state.userData['totalDeliveries'] ?? 0} deliveries)',
                                 style: TextStyle(
                                   color: Colors.grey[600],
                                   fontSize: 14,

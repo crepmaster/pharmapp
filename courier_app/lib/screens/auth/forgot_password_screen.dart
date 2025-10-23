@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../blocs/auth_bloc.dart';
+import 'package:pharmapp_unified/blocs/unified_auth_bloc.dart';
 import '../../widgets/auth_text_field.dart';
 import '../../widgets/auth_button.dart';
 
@@ -29,9 +29,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
-      body: BlocConsumer<AuthBloc, AuthState>(
+      body: BlocConsumer<UnifiedAuthBloc, UnifiedAuthState>(
         listener: (context, state) {
-          if (state is AuthPasswordResetSent) {
+          if (state is PasswordResetSent) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
                 content: Text('Password reset email sent! Check your inbox.'),
@@ -42,7 +42,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           } else if (state is AuthError) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text(state.message),
+                content: Text(state.error),
                 backgroundColor: Colors.red,
               ),
             );
@@ -116,8 +116,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       isLoading: state is AuthLoading,
                       onPressed: () {
                         if (_formKey.currentState!.validate()) {
-                          context.read<AuthBloc>().add(
-                            AuthPasswordResetRequested(
+                          context.read<UnifiedAuthBloc>().add(
+                            PasswordResetRequested(
                               email: _emailController.text.trim(),
                             ),
                           );
