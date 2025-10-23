@@ -22,9 +22,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int _walletRefreshKey = 0;
 
   void _refreshWalletBalance() {
-    setState(() {
-      _walletRefreshKey++;
-    });
+    // 🔒 SAFETY FIX: Check mounted before setState
+    if (mounted) {
+      setState(() {
+        _walletRefreshKey++;
+      });
+    }
   }
 
   @override
@@ -507,10 +510,18 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
       if (doc.exists) {
         final data = doc.data() as Map<String, dynamic>;
 
-        // 🔧 FIX: Payment preferences are stored in roleData during registration
-        // Check both locations for backwards compatibility
-        Map<String, dynamic>? prefData;
+        // 🔒 SECURITY FIX: Get phone from user data (not from encrypted preferences)
+        // User's phone is stored at root level during registration
+        String? userPhone;
+        if (data.containsKey('phoneNumber')) {
+          userPhone = data['phoneNumber'] as String?;
+        } else if (data.containsKey('roleData') && data['roleData'] is Map) {
+          final roleData = data['roleData'] as Map<String, dynamic>;
+          userPhone = roleData['phoneNumber'] as String?;
+        }
 
+        // Get payment preferences for payment method selection only
+        Map<String, dynamic>? prefData;
         if (data.containsKey('roleData') && data['roleData'] is Map) {
           final roleData = data['roleData'] as Map<String, dynamic>;
           if (roleData.containsKey('paymentPreferences')) {
@@ -537,10 +548,10 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
                 _selectedMethod = 'mtn'; // Default fallback
               }
 
-              // 🔧 FIX: Auto-fill phone from payment preferences
-              // Now stores FULL phone number (not masked) for payment processing
-              if (preferences.defaultPhone.isNotEmpty) {
-                _phoneController.text = preferences.defaultPhone;
+              // 🔒 SECURITY FIX: Load phone from user data (not from encrypted preferences)
+              // Preferences store masked phone for security, user data has plaintext
+              if (userPhone != null && userPhone.isNotEmpty) {
+                _phoneController.text = userPhone;
               }
             });
           }
@@ -852,8 +863,10 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
         if (success) {
           await _savePaymentPreferences();
 
-          // 🔧 FIX: Refresh wallet balance on dashboard
-          widget.onTopUpSuccess?.call();
+          // 🔒 SAFETY FIX: Check mounted before calling setState callback
+          if (mounted) {
+            widget.onTopUpSuccess?.call();
+          }
         }
       }
     } catch (e) {

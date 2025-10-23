@@ -199,7 +199,7 @@ class PaymentPreferences extends Equatable {
   Map<String, dynamic> toMap() {
     return {
       'defaultMethod': defaultMethod,
-      'defaultPhone': defaultPhone, // 🔧 FIX: Store full phone for payment processing (already secured with encryptedPhone + phoneHash)
+      'defaultPhone': EncryptionService.maskPhoneNumber(defaultPhone), // 🔒 SECURITY: Store masked version only
       'country': country?.toString().split('.').last,
       'operator': operator?.toString().split('.').last,
       'encryptedPhone': encryptedPhone ?? EncryptionService.encryptData(defaultPhone),
