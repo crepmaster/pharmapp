@@ -115,7 +115,10 @@ class _RoleBasedAuthScreenState extends State<RoleBasedAuthScreen> {
       ),
       body: BlocConsumer<UnifiedAuthBloc, UnifiedAuthState>(
         listener: (context, state) {
-          if (state is AuthError) {
+          if (state is Authenticated) {
+            // Pop back to root - main.dart's BlocBuilder will show dashboard
+            Navigator.of(context).popUntil((route) => route.isFirst);
+          } else if (state is AuthError) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(state.error),

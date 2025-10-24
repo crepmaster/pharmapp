@@ -2,27 +2,73 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 🚨 **CRITICAL: BEFORE MODIFYING REGISTRATION/AUTH CODE**
+## 🚨 **CRITICAL: MASTER APPLICATION IS pharmapp_unified**
 
 **⚠️ READ THIS FIRST:** [`docs/FILE_STRUCTURE_ACTIVE_VS_OBSOLETE.md`](docs/FILE_STRUCTURE_ACTIVE_VS_OBSOLETE.md)
 
-**We have lost multiple days modifying obsolete/unused files!**
+**CRITICAL DECISION (2025-10-24)**: `pharmapp_unified` is now the **MASTER APPLICATION**
 
-Before making ANY changes to registration screens, authentication flows, or login screens:
+### **Before Making ANY Changes:**
+
 1. **CHECK** the file structure document above
-2. **VERIFY** the file is marked as ACTIVE (not obsolete)
+2. **VERIFY** you're modifying the MASTER app (pharmapp_unified), NOT obsolete standalone apps
 3. **CONFIRM** via git logs and console output
 
-**Key Active Files:**
-- Registration Flow: `pharmacy_app/lib/screens/auth/register_screen.dart`
-- Navigation Helper: `pharmacy_app/lib/services/registration_navigation_helper.dart`
-- Auth Service: `shared/lib/services/unified_auth_service.dart`
+### **Master Application Structure:**
 
-**DO NOT modify files without checking the documentation first!**
+**✅ ACTIVE - MODIFY THESE:**
+- **Master App**: `pharmapp_unified/` (ALL pharmacy features)
+- **Pharmacy Dashboard**: `pharmapp_unified/lib/screens/pharmacy/pharmacy_main_screen.dart`
+- **Pharmacy Services**: `pharmapp_unified/lib/services/*`
+- **Pharmacy Widgets**: `pharmapp_unified/lib/widgets/*`
+- **Pharmacy Screens**: `pharmapp_unified/lib/screens/pharmacy/*`
+- **Auth System**: `pharmapp_unified/lib/blocs/unified_auth_bloc.dart`
+- **Shared Services**: `shared/lib/services/unified_auth_service.dart`
 
-## 🚀 **CURRENT PROJECT STATUS - 2025-10-24 (UNIFIED LANDING PAGE + MULTI-APP ARCHITECTURE)**
+**❌ OBSOLETE - DO NOT MODIFY:**
+- **Old Pharmacy App**: `pharmacy_app/` (ENTIRE DIRECTORY IS OBSOLETE)
+- **Old Dashboard**: `pharmacy_app/lib/screens/main/dashboard_screen.dart`
+- **Old Services**: `pharmacy_app/lib/services/*`
 
-### 🎉 **LATEST SESSION ACHIEVEMENTS - 2025-10-24 (Evening Session):**
+**DO NOT waste time modifying obsolete `pharmacy_app` directory!**
+
+## 🚀 **CURRENT PROJECT STATUS - 2025-10-25 (WALLET SANDBOX TESTING COMPLETE)**
+
+### 🎉 **LATEST SESSION ACHIEVEMENTS - 2025-10-25 (Wallet Testing Session):**
+- **Login Navigation Fixed**: ✅ Resolved persistent bug where users needed back button after login
+- **Sandbox Wallet Credit**: ✅ Added Gmail account pattern to `sandboxCredit` function - ALL Gmail accounts allowed
+- **Sandbox Wallet Debit**: ✅ Created NEW `sandboxDebit` Firebase function - withdraw feature now working
+- **Backend Repository Cloned**: ✅ Cloned https://github.com/crepmaster/pharmapp locally for function development
+- **Firebase Functions Deployed**: ✅ Both `sandboxCredit` and `sandboxDebit` deployed to production (`mediexchange`)
+- **Sandbox Testing Screen**: ✅ Complete wallet testing UI with add/withdraw money functionality
+- **Exchange Testing Plan**: ✅ Comprehensive test plan created for city-based peer-to-peer medicine exchange
+- **Security Validation**: ✅ API keys removed from all commits - placeholder-only in git history
+
+### 🎯 **Features Tested & Working - 2025-10-25:**
+- ✅ **Login Navigation**: Direct navigation to dashboard (no back button needed)
+- ✅ **Wallet Credit (Add Money)**: Gmail accounts can credit test wallets
+- ✅ **Wallet Debit (Withdraw Money)**: Gmail accounts can debit test wallets
+- ✅ **Balance Validation**: Prevents overdrafts with insufficient funds checks
+- ✅ **Real-time Balance Updates**: Wallet UI refreshes after transactions
+- ✅ **Ledger Audit Trail**: All transactions logged in Firestore
+
+### 📋 **Next Session: Exchange Workflow Testing**
+- **Test Accounts**: 3 pharmacies (2 in Douala, 1 in Yaoundé) + 1 courier
+- **City Isolation**: Verify pharmacies only see medicines in their own city
+- **Complete Exchange**: Test courier fee split, medicine payment, delivery completion
+- **Expected Balances**: Pharmacy A: 47k, Pharmacy B: 97k, Courier C: 6k XAF
+- **Test Plan**: [docs/testing/NEXT_SESSION_EXCHANGE_TESTING.md](docs/testing/NEXT_SESSION_EXCHANGE_TESTING.md)
+
+### 🎉 **SESSION ACHIEVEMENTS - 2025-10-24 (MASTER APP ESTABLISHED):**
+- **MASTER APP ESTABLISHED**: ✅ `pharmapp_unified` is now the master application for all pharmacy functionality
+- **Complete Dashboard Migration**: ✅ ALL pharmacy features transferred from standalone app to unified app
+- **Feature Parity Achieved**: ✅ 1030-line production dashboard with wallet, subscriptions, inventory, exchanges, profile
+- **Logout Bug Fixed**: ✅ Fixed critical BLoC state handling bug in main.dart (Unauthenticated state not handled)
+- **Architecture Cleanup**: ✅ Marked `pharmacy_app/` as OBSOLETE in documentation
+- **Code Review Analysis**: ✅ Comprehensive analysis of why reviewer missed logout bug + recommendations
+- **File Transfer Complete**: ✅ All services, models, widgets, screens copied to unified app
+
+### 🎉 **SESSION ACHIEVEMENTS - 2025-10-24 (Evening Session):**
 - **Unified Landing Page**: ✅ Created beautiful app selection screen (choose Pharmacy or Courier)
 - **Role-Based Authentication**: ✅ Implemented role-specific login screens with dynamic branding
 - **Navigation Architecture**: ✅ Complete flow: Landing → App Selection → Role-Specific Auth → Dashboard
