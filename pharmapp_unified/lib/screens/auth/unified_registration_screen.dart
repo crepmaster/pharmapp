@@ -796,6 +796,10 @@ class _UnifiedRegistrationScreenState
           'displayName': _pharmacyNameController.text.trim(),
           'name': _pharmacyNameController.text.trim(),
           'address': _addressController.text.trim(),
+          // TODO: Add proper geocoding service to convert address to GPS coordinates
+          // For now using placeholder values - should use Nominatim or similar free geocoding API
+          'latitude': 0.0,
+          'longitude': 0.0,
         };
 
       case UserType.courier:
