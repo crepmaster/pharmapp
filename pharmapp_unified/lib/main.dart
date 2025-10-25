@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'firebase_options.dart';
 import 'navigation/role_router.dart';
 import 'blocs/unified_auth_bloc.dart';
+import 'blocs/delivery_bloc.dart';
 import 'screens/landing/app_selection_screen.dart';
 
 void main() async {
@@ -22,8 +23,15 @@ class PharmAppUnified extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (context) => UnifiedAuthBloc()..add(CheckAuthStatus()),
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider(
+          create: (context) => UnifiedAuthBloc()..add(CheckAuthStatus()),
+        ),
+        BlocProvider(
+          create: (context) => DeliveryBloc(),
+        ),
+      ],
       child: MaterialApp(
         title: 'PharmApp - Medicine Exchange Platform',
         debugShowCheckedModeBanner: false,

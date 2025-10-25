@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 import '../../../models/delivery.dart';
 import '../../../services/delivery_service.dart';
@@ -653,7 +654,7 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
     }
   }
 
-  void _navigateToLocation(DeliveryLocation location) {
+  Future<void> _navigateToLocation(DeliveryLocation location) async {
     if (!location.hasGPSLocation) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -670,16 +671,36 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
       label: location.pharmacyName,
     );
 
-    // Launch navigation
-    // Note: This would use url_launcher in a real app
-    // Debug statement removed for production security
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Opening navigation to ${location.pharmacyName}'),
-        backgroundColor: const Color(0xFF4CAF50),
-      ),
-    );
+    // Launch navigation using url_launcher
+    try {
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Opening navigation to ${location.pharmacyName}'),
+            backgroundColor: const Color(0xFF4CAF50),
+          ),
+        );
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not open navigation app'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error opening navigation: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Future<void> _takeProofPhoto(String proofType) async {
@@ -790,32 +811,84 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
     }
   }
 
-  void _reportIssue() {
-    showDialog(
+  Future<void> _reportIssue() async {
+    String? selectedIssue;
+    final issueTypes = [
+      'Cannot find pickup location',
+      'Cannot find delivery location',
+      'Customer not available',
+      'Wrong medicine received',
+      'Package damaged',
+      'Traffic/Road issues',
+      'Other',
+    ];
+
+    await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Report Issue'),
-        content: const Text('What kind of issue are you experiencing?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Report Issue'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('What kind of issue are you experiencing?'),
+              const SizedBox(height: 16),
+              ...issueTypes.map((issue) => RadioListTile<String>(
+                title: Text(issue),
+                value: issue,
+                groupValue: selectedIssue,
+                onChanged: (value) {
+                  setState(() {
+                    selectedIssue = value;
+                  });
+                },
+                contentPadding: EdgeInsets.zero,
+              )),
+            ],
           ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              // TODO: Implement issue reporting
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Issue reported successfully'),
-                  backgroundColor: Color(0xFF4CAF50),
-                ),
-              );
-            },
-            child: const Text('Report'),
-          ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: selectedIssue == null
+                ? null
+                : () async {
+                    Navigator.pop(context);
+                    await _submitIssueReport(selectedIssue!);
+                  },
+              child: const Text('Report'),
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  Future<void> _submitIssueReport(String issueType) async {
+    try {
+      await DeliveryService.reportDeliveryIssue(
+        widget.delivery.id,
+        issueType,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Issue reported successfully'),
+          backgroundColor: Color(0xFF4CAF50),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to report issue: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 }

@@ -364,4 +364,34 @@ class DeliveryService {
       throw 'Failed to create mock delivery: $e';
     }
   }
+
+  /// Report an issue with a delivery
+  static Future<void> reportDeliveryIssue(
+    String deliveryId,
+    String issueType,
+  ) async {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) {
+      throw 'No authenticated user';
+    }
+
+    try {
+      // Create an issue report in Firestore
+      await _firestore.collection('delivery_issues').add({
+        'deliveryId': deliveryId,
+        'courierId': currentUser.uid,
+        'issueType': issueType,
+        'reportedAt': FieldValue.serverTimestamp(),
+        'status': 'open',
+      });
+
+      // Also update the delivery document with issue flag
+      await _firestore.collection('deliveries').doc(deliveryId).update({
+        'hasIssue': true,
+        'lastIssueReportedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      throw 'Failed to report issue: $e';
+    }
+  }
 }

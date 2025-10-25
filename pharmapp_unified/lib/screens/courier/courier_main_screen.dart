@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../blocs/unified_auth_bloc.dart';
-import '../../services/delivery_service.dart';
+import '../../blocs/delivery_bloc.dart';
 import '../../models/delivery.dart';
 import 'deliveries/available_orders_screen.dart';
 import 'deliveries/active_delivery_screen.dart';
@@ -21,6 +21,13 @@ class CourierMainScreen extends StatefulWidget {
 }
 
 class _CourierMainScreenState extends State<CourierMainScreen> {
+
+  @override
+  void initState() {
+    super.initState();
+    // Load active delivery when screen initializes
+    context.read<DeliveryBloc>().add(LoadActiveDelivery());
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -175,41 +182,46 @@ class _CourierMainScreenState extends State<CourierMainScreen> {
                   
                   const SizedBox(height: 16),
                   
-                  GridView.count(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
-                    children: [
-                      _buildActionCard(
-                        'Available Orders',
-                        Icons.local_shipping,
-                        Colors.blue,
-                        () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const AvailableOrdersScreen(),
-                            ),
-                          );
-                        },
-                      ),
-                      StreamBuilder<Delivery?>(
-                        stream: DeliveryService.getActiveDelivery(),
-                        builder: (context, snapshot) {
-                          final hasActiveDelivery = snapshot.hasData && snapshot.data != null;
-                          return _buildActionCard(
+                  BlocBuilder<DeliveryBloc, DeliveryState>(
+                    builder: (context, deliveryState) {
+                      // Extract active delivery from state
+                      Delivery? activeDelivery;
+                      if (deliveryState is ActiveDeliveryLoaded) {
+                        activeDelivery = deliveryState.delivery;
+                      }
+                      final hasActiveDelivery = activeDelivery != null;
+
+                      return GridView.count(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        crossAxisCount: 2,
+                        crossAxisSpacing: 16,
+                        mainAxisSpacing: 16,
+                        children: [
+                          _buildActionCard(
+                            'Available Orders',
+                            Icons.local_shipping,
+                            Colors.blue,
+                            () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const AvailableOrdersScreen(),
+                                ),
+                              );
+                            },
+                          ),
+                          _buildActionCard(
                             hasActiveDelivery ? 'Active Delivery' : 'No Active Delivery',
                             hasActiveDelivery ? Icons.navigation : Icons.directions_off,
                             hasActiveDelivery ? Colors.orange : Colors.grey,
-                            hasActiveDelivery 
+                            hasActiveDelivery
                               ? () {
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
                                       builder: (context) => ActiveDeliveryScreen(
-                                        delivery: snapshot.data!,
+                                        delivery: activeDelivery!,
                                       ),
                                     ),
                                   );
@@ -222,19 +234,13 @@ class _CourierMainScreenState extends State<CourierMainScreen> {
                                     ),
                                   );
                                 },
-                          );
-                        },
-                      ),
-                      StreamBuilder<Delivery?>(
-                        stream: DeliveryService.getActiveDelivery(),
-                        builder: (context, snapshot) {
-                          final hasActiveDelivery = snapshot.hasData && snapshot.data != null;
-                          return _buildActionCard(
+                          ),
+                          _buildActionCard(
                             'Scan QR Code',
                             Icons.qr_code_scanner,
                             hasActiveDelivery ? Colors.purple : Colors.grey,
                             hasActiveDelivery
-                              ? () => _openQRScanner(snapshot.data!)
+                              ? () => _openQRScanner(activeDelivery!)
                               : () {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
@@ -243,23 +249,23 @@ class _CourierMainScreenState extends State<CourierMainScreen> {
                                     ),
                                   );
                                 },
-                          );
-                        },
-                      ),
-                      _buildActionCard(
-                        'View Earnings',
-                        Icons.attach_money,
-                        Colors.green,
-                        () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Your detailed earnings are shown below'),
-                              backgroundColor: Color(0xFF4CAF50),
-                            ),
-                          );
-                        },
-                      ),
-                    ],
+                          ),
+                          _buildActionCard(
+                            'View Earnings',
+                            Icons.attach_money,
+                            Colors.green,
+                            () {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Your detailed earnings are shown below'),
+                                  backgroundColor: Color(0xFF4CAF50),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      );
+                    },
                   ),
                   
                   const SizedBox(height: 32),
