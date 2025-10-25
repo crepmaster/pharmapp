@@ -31,8 +31,35 @@ class _CourierMainScreenState extends State<CourierMainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
+    return PopScope(
+      canPop: false, // Prevent back button from popping
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          // Show confirmation dialog instead of popping
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Exit App?'),
+              content: const Text('Do you want to exit the application?'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    // Sign out and exit
+                    context.read<UnifiedAuthBloc>().add(SignOutRequested());
+                  },
+                  child: const Text('Exit'),
+                ),
+              ],
+            ),
+          );
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
         title: const Text('Courier Dashboard'),
         backgroundColor: const Color(0xFF4CAF50),
         foregroundColor: Colors.white,
@@ -325,7 +352,8 @@ class _CourierMainScreenState extends State<CourierMainScreen> {
           return const Center(child: CircularProgressIndicator());
         },
       ),
-    );
+    ),
+    ); // Close PopScope
   }
 
   void _openQRScanner(Delivery activeDelivery) {
