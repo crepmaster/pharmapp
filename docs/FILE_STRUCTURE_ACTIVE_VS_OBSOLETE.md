@@ -3,8 +3,45 @@
 **CRITICAL REFERENCE DOCUMENT - READ BEFORE MODIFYING CODE**
 
 **Date Created**: 2025-10-23
-**Last Updated**: 2025-10-24 (UnifiedAuthBloc migration complete + BLocProvider architecture fix)
+**Last Updated**: 2025-10-25 (Courier fully migrated to pharmapp_unified - NOW THE MASTER APP)
 **Purpose**: Prevent wasting time modifying obsolete/unused files
+
+---
+
+## 🎯 **MASTER APPLICATION: pharmapp_unified**
+
+**CRITICAL DECISION - 2025-10-25**: `pharmapp_unified` is now the **MASTER APPLICATION** for ALL pharmacy AND courier functionality.
+
+### **What This Means:**
+
+- ✅ **ALL NEW FEATURES** → Implement in `pharmapp_unified`
+- ✅ **ALL BUG FIXES** → Fix in `pharmapp_unified`
+- ✅ **ALL PHARMACY WORK** → Modify `pharmapp_unified/lib/screens/pharmacy/*`
+- ✅ **ALL COURIER WORK** → Modify `pharmapp_unified/lib/screens/courier/*`
+- ❌ **NEVER MODIFY** → `pharmacy_app/` or `courier_app/` directories (OBSOLETE)
+
+### **Obsolete Applications:**
+
+- ❌ `pharmacy_app/` - Standalone pharmacy app (OBSOLETE - use pharmapp_unified instead)
+- ❌ `courier_app/` - Standalone courier app (OBSOLETE - use pharmapp_unified instead)
+- ✅ `pharmapp_unified/` - **MASTER** unified multi-app platform (pharmacy, courier, admin)
+- ✅ `admin_panel/` - Still active (will eventually migrate to pharmapp_unified)
+
+### **Migration Status:**
+
+| App | Status | Master Location | Obsolete Location |
+|-----|--------|----------------|-------------------|
+| **Pharmacy** | ✅ **MIGRATED (2025-10-24)** | `pharmapp_unified/lib/screens/pharmacy/` | `pharmacy_app/` (OBSOLETE) |
+| **Courier** | ✅ **MIGRATED (2025-10-25)** | `pharmapp_unified/lib/screens/courier/` | `courier_app/` (OBSOLETE) |
+| **Admin** | 🔄 Pending | TBD | `admin_panel/` (still active) |
+
+### **Architecture Benefits:**
+
+1. **Single Codebase**: All apps share same architecture (UnifiedAuthBloc, Firebase, services)
+2. **Code Reuse**: Services, models, widgets shared across all three apps
+3. **Consistent UX**: Same navigation patterns, same UI components
+4. **Easier Maintenance**: One place to fix bugs, one place to add features
+5. **Multi-Role Support**: Users can have multiple roles (pharmacy owner + courier)
 
 ---
 
@@ -178,6 +215,125 @@ How It Works:
   - BlocBuilder<AuthBloc, AuthState>
   - if (state is AuthAuthenticated) → shows DashboardScreen
   - if (state is AuthUnauthenticated) → shows LoginScreen
+```
+
+---
+
+## ❌ **OBSOLETE APPLICATIONS & FILES**
+
+### **🚫 OBSOLETE: courier_app (Standalone Courier App)**
+
+**Status**: ❌ **OBSOLETE - DO NOT MODIFY** (as of 2025-10-25)
+**Replacement**: `pharmapp_unified` is now the master application for courier features
+
+#### **Why It's Obsolete:**
+1. **Dashboard fully migrated**: All courier features now in `pharmapp_unified/lib/screens/courier/`
+2. **4,913+ lines of code migrated**: Complete delivery system with GPS tracking, QR scanning, payment integration
+3. **Firebase Functions integrated**: Courier payment system (createExchangeHold, exchangeCapture, exchangeCancel)
+4. **Architecture consistency**: Uses same UnifiedAuthBloc, same navigation patterns as pharmacy
+5. **Feature parity achieved**: `pharmapp_unified` has ALL features from standalone courier app
+
+#### **Obsolete Files (DO NOT MODIFY):**
+
+```dart
+❌ courier_app/lib/screens/main/dashboard_screen.dart
+   Replacement: pharmapp_unified/lib/screens/courier/courier_main_screen.dart
+   Status: OBSOLETE - old courier dashboard
+   Migration: Complete feature transfer on 2025-10-25 (417 lines in unified app)
+
+❌ courier_app/lib/models/delivery.dart
+   Replacement: pharmapp_unified/lib/models/delivery.dart
+   Status: OBSOLETE - copied to unified app (288 lines)
+
+❌ courier_app/lib/services/delivery_service.dart
+   Replacement: pharmapp_unified/lib/services/delivery_service.dart
+   Status: OBSOLETE - copied with Firebase Functions integration (367 lines)
+
+❌ courier_app/lib/services/courier_location_service.dart
+   Replacement: pharmapp_unified/lib/services/courier_location_service.dart
+   Status: OBSOLETE - copied to unified app (170 lines)
+
+❌ courier_app/lib/screens/deliveries/*.dart (5 screens)
+   Replacement: pharmapp_unified/lib/screens/courier/deliveries/*.dart
+   Status: OBSOLETE - all delivery screens copied (3,353 lines total)
+
+❌ courier_app/lib/widgets/courier_wallet_widget.dart
+   Replacement: pharmapp_unified/lib/widgets/courier/courier_wallet_widget.dart
+   Status: OBSOLETE - copied to unified app (371 lines)
+```
+
+#### **What to Do if You Need to Modify Courier Features:**
+
+```bash
+# ❌ WRONG - Modifying obsolete standalone app
+cd courier_app
+vim lib/screens/main/dashboard_screen.dart  # DON'T DO THIS!
+
+# ✅ RIGHT - Modify master unified app
+cd pharmapp_unified
+vim lib/screens/courier/courier_main_screen.dart  # Correct!
+```
+
+---
+
+### **🚫 OBSOLETE: pharmacy_app (Standalone Pharmacy App)**
+
+**Status**: ❌ **OBSOLETE - DO NOT MODIFY** (as of 2025-10-24)
+**Replacement**: `pharmapp_unified` is now the master application for pharmacy features
+
+#### **Why It's Obsolete:**
+1. **Dashboard fully migrated**: All pharmacy features now in `pharmapp_unified/lib/screens/pharmacy/`
+2. **Architecture duplicated**: Same UnifiedAuthBloc, same services, same models
+3. **Maintenance burden**: Keeping two codebases in sync is error-prone
+4. **Feature parity achieved**: `pharmapp_unified` has ALL features from standalone app
+
+#### **Obsolete Files (DO NOT MODIFY):**
+
+```dart
+❌ pharmacy_app/lib/screens/main/dashboard_screen.dart
+   Replacement: pharmapp_unified/lib/screens/pharmacy/pharmacy_main_screen.dart
+   Status: OBSOLETE - old placeholder dashboard (335 lines)
+   Migration: Complete feature transfer on 2025-10-24 (1030 lines in unified app)
+
+❌ pharmacy_app/lib/services/payment_service.dart
+   Replacement: pharmapp_unified/lib/services/payment_service.dart
+   Status: OBSOLETE - copied to unified app
+
+❌ pharmacy_app/lib/services/subscription_*.dart
+   Replacement: pharmapp_unified/lib/services/subscription_*.dart
+   Status: OBSOLETE - all subscription services copied to unified app
+
+❌ pharmacy_app/lib/widgets/subscription_status_widget.dart
+   Replacement: pharmapp_unified/lib/widgets/subscription_status_widget.dart
+   Status: OBSOLETE - copied to unified app
+
+❌ pharmacy_app/lib/screens/inventory/inventory_browser_screen.dart
+   Replacement: pharmapp_unified/lib/screens/pharmacy/inventory/inventory_browser_screen.dart
+   Status: OBSOLETE - copied to unified app
+
+❌ pharmacy_app/lib/screens/exchanges/proposals_screen.dart
+   Replacement: pharmapp_unified/lib/screens/pharmacy/exchanges/proposals_screen.dart
+   Status: OBSOLETE - copied to unified app
+
+❌ pharmacy_app/lib/screens/profile/profile_screen.dart
+   Replacement: pharmapp_unified/lib/screens/pharmacy/profile/profile_screen.dart
+   Status: OBSOLETE - copied to unified app
+
+❌ pharmacy_app/lib/models/subscription.dart
+   Replacement: pharmapp_unified/lib/models/subscription.dart
+   Status: OBSOLETE - copied to unified app
+```
+
+#### **What to Do if You Need to Modify Pharmacy Features:**
+
+```bash
+# ❌ WRONG - Modifying obsolete standalone app
+cd pharmacy_app
+vim lib/screens/main/dashboard_screen.dart  # DON'T DO THIS!
+
+# ✅ RIGHT - Modify master unified app
+cd pharmapp_unified
+vim lib/screens/pharmacy/pharmacy_main_screen.dart  # Correct!
 ```
 
 ---
