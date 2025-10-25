@@ -70,6 +70,7 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
     _locationSubscription = null;
     await CourierLocationService.stopLocationTracking();
     _updateTimer?.cancel();
+    if (!mounted) return;
     setState(() => _isTrackingLocation = false);
   }
 
