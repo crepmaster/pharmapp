@@ -8,10 +8,10 @@ import '../../blocs/unified_auth_bloc.dart';
 import '../../navigation/role_router.dart';
 import '../../services/payment_service.dart';
 import 'sandbox_testing_screen.dart';
+import 'inventory/inventory_browser_screen.dart';
+import 'exchanges/proposals_screen.dart';
 // TODO: Add back when dependencies are available
 // import '../../widgets/subscription_status_widget.dart';
-// import 'inventory/inventory_browser_screen.dart';
-// import 'exchanges/proposals_screen.dart';
 // import 'profile/profile_screen.dart';
 
 class PharmacyMainScreen extends StatefulWidget {
@@ -129,8 +129,8 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
   Widget build(BuildContext context) {
     final List<Widget> screens = [
       _buildHomeTab(),
-      _buildPlaceholderTab('Inventory', Icons.inventory),
-      _buildPlaceholderTab('Exchanges', Icons.swap_horiz),
+      const InventoryBrowserScreen(),
+      const ProposalsScreen(),
       _buildPlaceholderTab('Profile', Icons.person),
     ];
 
