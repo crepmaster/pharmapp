@@ -5,7 +5,6 @@ import 'package:google_fonts/google_fonts.dart';
 import 'firebase_options.dart';
 import 'navigation/role_router.dart';
 import 'blocs/unified_auth_bloc.dart';
-import 'blocs/delivery_bloc.dart';
 import 'screens/landing/app_selection_screen.dart';
 
 void main() async {
@@ -28,9 +27,8 @@ class PharmAppUnified extends StatelessWidget {
         BlocProvider(
           create: (context) => UnifiedAuthBloc()..add(CheckAuthStatus()),
         ),
-        BlocProvider(
-          create: (context) => DeliveryBloc(),
-        ),
+        // DeliveryBloc removed from global providers - now only created for courier users
+        // This prevents pharmacy/admin users from triggering courier-specific Firestore queries
       ],
       child: MaterialApp(
         title: 'PharmApp - Medicine Exchange Platform',

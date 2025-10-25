@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pharmapp_shared/services/unified_auth_service.dart';
 import '../screens/pharmacy/pharmacy_main_screen.dart';
 import '../screens/courier/courier_main_screen.dart';
 import '../screens/admin/admin_main_screen.dart';
+import '../blocs/delivery_bloc.dart';
 
 /// Role-based router that displays appropriate dashboard based on user type
 class RoleRouter extends StatelessWidget {
@@ -22,7 +24,11 @@ class RoleRouter extends StatelessWidget {
         return PharmacyMainScreen(userData: userData);
 
       case UserType.courier:
-        return CourierMainScreen(userData: userData);
+        // Courier needs DeliveryBloc for managing deliveries
+        return BlocProvider(
+          create: (context) => DeliveryBloc(),
+          child: CourierMainScreen(userData: userData),
+        );
 
       case UserType.admin:
         return AdminMainScreen(userData: userData);
