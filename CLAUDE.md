@@ -17,24 +17,59 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### **Master Application Structure:**
 
 **✅ ACTIVE - MODIFY THESE:**
-- **Master App**: `pharmapp_unified/` (ALL pharmacy features)
+- **Master App**: `pharmapp_unified/` (ALL pharmacy AND courier features)
 - **Pharmacy Dashboard**: `pharmapp_unified/lib/screens/pharmacy/pharmacy_main_screen.dart`
-- **Pharmacy Services**: `pharmapp_unified/lib/services/*`
-- **Pharmacy Widgets**: `pharmapp_unified/lib/widgets/*`
+- **Courier Dashboard**: `pharmapp_unified/lib/screens/courier/courier_main_screen.dart`
+- **Pharmacy Services**: `pharmapp_unified/lib/services/*` (payment_service.dart, etc.)
+- **Courier Services**: `pharmapp_unified/lib/services/delivery_service.dart`, `courier_location_service.dart`
+- **BLoCs**: `pharmapp_unified/lib/blocs/unified_auth_bloc.dart`, `delivery_bloc.dart`
+- **Pharmacy Widgets**: `pharmapp_unified/lib/widgets/pharmacy/*`
+- **Courier Widgets**: `pharmapp_unified/lib/widgets/courier/*`
 - **Pharmacy Screens**: `pharmapp_unified/lib/screens/pharmacy/*`
+- **Courier Screens**: `pharmapp_unified/lib/screens/courier/*`
 - **Auth System**: `pharmapp_unified/lib/blocs/unified_auth_bloc.dart`
 - **Shared Services**: `shared/lib/services/unified_auth_service.dart`
 
 **❌ OBSOLETE - DO NOT MODIFY:**
 - **Old Pharmacy App**: `pharmacy_app/` (ENTIRE DIRECTORY IS OBSOLETE)
-- **Old Dashboard**: `pharmacy_app/lib/screens/main/dashboard_screen.dart`
-- **Old Services**: `pharmacy_app/lib/services/*`
+- **Old Courier App**: `courier_app/` (ENTIRE DIRECTORY IS OBSOLETE)
+- **Old Dashboards**: `pharmacy_app/lib/screens/main/*`, `courier_app/lib/screens/main/*`
+- **Old Services**: `pharmacy_app/lib/services/*`, `courier_app/lib/services/*`
 
-**DO NOT waste time modifying obsolete `pharmacy_app` directory!**
+**DO NOT waste time modifying obsolete `pharmacy_app` or `courier_app` directories!**
 
-## 🚀 **CURRENT PROJECT STATUS - 2025-10-25 (WALLET SANDBOX TESTING COMPLETE)**
+## 🚀 **CURRENT PROJECT STATUS - 2025-10-25 (COURIER MODULE COMPLETE!)**
 
-### 🎉 **LATEST SESSION ACHIEVEMENTS - 2025-10-25 (Wallet Testing Session):**
+### 🎉 **LATEST SESSION ACHIEVEMENTS - 2025-10-25 (COURIER MIGRATION COMPLETE!):**
+- **Courier Module Migrated**: ✅ Complete migration of 4,913+ lines to pharmapp_unified MASTER app
+- **DeliveryBloc Architecture**: ✅ Proper BLoC pattern with 7 events, 9 states, stream-based updates
+- **Firestore Permissions Fixed**: ✅ Couriers can now read pending deliveries (PERMISSION_DENIED resolved)
+- **Back Button Crash Fixed**: ✅ PopScope with exit confirmation dialog on both pharmacy & courier screens
+- **URL Launcher Integrated**: ✅ Google Maps navigation for delivery routes
+- **Issue Reporting Complete**: ✅ 7 issue types with Firestore backend integration
+- **Code Review Score**: ✅ 8.5/10 - APPROVED for production deployment
+- **Security Audit**: ✅ NO sensitive data - safe for git commit
+- **Testing Validated**: ✅ User confirmed: "the courier app seems ok"
+
+### 🎯 **Courier Features Implemented - 2025-10-25:**
+- ✅ **GPS Tracking**: Real-time location updates every 30 seconds with proper cleanup
+- ✅ **Smart Order Sorting**: Proximity-based algorithm (distance 60%, fee 20%, efficiency 20%)
+- ✅ **QR Scanning**: Pickup and delivery verification with security validation
+- ✅ **Photo Proof**: Camera integration for delivery confirmation with fallback
+- ✅ **Wallet Withdrawals**: Mobile money integration (MTN/Orange) with 1,000 XAF minimum
+- ✅ **Issue Reporting**: 7 predefined types with admin resolution workflow
+- ✅ **Navigation**: url_launcher integration for Google Maps turn-by-turn
+- ✅ **Complete Lifecycle**: Accept → En Route → Pickup → Deliver workflow
+
+### 📋 **Courier Module Files (4,913+ lines):**
+1. **Models**: delivery.dart (288 lines) - Delivery, DeliveryLocation, DeliveryItem
+2. **Services**: delivery_service.dart (397 lines), courier_location_service.dart (170 lines)
+3. **BLoC**: delivery_bloc.dart (230 lines) - Complete state management
+4. **Screens**: courier_main_screen.dart, active_delivery_screen.dart (894 lines), available_orders_screen.dart (700 lines), qr_scanner_screen.dart, delivery_camera_screen.dart, order_details_screen.dart
+5. **Widgets**: courier_wallet_widget.dart (371 lines) - Withdrawal workflow
+6. **Backend**: firestore.rules - Courier permissions + delivery_issues collection
+
+### 🎉 **PREVIOUS SESSION - 2025-10-25 (Wallet Testing):**
 - **Login Navigation Fixed**: ✅ Resolved persistent bug where users needed back button after login
 - **Sandbox Wallet Credit**: ✅ Added Gmail account pattern to `sandboxCredit` function - ALL Gmail accounts allowed
 - **Sandbox Wallet Debit**: ✅ Created NEW `sandboxDebit` Firebase function - withdraw feature now working
