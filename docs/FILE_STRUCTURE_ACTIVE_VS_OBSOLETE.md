@@ -3,7 +3,7 @@
 **CRITICAL REFERENCE DOCUMENT - READ BEFORE MODIFYING CODE**
 
 **Date Created**: 2025-10-23
-**Last Updated**: 2025-10-25 (Courier fully migrated to pharmapp_unified - NOW THE MASTER APP)
+**Last Updated**: 2025-10-26 (pharmacy_app made unbuildable - pubspec.yaml renamed to OBSOLETE)
 **Purpose**: Prevent wasting time modifying obsolete/unused files
 
 ---
@@ -22,7 +22,7 @@
 
 ### **Obsolete Applications:**
 
-- ❌ `pharmacy_app/` - Standalone pharmacy app (OBSOLETE - use pharmapp_unified instead)
+- ❌ `pharmacy_app/` - Standalone pharmacy app (**UNBUILDABLE** - pubspec.yaml renamed, use pharmapp_unified instead)
 - ❌ `courier_app/` - Standalone courier app (OBSOLETE - use pharmapp_unified instead)
 - ✅ `pharmapp_unified/` - **MASTER** unified multi-app platform (pharmacy, courier, admin)
 - ✅ `admin_panel/` - Still active (will eventually migrate to pharmapp_unified)

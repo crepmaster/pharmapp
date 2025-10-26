@@ -1,14 +1,217 @@
 # Common Mistakes PharmApp - Base de Connaissance
 
-*Dernière mise à jour : 2025-10-20*
+*Dernière mise à jour : 2025-10-24*
 
 > Ce fichier documente les erreurs récurrentes détectées dans le projet. Il est mis à jour automatiquement par l'agent Reviewer après chaque review.
 
 ## 📊 Statistiques
 
-- **Total erreurs documentées** : 1
-- **Erreurs critiques** : 0
+- **Total erreurs documentées** : 3
+- **Erreurs critiques** : 2
 - **Erreurs récurrentes (>2 fois)** : 0
+
+---
+
+## 🎭 BLoC State Management
+
+### Erreur : Gestion incomplète des états BLoC (CRITICAL)
+**Fréquence** : 🔴 RÉCURRENTE (Détectée 2025-10-24)
+**Première détection** : 2025-10-24 dans pharmapp_unified/lib/screens/auth/unified_login_screen.dart lignes 40-62
+**Sévérité** : ⚠️ CRITIQUE
+
+**Problème** :
+**BEST PRACTICE FONDAMENTALE**: Lorsqu'un BlocListener ou BlocConsumer écoute un état asynchrone (authentication, payment, etc.), il DOIT TOUJOURS gérer à la fois:
+- ✅ Le cas de SUCCÈS (ex: `Authenticated`)
+- ✅ Le cas d'ÉCHEC (ex: `AuthError`)
+
+Ne gérer que le cas d'erreur et ignorer le succès crée des situations où l'utilisateur se retrouve bloqué après une opération réussie.
+
+**Mauvais pattern** :
+```dart
+// ❌ NE GÈRE QUE LES ERREURS - L'utilisateur reste bloqué après succès
+body: BlocConsumer<UnifiedAuthBloc, UnifiedAuthState>(
+  listener: (context, state) {
+    if (state is AuthError) {
+      // Affiche erreur
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(state.error), backgroundColor: Colors.red),
+      );
+    }
+    // ❌ MANQUE: Que faire si state is Authenticated ???
+  },
+  builder: (context, state) { /* ... */ },
+)
+```
+
+**Bon pattern** :
+```dart
+// ✅ GÈRE SUCCÈS ET ÉCHEC - Navigation complète
+body: BlocConsumer<UnifiedAuthBloc, UnifiedAuthState>(
+  listener: (context, state) {
+    if (state is Authenticated) {
+      // ✅ Cas de SUCCÈS: Navigation vers dashboard
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (_) => RoleRouter(
+            userType: state.userType,
+            userData: state.userData,
+          ),
+        ),
+        (route) => false, // Clear navigation stack
+      );
+    } else if (state is AuthError) {
+      // ✅ Cas d'ÉCHEC: Affichage erreur
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(state.error), backgroundColor: Colors.red),
+      );
+    }
+    // ✅ COMPLET: Les deux cas sont gérés
+  },
+  builder: (context, state) { /* ... */ },
+)
+```
+
+**Analyse détaillée** :
+1. Un BLoC émet différents états selon le résultat d'une opération asynchrone
+2. Le listener doit prévoir TOUS les états possibles, pas seulement les erreurs
+3. Pattern à vérifier systématiquement : `if (state is SuccessState) {} else if (state is ErrorState) {}`
+4. Ignorer l'état de succès = UX cassée (utilisateur bloqué sans feedback)
+5. Vérifier la cohérence entre screens similaires (login vs registration)
+
+**Checklist prévention** :
+- [ ] **TOUJOURS** gérer les cas de succès ET d'échec dans BlocListener/BlocConsumer
+- [ ] Vérifier que CHAQUE écran d'authentification gère `Authenticated` state
+- [ ] Vérifier que CHAQUE écran d'authentification gère `AuthError` state
+- [ ] Vérifier que CHAQUE écran de paiement gère `PaymentSuccess` ET `PaymentError`
+- [ ] Pattern systématique : `if (success) {} else if (error) {}`
+- [ ] Vérifier la consistance entre screens similaires (login, registration, password reset)
+
+**Impact** :
+- **UX catastrophique**: Utilisateur bloqué après succès sans feedback
+- **Bug critique**: Fonctionnalité complètement cassée
+- **Détection**: Tests manuels nécessaires (pas détecté par compilateur)
+- **Correction**: Simple (ajouter le cas de succès) mais critique
+
+**Détecté dans** :
+- **2025-10-24** - `pharmapp_unified/lib/screens/auth/unified_login_screen.dart` lignes 40-48
+  - Contexte: Login screen ne gérait que `AuthError`, pas `Authenticated`
+  - Conséquence: Utilisateurs authentifiés restaient bloqués sur l'écran de login
+  - Fix: Ajout de navigation explicite dans le cas `Authenticated`
+  - Commit: "🔧 FIX: Login navigation - Add Authenticated state handling"
+
+**Note critique** : Cette erreur n'a pas été détectée par le code reviewer lors de la première review du fichier registration. Le reviewer doit maintenant SYSTÉMATIQUEMENT vérifier ce pattern grâce à cette documentation et à la checklist mise à jour.
+
+---
+
+### Erreur : Double navigation sur même état BLoC (CRITICAL - REGRESSION)
+**Fréquence** : 🔴 RÉCURRENTE (Détectée 2025-10-25)
+**Première détection** : 2025-10-25 dans pharmapp_unified/lib/screens/auth/unified_login_screen.dart lignes 41-53
+**Sévérité** : ⚠️ CRITIQUE
+
+**Problème** :
+**ARCHITECTURE FONDAMENTALE**: Dans une application Flutter avec BLoC, il ne doit exister QU'UN SEUL point de navigation pour chaque état.
+
+Lorsque DEUX BlocListeners/BlocBuilders tentent de naviguer sur le même état (ex: `Authenticated`), cela crée une **race condition** où:
+1. Le premier listener déclenche la navigation
+2. Le second listener tente aussi de naviguer
+3. Le widget est déjà en cours de navigation = **conflit**
+4. Résultat: Navigation bloquée, utilisateur coincé sur l'écran
+
+**Mauvais pattern (DOUBLE NAVIGATION)** :
+```dart
+// ❌ FICHIER 1: main.dart
+home: BlocBuilder<UnifiedAuthBloc, UnifiedAuthState>(
+  builder: (context, state) {
+    if (state is Authenticated) {
+      // ❌ PREMIÈRE navigation
+      return RoleRouter(userType: state.userType, userData: state.userData);
+    }
+    return const AppSelectionScreen();
+  },
+)
+
+// ❌ FICHIER 2: unified_login_screen.dart
+body: BlocConsumer<UnifiedAuthBloc, UnifiedAuthState>(
+  listener: (context, state) {
+    if (state is Authenticated) {
+      // ❌ DEUXIÈME navigation (CONFLIT!)
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => RoleRouter(...)),
+        (route) => false,
+      );
+    }
+  },
+```
+
+**Résultat catastrophique**:
+- User logs in successfully
+- Both main.dart AND unified_login_screen.dart try to navigate
+- Navigation conflict: user stuck on login screen
+- User must press back button to see they're actually logged in
+- **UX COMPLÈTEMENT CASSÉE**
+
+**Bon pattern (NAVIGATION CENTRALISÉE)** :
+```dart
+// ✅ FICHIER 1: main.dart (SEUL POINT DE NAVIGATION)
+home: BlocBuilder<UnifiedAuthBloc, UnifiedAuthState>(
+  builder: (context, state) {
+    if (state is Authenticated) {
+      // ✅ Navigation CENTRALISÉE dans main.dart
+      return RoleRouter(userType: state.userType, userData: state.userData);
+    }
+    return const AppSelectionScreen();
+  },
+)
+
+// ✅ FICHIER 2: unified_login_screen.dart (PAS DE NAVIGATION)
+body: BlocConsumer<UnifiedAuthBloc, UnifiedAuthState>(
+  listener: (context, state) {
+    // ✅ Seuls les EFFETS SECONDAIRES ici (erreurs, snackbars)
+    // ✅ PAS DE NAVIGATION - c'est le rôle de main.dart
+    if (state is AuthError) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(state.error), backgroundColor: Colors.red),
+      );
+    }
+  },
+```
+
+**Règle d'or : UN SEUL POINT DE NAVIGATION PAR ÉTAT**
+
+**Checklist prévention** :
+- [ ] **VÉRIFIER** : main.dart a un BlocBuilder qui gère la navigation globale
+- [ ] **VÉRIFIER** : Les écrans individuels (login, register) NE naviguent PAS sur Authenticated
+- [ ] **RÈGLE** : Si main.dart navigue sur `Authenticated`, aucun écran ne doit le faire
+- [ ] **PATTERN** : Écrans = effets secondaires (erreurs) ; main.dart = navigation
+- [ ] **TEST** : Après login, vérifier que la navigation vers dashboard est automatique et immédiate
+- [ ] **RÉGRESSION** : Quand on ajoute une feature, NE PAS toucher au flux d'authentification sauf si explicitement requis
+
+**Impact** :
+- **UX catastrophique**: Utilisateur coincé sur écran de login après succès
+- **Bug critique**: Navigation complètement cassée
+- **Régression**: Introduction du bug en ajoutant une feature non liée (sandbox testing)
+- **Frustration utilisateur**: "i thought that issue was solved. why anytime we add a new feature you change something in the login process?"
+
+**Détecté dans** :
+- **2025-10-25** - Session sandbox testing screen implementation
+  - **Contexte**: Ajout d'une feature sandbox SANS rapport avec authentification
+  - **Erreur**: Navigation `Authenticated` ajoutée dans unified_login_screen.dart alors qu'elle existait déjà dans main.dart
+  - **Symptôme**: Login réussit mais user reste coincé sur login screen, doit cliquer "back" pour voir dashboard
+  - **Conséquence**: Régression critique sur fonctionnalité de base
+  - **Citation utilisateur**: "you were supposed only to add the sandbox and now we have a regression"
+  - **Commit de régression**: Introduction de la double navigation dans login screen
+  - **Fix**: Suppression de la navigation dans unified_login_screen.dart, conservation uniquement dans main.dart
+  - **Commit de fix**: Restauration à l'état du commit ff5b968 (login screen sans navigation)
+
+**Comment éviter cette régression** :
+1. **NE JAMAIS** modifier les écrans d'authentification sauf si la tâche le requiert explicitement
+2. **TOUJOURS** vérifier git history avant de modifier un écran d'auth (git show HEAD:fichier.dart)
+3. **VÉRIFIER** que main.dart gère déjà la navigation avant d'en ajouter dans un écran
+4. **TESTER** le flow complet de login après chaque modification (même non liée)
+5. **DOCUMENTER** : Si vous ajoutez une feature X, ne touchez PAS aux features A, B, C
+
+**Apprentissage clé** :
+> "Quand on ajoute une nouvelle feature (sandbox testing), on ne doit JAMAIS modifier le code d'authentification existant sauf si explicitement demandé. Cette régression est survenue en ajoutant du code de navigation dans login screen alors que la tâche était uniquement d'ajouter un écran de sandbox testing."
 
 ---
 

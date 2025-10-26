@@ -1,6 +1,6 @@
 # PharmApp Review Checklist
 
-*Dernière mise à jour : 2025-10-20*
+*Dernière mise à jour : 2025-10-24*
 
 > Checklist complète pour l'agent Reviewer. Cocher les items pertinents selon le type de code reviewé.
 
@@ -133,6 +133,18 @@
 - [ ] `FirebaseAuthException` catchée séparément
 - [ ] Switch sur `e.code` pour messages personnalisés
 - [ ] SnackBar ou AlertDialog pour afficher les erreurs
+
+### BLoC Event/State Handling (CRITICAL - BEST PRACTICE)
+- [ ] **ALWAYS handle BOTH success AND failure states** (e.g., `Authenticated` AND `AuthError`)
+- [ ] **CRITICAL**: Verify SINGLE point of navigation per state (see Double Navigation error in common_mistakes.md)
+- [ ] If main.dart BlocBuilder navigates on `Authenticated`, NO screen should navigate on same state
+- [ ] Login/Registration screens should ONLY handle error states (not navigation)
+- [ ] Navigation should be centralized in main.dart BlocBuilder
+- [ ] BlocListener in screens = side effects only (error messages, snackbars)
+- [ ] Loading states (`AuthLoading`) show appropriate UI feedback
+- [ ] **NEVER handle only error states and ignore success states** ❌
+- [ ] Consistent navigation patterns across screens (login, registration)
+- [ ] **REGRESSION CHECK**: When adding new features, verify auth navigation NOT modified unless required
 
 ### Firebase Integration
 - [ ] StreamBuilder pour real-time updates
