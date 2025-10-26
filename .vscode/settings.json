@@ -1,7 +1,40 @@
 {
-  "dart.flutterSdkPath": "C:\\flutter",
+  "dart.flutterSdkPath": "C:\\tools\\flutter",
   "android.sdk.path": "C:\\Users\\aebon\\AppData\\Local\\Android\\Sdk",
   "dart.flutterAdditionalArgs": [
     "--no-sound-null-safety"
-  ]
+  ],
+  // ============================================
+  // SHOW ONLY CRITICAL ERRORS (NO WARNINGS)
+  // ============================================
+
+  // Dart analyzer settings
+  "dart.showLintNames": false,
+  "dart.showTodos": false,
+  "dart.showIgnoreQuickFixes": false,
+  "dart.analysisServerFoldingOnly": false,
+  "dart.lineLength": 120,
+
+  // Problems panel - filter to show only errors
+  "problems.showCurrentInStatus": true,
+  "problems.sortOrder": "severity",
+  "problems.defaultViewMode": "tree",
+
+  // Editor diagnostics - show only errors
+  "problems.visibility": true,
+
+  // Hide info and warning squiggles in editor
+  "dart.analysisExcludedFolders": [
+    "build",
+    ".dart_tool"
+  ],
+
+  // Editor appearance
+  "editor.renderWhitespace": "none",
+  "editor.rulers": [120],
+
+  // Minimize clutter
+  "explorer.compactFolders": false,
+  "breadcrumbs.enabled": true,
+  "java.configuration.updateBuildConfiguration": "automatic"
 }

@@ -3,7 +3,7 @@
 **CRITICAL REFERENCE DOCUMENT - READ BEFORE MODIFYING CODE**
 
 **Date Created**: 2025-10-23
-**Last Updated**: 2025-10-26 (pharmacy_app made unbuildable - pubspec.yaml renamed to OBSOLETE)
+**Last Updated**: 2025-10-26 (Added OBSOLETE_README.md files + deletion script)
 **Purpose**: Prevent wasting time modifying obsolete/unused files
 
 ---
@@ -22,10 +22,20 @@
 
 ### **Obsolete Applications:**
 
-- ❌ `pharmacy_app/` - Standalone pharmacy app (**UNBUILDABLE** - pubspec.yaml renamed, use pharmapp_unified instead)
-- ❌ `courier_app/` - Standalone courier app (OBSOLETE - use pharmapp_unified instead)
+- ❌ `pharmacy_app/` - Standalone pharmacy app (**CAN BE DELETED** - see OBSOLETE_README.md)
+- ❌ `courier_app/` - Standalone courier app (**CAN BE DELETED** - see OBSOLETE_README.md)
 - ✅ `pharmapp_unified/` - **MASTER** unified multi-app platform (pharmacy, courier, admin)
 - ✅ `admin_panel/` - Still active (will eventually migrate to pharmapp_unified)
+
+### **How to Delete Obsolete Apps:**
+
+If you want to clean up your workspace and remove the obsolete apps:
+
+1. **Quick Method**: Run `DELETE_OBSOLETE_APPS.bat` (Windows batch script in project root)
+2. **Manual Method**: Manually delete the `pharmacy_app/` and `courier_app/` folders
+3. **Keep for Reference**: Leave them if you want to reference old code (they won't interfere)
+
+**Note**: These apps are marked with `OBSOLETE_README.md` files explaining why they're obsolete.
 
 ### **Migration Status:**
 
