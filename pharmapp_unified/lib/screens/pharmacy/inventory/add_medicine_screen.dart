@@ -22,10 +22,11 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
   final quantityController = TextEditingController();
   final batchController = TextEditingController();
   final notesController = TextEditingController();
-  
+
   DateTime? expirationDate;
   bool isLoading = false;
   String searchQuery = '';
+  String selectedPackaging = 'tablets'; // Default packaging type
   
   // Barcode-related fields
   BarcodeMedicineData? scannedMedicineData;
@@ -361,27 +362,72 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
                                 ),
                               ),
                               const SizedBox(height: 16),
-                              
-                              // Quantity
-                              TextFormField(
-                                controller: quantityController,
-                                decoration: const InputDecoration(
-                                  labelText: 'Quantity Available *',
-                                  hintText: 'e.g., 50 boxes, 100 tablets',
-                                  border: OutlineInputBorder(),
-                                ),
-                                keyboardType: TextInputType.number,
-                                validator: (value) {
-                                  if (value == null || value.isEmpty) {
-                                    return 'Quantity is required';
-                                  }
-                                  if (int.tryParse(value) == null || int.parse(value) <= 0) {
-                                    return 'Enter a valid quantity';
-                                  }
-                                  return null;
-                                },
+
+                              // Quantity and Packaging Row
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Quantity field
+                                  Expanded(
+                                    flex: 2,
+                                    child: TextFormField(
+                                      controller: quantityController,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Quantity *',
+                                        hintText: 'e.g., 50, 100, 500',
+                                        border: OutlineInputBorder(),
+                                      ),
+                                      keyboardType: TextInputType.number,
+                                      validator: (value) {
+                                        if (value == null || value.isEmpty) {
+                                          return 'Required';
+                                        }
+                                        if (int.tryParse(value) == null || int.parse(value) <= 0) {
+                                          return 'Invalid';
+                                        }
+                                        return null;
+                                      },
+                                    ),
+                                  ),
+
+                                  const SizedBox(width: 12),
+
+                                  // Packaging dropdown
+                                  Expanded(
+                                    flex: 3,
+                                    child: DropdownButtonFormField<String>(
+                                      value: selectedPackaging,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Packaging *',
+                                        border: OutlineInputBorder(),
+                                      ),
+                                      items: const [
+                                        DropdownMenuItem(value: 'tablets', child: Text('Tablets')),
+                                        DropdownMenuItem(value: 'capsules', child: Text('Capsules')),
+                                        DropdownMenuItem(value: 'boxes', child: Text('Boxes')),
+                                        DropdownMenuItem(value: 'bottles', child: Text('Bottles')),
+                                        DropdownMenuItem(value: 'vials', child: Text('Vials')),
+                                        DropdownMenuItem(value: 'ampoules', child: Text('Ampoules')),
+                                        DropdownMenuItem(value: 'syringes', child: Text('Syringes')),
+                                        DropdownMenuItem(value: 'sachets', child: Text('Sachets')),
+                                        DropdownMenuItem(value: 'strips', child: Text('Strips')),
+                                        DropdownMenuItem(value: 'tubes', child: Text('Tubes')),
+                                        DropdownMenuItem(value: 'ml', child: Text('ml (milliliters)')),
+                                        DropdownMenuItem(value: 'grams', child: Text('Grams')),
+                                        DropdownMenuItem(value: 'units', child: Text('Units')),
+                                      ],
+                                      onChanged: (String? newValue) {
+                                        if (newValue != null) {
+                                          setState(() {
+                                            selectedPackaging = newValue;
+                                          });
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                ],
                               ),
-                              
+
                               const SizedBox(height: 16),
                               
                               // Expiration Date
@@ -630,6 +676,7 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
         expirationDate: expirationDate!,
         batchNumber: batchController.text.trim(),
         notes: notesController.text.trim(),
+        packaging: selectedPackaging,
       );
 
       ScaffoldMessenger.of(context).showSnackBar(

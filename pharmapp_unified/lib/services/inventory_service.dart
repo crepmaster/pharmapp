@@ -14,6 +14,7 @@ class InventoryService {
     required DateTime expirationDate,
     String batchNumber = '',
     String notes = '',
+    String packaging = 'tablets',
   }) async {
     final user = _auth.currentUser;
     if (user == null) {
@@ -21,14 +22,15 @@ class InventoryService {
     }
 
     // Debug statement removed for production security
-    
+
     final inventoryItem = PharmacyInventoryItem.create(
       pharmacyId: user.uid,
       medicine: medicine,
       totalQuantity: quantity,
       expirationDate: expirationDate,
+      packaging: packaging, // Store packaging in dedicated field
       batchNumber: batchNumber,
-      notes: notes,
+      notes: notes, // Keep notes clean
     );
 
     try {

@@ -4,6 +4,7 @@ import 'package:pharmapp_shared/services/unified_auth_service.dart';
 import 'package:pharmapp_shared/models/payment_preferences.dart';
 import 'package:pharmapp_shared/models/country_config.dart';
 import '../../blocs/unified_auth_bloc.dart';
+import '../../services/subscription_creation_service.dart';
 
 /// Unified Registration Screen for all user types
 ///
@@ -753,12 +754,24 @@ class _UnifiedRegistrationScreenState
       final profileData = _buildProfileData(paymentPreferences);
 
       // Call unified auth service
-      await UnifiedAuthService.signUp(
+      final userCredential = await UnifiedAuthService.signUp(
         email: _emailController.text.trim(),
         password: _passwordController.text,
         userType: widget.userType,
         profileData: profileData,
       );
+
+      // Create 30-day trial subscription for new pharmacies
+      if (widget.userType == UserType.pharmacy && userCredential?.user != null) {
+        // Get currency from selected country
+        final countryConfig = Countries.getByCountry(widget.selectedCountry);
+        final currency = countryConfig?.currency ?? 'XAF';
+
+        await SubscriptionCreationService.createTrialSubscription(
+          userCredential!.user!.uid,
+          currency: currency,
+        );
+      }
 
       // Sign in automatically after registration
       if (!mounted) return;

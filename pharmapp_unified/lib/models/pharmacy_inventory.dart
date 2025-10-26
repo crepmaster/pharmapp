@@ -25,7 +25,8 @@ class PharmacyInventoryItem extends Equatable {
   final String medicineId;
   final String pharmacyId;
   final int availableQuantity; // How many available for sale/exchange
-  final StockInfo? stock; // Optional - for detailed inventory management  
+  final String packaging; // NEW: Packaging unit (tablets, ml, boxes, etc.)
+  final StockInfo? stock; // Optional - for detailed inventory management
   final PricingInfo? pricing; // Optional - no fixed price, wait for proposals
   final BatchInfo batch; // Required - expiration date is critical
   final LocationInfo? location; // Optional - internal pharmacy location
@@ -39,6 +40,7 @@ class PharmacyInventoryItem extends Equatable {
     required this.medicineId,
     required this.pharmacyId,
     required this.availableQuantity,
+    this.packaging = 'units', // Default packaging
     this.stock, // Optional
     this.pricing, // Optional - no fixed price
     required this.batch,
@@ -55,6 +57,7 @@ class PharmacyInventoryItem extends Equatable {
         medicineId,
         pharmacyId,
         availableQuantity,
+        packaging,
         stock,
         pricing,
         batch,
@@ -67,12 +70,13 @@ class PharmacyInventoryItem extends Equatable {
 
   factory PharmacyInventoryItem.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
-    
+
     return PharmacyInventoryItem(
       id: doc.id,
       medicineId: data['medicineId'] ?? '',
       pharmacyId: data['pharmacyId'] ?? '',
       availableQuantity: data['availableQuantity']?.toInt() ?? 0,
+      packaging: data['packaging'] as String? ?? 'units', // Default for backward compatibility
       stock: data['stock'] != null ? StockInfo.fromMap(data['stock']) : null,
       pricing: data['pricing'] != null ? PricingInfo.fromMap(data['pricing']) : null,
       batch: BatchInfo.fromMap(data['batch'] ?? {}),
@@ -121,16 +125,18 @@ class PharmacyInventoryItem extends Equatable {
     required Medicine medicine,
     required int totalQuantity,
     required DateTime expirationDate,
+    String packaging = 'units', // NEW: Packaging parameter
     String batchNumber = '',
     String notes = '',
   }) {
     final now = DateTime.now();
-    
+
     return PharmacyInventoryItem(
       id: '', // Will be set by Firestore
       medicineId: medicine.id,
       pharmacyId: pharmacyId,
       availableQuantity: totalQuantity,
+      packaging: packaging, // NEW: Store packaging separately
       batch: BatchInfo(
         lotNumber: batchNumber,
         expirationDate: expirationDate,
@@ -142,7 +148,7 @@ class PharmacyInventoryItem extends Equatable {
       ),
       tracking: notes.isNotEmpty ? TrackingInfo(
         lastInventoryCount: now,
-        notes: notes,
+        notes: notes, // Notes stay clean, no packaging here
       ) : null,
       createdAt: now,
       updatedAt: now,
@@ -154,6 +160,7 @@ class PharmacyInventoryItem extends Equatable {
       'medicineId': medicineId,
       'pharmacyId': pharmacyId,
       'availableQuantity': availableQuantity,
+      'packaging': packaging, // NEW: Store packaging separately
       if (stock != null) 'stock': stock!.toMap(),
       if (pricing != null) 'pricing': pricing!.toMap(),
       'batch': batch.toMap(),
@@ -170,6 +177,7 @@ class PharmacyInventoryItem extends Equatable {
     String? medicineId,
     String? pharmacyId,
     int? availableQuantity,
+    String? packaging,
     StockInfo? stock,
     PricingInfo? pricing,
     BatchInfo? batch,
@@ -184,6 +192,7 @@ class PharmacyInventoryItem extends Equatable {
       medicineId: medicineId ?? this.medicineId,
       pharmacyId: pharmacyId ?? this.pharmacyId,
       availableQuantity: availableQuantity ?? this.availableQuantity,
+      packaging: packaging ?? this.packaging,
       stock: stock ?? this.stock,
       pricing: pricing ?? this.pricing,
       batch: batch ?? this.batch,

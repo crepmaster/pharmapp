@@ -340,7 +340,7 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
             
             Row(
               children: [
-                _buildInfoChip('Qty: ${item.availableQuantity}', Colors.blue),
+                _buildInfoChip('${item.availableQuantity} ${item.packaging}', Colors.blue),
                 const SizedBox(width: 8),
                 if (item.batchNumber.isNotEmpty)
                   _buildInfoChip('Batch: ${item.batchNumber}', Colors.grey),
@@ -477,7 +477,7 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
             
             Row(
               children: [
-                _buildInfoChip('${item.availableQuantity} available', Colors.green),
+                _buildInfoChip('${item.availableQuantity} ${item.packaging} available', Colors.green),
                 const SizedBox(width: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
