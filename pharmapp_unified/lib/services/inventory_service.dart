@@ -69,7 +69,7 @@ class InventoryService {
     });
   }
 
-  /// Get all available medicines from other pharmacies
+  /// Get all available medicines from other pharmacies in the same city
   static Stream<List<PharmacyInventoryItem>> getAvailableMedicines({
     String? categoryFilter,
     String? searchQuery,
@@ -79,19 +79,85 @@ class InventoryService {
       return Stream.value([]);
     }
 
-    // Simple query without orderBy to avoid index issues
-    Query query = _firestore
-        .collection('pharmacy_inventory')
-        .where('availabilitySettings.availableForExchange', isEqualTo: true);
-
-    return query
+    // First, get the current pharmacy's city to enable city-based filtering
+    return _firestore
+        .collection('pharmacies')
+        .doc(user.uid)
         .snapshots()
-        .map((snapshot) {
-      var items = snapshot.docs
+        .asyncExpand((pharmacyDoc) async* {
+      // ✅ FIX 1: Check if pharmacy document exists
+      if (!pharmacyDoc.exists) {
+        print('⚠️ Pharmacy document not found for user ${user.uid}');
+        yield <PharmacyInventoryItem>[];
+        return;
+      }
+
+      // Extract current pharmacy's city
+      final String? currentCity = pharmacyDoc.data()?['city'] as String?;
+
+      // ✅ FIX 2: Enhanced null safety - check for null AND empty string
+      if (currentCity == null || currentCity.isEmpty) {
+        print('⚠️ Pharmacy ${user.uid} has no city configured');
+        yield <PharmacyInventoryItem>[];
+        return;
+      }
+
+      print('🏙️ Pharmacy city: $currentCity');
+
+      // Get all pharmacies in the same city
+      final pharmaciesSnapshot = await _firestore
+          .collection('pharmacies')
+          .where('city', isEqualTo: currentCity)
+          .get();
+
+      print('📍 Found ${pharmaciesSnapshot.docs.length} total pharmacies in $currentCity');
+
+      // ✅ FIX 3: Exclude own pharmacy ID from the list (not just client-side filtering)
+      final pharmacyIdsInCity = pharmaciesSnapshot.docs
+          .map((doc) => doc.id)
+          .where((id) => id != user.uid) // Exclude self at query level
+          .toList();
+
+      // ✅ FIX 4: Check if there are any other pharmacies in the same city
+      if (pharmacyIdsInCity.isEmpty) {
+        print('ℹ️ User is the only pharmacy in $currentCity');
+        yield <PharmacyInventoryItem>[];
+        return;
+      }
+
+      print('👥 Found ${pharmacyIdsInCity.length} other pharmacies in $currentCity');
+
+      // ✅ FIX 5: Handle Firebase whereIn limit of 30 items - split into chunks
+      final chunkSize = 30;
+      final chunks = <List<String>>[];
+
+      for (var i = 0; i < pharmacyIdsInCity.length; i += chunkSize) {
+        final end = (i + chunkSize < pharmacyIdsInCity.length)
+            ? i + chunkSize
+            : pharmacyIdsInCity.length;
+        chunks.add(pharmacyIdsInCity.sublist(i, end));
+      }
+
+      print('📦 Querying ${chunks.length} chunk(s) of pharmacy inventories');
+
+      // Query all chunks in parallel and combine results
+      final snapshots = await Future.wait(
+        chunks.map((chunk) => _firestore
+            .collection('pharmacy_inventory')
+            .where('availabilitySettings.availableForExchange', isEqualTo: true)
+            .where('pharmacyId', whereIn: chunk)
+            .get())
+      );
+
+      // Combine all results from chunks
+      final allDocs = snapshots.expand((snapshot) => snapshot.docs).toList();
+
+      print('💊 Retrieved ${allDocs.length} total inventory items');
+
+      // Parse and filter items (no need to filter by pharmacyId - already done in query)
+      var items = allDocs
           .map((doc) => PharmacyInventoryItem.fromFirestore(doc))
           .where((item) {
-            // Filter out own inventory
-            if (item.pharmacyId == user.uid) return false;
             // Filter out expired items
             if (item.isExpired) return false;
             // Filter out items with no available quantity
@@ -113,7 +179,7 @@ class InventoryService {
         items = items.where((item) {
           final medicine = item.medicine;
           if (medicine == null) return false;
-          
+
           final query = searchQuery.toLowerCase();
           return medicine.name.toLowerCase().contains(query) ||
                  medicine.genericName.toLowerCase().contains(query) ||
@@ -124,7 +190,9 @@ class InventoryService {
       // Sort by creation date (most recent first) in client-side
       items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-      return items;
+      print('✅ Returning ${items.length} filtered medicines from $currentCity');
+
+      yield items;
     });
   }
 

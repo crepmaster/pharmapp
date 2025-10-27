@@ -52,7 +52,7 @@ service cloud.firestore {
     // ========== PHARMACY COLLECTION ==========
     match /pharmacies/{pharmacyId} {
       // Read: Own profile or admin
-      allow read: if isOwner(pharmacyId) || hasAdminRole(request.auth.uid);
+      allow read: if isOwner(pharmacyId) || hasAdminRole(request.auth.uid) || (isAuthenticated() && hasPharmacyRole(request.auth.uid));
 
       // TEMPORARY: Completely open for testing registration issue
       allow create: if true;
@@ -191,11 +191,11 @@ service cloud.firestore {
 
     // ========== SUBSCRIPTIONS (Admin management) ==========
     match /subscriptions/{subscriptionId} {
-      // Read: Pharmacy owner or admin
-      allow read: if isOwner(subscriptionId) || hasAdminRole(request.auth.uid);
+      // Read: Pharmacy owner (by pharmacyId field) or admin
+      allow read: if (isAuthenticated() && resource.data.pharmacyId == request.auth.uid) || hasAdminRole(request.auth.uid);
 
-      // Create/Update: Admin only
-      allow create, update: if hasAdminRole(request.auth.uid);
+      // Create/Update: Admin only (or system during trial creation)
+      allow create, update: if hasAdminRole(request.auth.uid) || (isAuthenticated() && request.resource.data.pharmacyId == request.auth.uid);
 
       // Delete: Admin only
       allow delete: if hasAdminRole(request.auth.uid);
