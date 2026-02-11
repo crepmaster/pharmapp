@@ -13,7 +13,7 @@ import { cancelExchangeTx } from "./lib/exchange.js";
 import { validateFields, validators, sendValidationError, sendError, BusinessErrors, AppError } from "./lib/validation.js";
 // 👉 expose aussi la tâche planifiée
 export { expireExchangeHolds } from "./scheduled.js";
-export { cleanupTestUser } from "./cleanup.js";
+// export { cleanupTestUser } from "./cleanup.js";  // Commented out - file missing
 
 // --------- Admin init ---------
 if (getApps().length === 0) initializeApp();
@@ -987,6 +987,7 @@ export const sandboxCredit = onRequest({
 
     // Security: Only allow test accounts
     const testAccountPatterns = [
+      /^.*@gmail\.com$/,  // Allow Gmail accounts for development
       /^.*@promoshake\.net$/,
       /^test.*@.*$/,
       /^.*test.*@.*$/,
@@ -1099,6 +1100,142 @@ export const sandboxCredit = onRequest({
 
   } catch (error: any) {
     logger.error("Sandbox credit failed", { error: error.message });
+    sendError(res, error);
+  }
+});
+
+/**
+ * Sandbox Debit Function for Testing
+ * Debits test wallets for development/testing purposes
+ *
+ * Security: Only works for test accounts and development environment
+ */
+export const sandboxDebit = onRequest({
+  region: "europe-west1",
+  cors: true
+}, async (req, res) => {
+  try {
+    if (requireJson(req, res)) return;
+
+    const { userId, amount, description = "Sandbox test debit" } = req.body ?? {};
+
+    // Validate required fields
+    const errors = validateFields({ userId, amount }, {
+      userId: validators.required,
+      amount: (v, f) => validators.required(v, f) || (typeof v !== "number" || v <= 0 ?
+        { field: f, message: `${f} must be a positive number`, code: 'INVALID_AMOUNT' } : null)
+    });
+
+    if (errors.length > 0) {
+      return sendValidationError(res, errors);
+    }
+
+    // Security: Only allow test accounts (same patterns as sandboxCredit)
+    const testAccountPatterns = [
+      /^.*@gmail\.com$/,  // Allow Gmail accounts for development
+      /^.*@promoshake\.net$/,
+      /^test.*@.*$/,
+      /^.*test.*@.*$/,
+      /^sandbox.*@.*$/,
+      /^dev.*@.*$/
+    ];
+
+    // Get user document from pharmacies or couriers collection
+    let userDoc = await db.collection("pharmacies").doc(userId).get();
+    let userData = null;
+
+    if (!userDoc.exists) {
+      userDoc = await db.collection("couriers").doc(userId).get();
+    }
+
+    if (!userDoc.exists) {
+      res.status(404).json({
+        error: "User not found in pharmacies or couriers collection",
+        code: "USER_NOT_FOUND"
+      });
+      return;
+    }
+
+    userData = userDoc.data();
+    const userEmail = userData?.email || "";
+
+    // Check if email matches test patterns
+    const isTestAccount = testAccountPatterns.some(pattern => pattern.test(userEmail));
+
+    if (!isTestAccount) {
+      res.status(403).json({
+        error: "Sandbox debit only allowed for test accounts",
+        code: "NOT_TEST_ACCOUNT",
+        hint: "Use email patterns: *@gmail.com, *@promoshake.net, test*@*, *test*@*, sandbox*@*, dev*@*"
+      });
+      return;
+    }
+
+    const currency = "XAF";
+    const amountCents = Math.round(amount * 100); // Convert to cents
+
+    // Debit wallet with transaction
+    await db.runTransaction(async (tx) => {
+      const walletRef = db.collection("wallets").doc(userId);
+      const walletDoc = await tx.get(walletRef);
+
+      if (!walletDoc.exists) {
+        throw BusinessErrors.WALLET_NOT_FOUND(userId);
+      }
+
+      const currentWallet = walletDoc.data();
+      const currentAvailable = currentWallet?.available || 0;
+
+      // Check if sufficient balance
+      if (currentAvailable < amountCents) {
+        throw BusinessErrors.INSUFFICIENT_FUNDS(
+          `Insufficient balance: ${currentAvailable / 100} XAF available, ${amount} XAF requested`
+        );
+      }
+
+      // Update wallet balance
+      const newAvailable = currentAvailable - amountCents;
+      tx.update(walletRef, {
+        available: newAvailable,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      // Add ledger entry
+      const ledgerRef = db.collection("ledger").doc();
+      tx.set(ledgerRef, {
+        userId,
+        type: "sandbox_debit",
+        amount: amountCents,
+        currency,
+        description,
+        createdAt: FieldValue.serverTimestamp(),
+        metadata: {
+          isSandbox: true,
+          userEmail,
+          originalAmount: amount
+        }
+      });
+    });
+
+    logger.info("Sandbox debit applied", {
+      userId,
+      amount,
+      userEmail,
+      description
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Sandbox debit applied successfully",
+      userId,
+      debitedAmount: amount,
+      currency,
+      isSandbox: true,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error: any) {
+    logger.error("Sandbox debit failed", { error: error.message });
     sendError(res, error);
   }
 });

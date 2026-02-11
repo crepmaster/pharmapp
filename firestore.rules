@@ -218,6 +218,7 @@ service cloud.firestore {
 
     match /deliveries/{id} {
       allow read: if isAuthenticated() && (
+        resource.data.status == 'pending' ||                     // ✅ FIX: Couriers can read pending deliveries
         resource.data.courierId == request.auth.uid ||           // Courier can read assigned deliveries
         resource.data.fromPharmacyId == request.auth.uid ||      // Source pharmacy can read
         resource.data.toPharmacyId == request.auth.uid ||        // Destination pharmacy can read
@@ -230,6 +231,16 @@ service cloud.firestore {
         resource.data.toPharmacyId == request.auth.uid ||        // Destination pharmacy can update
         isSuperAdmin(request.auth.uid)                           // Super admin can update all
       );
+    }
+
+    // Delivery issue reporting
+    match /delivery_issues/{id} {
+      allow read: if isAuthenticated() && (
+        resource.data.courierId == request.auth.uid ||           // Courier can read own issues
+        isSuperAdmin(request.auth.uid)                           // Super admin can read all
+      );
+      allow create: if isAuthenticated();                        // Any authenticated user can report issues
+      allow update: if isAuthenticated() && isSuperAdmin(request.auth.uid); // Only admin can resolve issues
     }
 
     match /medicines/{id} {

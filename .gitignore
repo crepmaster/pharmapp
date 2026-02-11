@@ -21,3 +21,4 @@ serviceAccount*.json
 Thumbs.db
 .vscode/
 .idea/
+.claude/
