@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import '../models/pharmacy_inventory.dart';
 import '../models/medicine.dart';
 
@@ -87,7 +88,7 @@ class InventoryService {
         .asyncExpand((pharmacyDoc) async* {
       // ✅ FIX 1: Check if pharmacy document exists
       if (!pharmacyDoc.exists) {
-        print('⚠️ Pharmacy document not found for user ${user.uid}');
+        debugPrint('⚠️ Pharmacy document not found for user ${user.uid}');
         yield <PharmacyInventoryItem>[];
         return;
       }
@@ -97,12 +98,12 @@ class InventoryService {
 
       // ✅ FIX 2: Enhanced null safety - check for null AND empty string
       if (currentCity == null || currentCity.isEmpty) {
-        print('⚠️ Pharmacy ${user.uid} has no city configured');
+        debugPrint('⚠️ Pharmacy ${user.uid} has no city configured');
         yield <PharmacyInventoryItem>[];
         return;
       }
 
-      print('🏙️ Pharmacy city: $currentCity');
+      debugPrint('🏙️ Pharmacy city: $currentCity');
 
       // Get all pharmacies in the same city
       final pharmaciesSnapshot = await _firestore
@@ -110,7 +111,7 @@ class InventoryService {
           .where('city', isEqualTo: currentCity)
           .get();
 
-      print('📍 Found ${pharmaciesSnapshot.docs.length} total pharmacies in $currentCity');
+      debugPrint('📍 Found ${pharmaciesSnapshot.docs.length} total pharmacies in $currentCity');
 
       // ✅ FIX 3: Exclude own pharmacy ID from the list (not just client-side filtering)
       final pharmacyIdsInCity = pharmaciesSnapshot.docs
@@ -120,15 +121,15 @@ class InventoryService {
 
       // ✅ FIX 4: Check if there are any other pharmacies in the same city
       if (pharmacyIdsInCity.isEmpty) {
-        print('ℹ️ User is the only pharmacy in $currentCity');
+        debugPrint('ℹ️ User is the only pharmacy in $currentCity');
         yield <PharmacyInventoryItem>[];
         return;
       }
 
-      print('👥 Found ${pharmacyIdsInCity.length} other pharmacies in $currentCity');
+      debugPrint('👥 Found ${pharmacyIdsInCity.length} other pharmacies in $currentCity');
 
       // ✅ FIX 5: Handle Firebase whereIn limit of 30 items - split into chunks
-      final chunkSize = 30;
+      const chunkSize = 30;
       final chunks = <List<String>>[];
 
       for (var i = 0; i < pharmacyIdsInCity.length; i += chunkSize) {
@@ -138,7 +139,7 @@ class InventoryService {
         chunks.add(pharmacyIdsInCity.sublist(i, end));
       }
 
-      print('📦 Querying ${chunks.length} chunk(s) of pharmacy inventories');
+      debugPrint('📦 Querying ${chunks.length} chunk(s) of pharmacy inventories');
 
       // Query all chunks in parallel and combine results
       final snapshots = await Future.wait(
@@ -152,7 +153,7 @@ class InventoryService {
       // Combine all results from chunks
       final allDocs = snapshots.expand((snapshot) => snapshot.docs).toList();
 
-      print('💊 Retrieved ${allDocs.length} total inventory items');
+      debugPrint('💊 Retrieved ${allDocs.length} total inventory items');
 
       // Parse and filter items (no need to filter by pharmacyId - already done in query)
       var items = allDocs
@@ -190,7 +191,7 @@ class InventoryService {
       // Sort by creation date (most recent first) in client-side
       items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-      print('✅ Returning ${items.length} filtered medicines from $currentCity');
+      debugPrint('✅ Returning ${items.length} filtered medicines from $currentCity');
 
       yield items;
     });

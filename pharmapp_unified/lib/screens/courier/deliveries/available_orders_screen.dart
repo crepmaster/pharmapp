@@ -108,12 +108,11 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
                     color: Colors.red,
                   ),
                   const SizedBox(height: 16),
-                  Text(
+                  const Text(
                     'Error loading orders',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: Colors.grey[800],
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -151,12 +150,11 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
                     color: Colors.grey,
                   ),
                   const SizedBox(height: 16),
-                  Text(
+                  const Text(
                     'No Available Orders',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: Colors.grey[800],
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -391,12 +389,11 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        const Text(
                           'PICKUP',
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
-                            color: Colors.grey[600],
                             letterSpacing: 1.2,
                           ),
                         ),
@@ -441,12 +438,11 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        const Text(
                           'DELIVERY',
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
-                            color: Colors.grey[600],
                             letterSpacing: 1.2,
                           ),
                         ),
@@ -646,7 +642,8 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
         );
         
         await Future.delayed(const Duration(milliseconds: 500));
-        
+
+        if (!mounted) return;
         Navigator.push(
           context,
           MaterialPageRoute(

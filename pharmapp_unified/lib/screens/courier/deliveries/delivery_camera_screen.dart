@@ -413,7 +413,8 @@ class _DeliveryCameraScreenState extends State<DeliveryCameraScreen> {
 
       // Provide haptic feedback
       // HapticFeedback.lightImpact();
-      
+
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Photo captured (${_capturedImages.length}/3)'),
@@ -423,6 +424,7 @@ class _DeliveryCameraScreenState extends State<DeliveryCameraScreen> {
       );
     } catch (e) {
       setState(() => _isCapturing = false);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to capture photo: $e'),
@@ -437,7 +439,7 @@ class _DeliveryCameraScreenState extends State<DeliveryCameraScreen> {
       // Delete the file
       final file = File(_capturedImages[index]);
       file.delete().catchError((e) {
-        print('Error deleting file: $e');
+        debugPrint('Error deleting file: $e');
         return file; // Return file to satisfy catchError return type
       });
 

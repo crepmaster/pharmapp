@@ -10,8 +10,6 @@ class MedicineLookupService {
 
   // API endpoints for medicine data lookup
   static const String _openFdaBaseUrl = 'https://api.fda.gov/drug';
-  static const String _gs1BaseUrl = 'https://www.gs1.org/services/verified-by-gs1';
-  
   // Timeout for API requests
   static const Duration _requestTimeout = Duration(seconds: 10);
 
@@ -219,23 +217,6 @@ class MedicineLookupService {
       return value.first.toString();
     } else if (value is String) {
       return value;
-    }
-    return null;
-  }
-
-  /// Validate medicine data from API response
-  bool _isValidMedicineData(Map<String, dynamic> data) {
-    return data.containsKey('brand_name') || 
-           data.containsKey('generic_name') ||
-           data.containsKey('product_name');
-  }
-
-  /// Format strength information consistently
-  String? _formatStrength(dynamic strength) {
-    if (strength is String) {
-      return strength;
-    } else if (strength is List && strength.isNotEmpty) {
-      return strength.first.toString();
     }
     return null;
   }

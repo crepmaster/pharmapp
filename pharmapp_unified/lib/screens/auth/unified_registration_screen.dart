@@ -525,7 +525,7 @@ class _UnifiedRegistrationScreenState
           builder: (context) {
             // 🔧 FIX v3: Manual deduplication to prevent duplicate dropdown items
             final operators = _getAvailableOperators();
-            print('🔍 DROPDOWN FIX v3: Got ${operators.length} operators from config');
+            debugPrint('🔍 DROPDOWN FIX v3: Got ${operators.length} operators from config');
             final uniqueOperators = <PaymentOperator>[];
             final seenOperators = <String>{};
 
@@ -536,7 +536,7 @@ class _UnifiedRegistrationScreenState
                 uniqueOperators.add(op);
               }
             }
-            print('🔍 DROPDOWN FIX v3: After dedup: ${uniqueOperators.length} unique operators');
+            debugPrint('🔍 DROPDOWN FIX v3: After dedup: ${uniqueOperators.length} unique operators');
 
             return DropdownButtonFormField<PaymentOperator>(
               initialValue: _selectedPaymentOperator,

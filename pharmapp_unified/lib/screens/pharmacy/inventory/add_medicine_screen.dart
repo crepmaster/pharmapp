@@ -679,6 +679,7 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
         packaging: selectedPackaging,
       );
 
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('${selectedMedicine!.name} added to inventory!'),
@@ -686,8 +687,10 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
         ),
       );
 
+      if (!mounted) return;
       Navigator.pop(context);
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to add medicine: $e'),
@@ -713,7 +716,8 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
       setState(() {
         selectedMedicine = result;
       });
-      
+
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('${result.name} created and selected!'),

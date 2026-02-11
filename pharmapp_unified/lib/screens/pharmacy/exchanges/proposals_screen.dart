@@ -656,7 +656,8 @@ class _ProposalsScreenState extends State<ProposalsScreen>
     if (confirm == true) {
       try {
         await proposal.acceptProposal();
-        
+
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Proposal accepted! Exchange created.'),
@@ -664,6 +665,7 @@ class _ProposalsScreenState extends State<ProposalsScreen>
           ),
         );
       } catch (e) {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to accept proposal: $e'),
@@ -713,7 +715,8 @@ class _ProposalsScreenState extends State<ProposalsScreen>
     if (reason != null) {
       try {
         await proposal.rejectProposal(reason.isEmpty ? 'No reason provided' : reason);
-        
+
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Proposal rejected'),
@@ -721,6 +724,7 @@ class _ProposalsScreenState extends State<ProposalsScreen>
           ),
         );
       } catch (e) {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to reject proposal: $e'),

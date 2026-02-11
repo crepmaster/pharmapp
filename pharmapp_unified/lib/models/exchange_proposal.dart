@@ -239,16 +239,24 @@ class ExchangeProposal extends Equatable {
 
 // Proposal offer details
 class ProposalDetails extends Equatable {
-  final double offeredPrice; // Buyer's offer price per unit
+  final double offeredPrice; // Buyer's offer price per unit (0 for exchange)
   final int requestedQuantity;
   final String currency;
   final ProposalType proposalType;
+
+  // 🆕 EXCHANGE-SPECIFIC FIELDS
+  final String? exchangeMedicineId; // Medicine ID being offered in exchange
+  final String? exchangeInventoryItemId; // Inventory item ID being offered
+  final int? exchangeQuantity; // Quantity of exchange medicine offered
 
   const ProposalDetails({
     required this.offeredPrice,
     required this.requestedQuantity,
     this.currency = 'USD',
     required this.proposalType,
+    this.exchangeMedicineId,
+    this.exchangeInventoryItemId,
+    this.exchangeQuantity,
   });
 
   @override
@@ -257,6 +265,9 @@ class ProposalDetails extends Equatable {
         requestedQuantity,
         currency,
         proposalType,
+        exchangeMedicineId,
+        exchangeInventoryItemId,
+        exchangeQuantity,
       ];
 
   factory ProposalDetails.fromMap(Map<String, dynamic> map) {
@@ -268,6 +279,9 @@ class ProposalDetails extends Equatable {
         (e) => e.toString().split('.').last == map['proposalType'],
         orElse: () => ProposalType.purchase,
       ),
+      exchangeMedicineId: map['exchangeMedicineId'],
+      exchangeInventoryItemId: map['exchangeInventoryItemId'],
+      exchangeQuantity: map['exchangeQuantity']?.toInt(),
     );
   }
 
@@ -277,6 +291,9 @@ class ProposalDetails extends Equatable {
       'requestedQuantity': requestedQuantity,
       'currency': currency,
       'proposalType': proposalType.toString().split('.').last,
+      if (exchangeMedicineId != null) 'exchangeMedicineId': exchangeMedicineId,
+      if (exchangeInventoryItemId != null) 'exchangeInventoryItemId': exchangeInventoryItemId,
+      if (exchangeQuantity != null) 'exchangeQuantity': exchangeQuantity,
     };
   }
 

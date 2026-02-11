@@ -33,38 +33,6 @@ class RoleRouter extends StatelessWidget {
       case UserType.admin:
         return AdminMainScreen(userData: userData);
     }
-
-    // Fallback for unexpected role (should never happen)
-    return Scaffold(
-          appBar: AppBar(
-            title: const Text('Unknown User Type'),
-          ),
-          body: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(
-                  Icons.error_outline,
-                  size: 64,
-                  color: Colors.red,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Unknown user type: ${userType.toString()}',
-                  style: const TextStyle(fontSize: 18),
-                ),
-                const SizedBox(height: 24),
-                ElevatedButton(
-                  onPressed: () {
-                    // Sign out and return to login
-                    UnifiedAuthService.signOut();
-                  },
-                  child: const Text('Sign Out'),
-                ),
-              ],
-            ),
-          ),
-        );
   }
 }
 

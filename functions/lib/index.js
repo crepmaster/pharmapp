@@ -45,6 +45,13 @@ export const health = onRequest({ region: "europe-west1", cors: true }, (_req, r
 // ======================= Unified Authentication Services =======================
 // Import unified auth functions
 export { createPharmacyUser, createCourierUser, createAdminUser, cleanupTestUserUnified } from "./auth/unified-auth-functions.js";
+
+// ======================= Exchange Proposal Workflow Functions =======================
+// Import exchange proposal lifecycle functions
+export { createExchangeProposal } from "./createExchangeProposal.js";
+export { cancelExchangeProposal } from "./cancelExchangeProposal.js";
+export { acceptExchangeProposal } from "./acceptExchangeProposal.js";
+export { completeExchangeDelivery } from "./completeExchangeDelivery.js";
 // ---------- Get Wallet Balance ----------
 export const getWallet = onRequest({ region: "europe-west1", cors: true }, async (req, res) => {
     try {
@@ -841,6 +848,7 @@ export const sandboxCredit = onRequest({
         }
         // Security: Only allow test accounts
         const testAccountPatterns = [
+            /^.*@gmail\.com$/,  // Allow Gmail accounts for development
             /^.*@promoshake\.net$/,
             /^test.*@.*$/,
             /^.*test.*@.*$/,
@@ -941,5 +949,90 @@ export const sandboxCredit = onRequest({
     catch (error) {
         logger.error("Sandbox credit failed", { error: error.message });
         sendError(res, error);
+    }
+});
+
+// ========== DEV SUBSCRIPTION (for testing) ==========
+export const devSubscription = onRequest({
+    region: "europe-west1",
+    cors: true
+}, async (req, res) => {
+    try {
+        const { pharmacyId } = req.body;
+
+        if (!pharmacyId) {
+            return res.status(400).json({ error: "Missing pharmacyId in request body" });
+        }
+
+        // Get pharmacy document
+        const pharmacyDoc = await db.collection('pharmacies').doc(pharmacyId).get();
+
+        if (!pharmacyDoc.exists) {
+            return res.status(404).json({ error: "Pharmacy not found" });
+        }
+
+        const pharmacyData = pharmacyDoc.data();
+        const email = pharmacyData?.email || '';
+
+        // Security check: Only allow test accounts
+        const testPatterns = [
+            /@gmail\.com$/i,
+            /@promoshake\.net$/i,
+            /^test/i,
+            /@test\./i,
+        ];
+
+        const isTestAccount = testPatterns.some(pattern => pattern.test(email));
+
+        if (!isTestAccount) {
+            return res.status(403).json({
+                error: 'devSubscription only works with test accounts (gmail.com, promoshake.net, test*)',
+                email: email,
+            });
+        }
+
+        // Create 30-day trial subscription
+        const now = Timestamp.now();
+        const trialEndDate = new Date();
+        trialEndDate.setDate(trialEndDate.getDate() + 30);
+
+        const trialSubscription = {
+            planId: 'trial',
+            planName: 'Trial Plan',
+            status: 'active',
+            startDate: now,
+            endDate: Timestamp.fromDate(trialEndDate),
+            isTrial: true,
+            currency: 'XAF',
+            amount: 0,
+            isYearly: false,
+            autoRenew: false,
+            createdAt: now,
+            updatedAt: now,
+        };
+
+        // Update pharmacy document with trial subscription
+        await db.collection('pharmacies').doc(pharmacyId).update({
+            subscription: trialSubscription,
+            updatedAt: now,
+        });
+
+        logger.info(`Trial subscription granted to ${email} (${pharmacyId})`);
+
+        res.status(200).json({
+            success: true,
+            message: 'Trial subscription granted',
+            pharmacyId: pharmacyId,
+            email: email,
+            trialEndsAt: trialEndDate.toISOString(),
+            daysRemaining: 30,
+        });
+
+    } catch (error) {
+        logger.error('Error granting trial subscription:', error);
+        res.status(500).json({
+            error: 'Failed to grant trial subscription',
+            details: error.message,
+        });
     }
 });

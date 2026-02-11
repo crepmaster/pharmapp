@@ -291,6 +291,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
           );
 
           await Future.delayed(const Duration(seconds: 1));
+          if (!mounted) return;
           Navigator.pop(context, true); // Return success
         }
       } else {
@@ -375,40 +376,39 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
           TextButton(
             onPressed: () async {
               Navigator.pop(context); // Close dialog
-              
+
               try {
-                final status = widget.scanType == 'pickup' 
-                  ? DeliveryStatus.pickedUp 
+                final status = widget.scanType == 'pickup'
+                  ? DeliveryStatus.pickedUp
                   : DeliveryStatus.delivered;
-                
+
                 await DeliveryService.updateDeliveryStatus(
                   widget.delivery.id,
                   status,
                   notes: 'MANUAL VERIFICATION - No QR scan (Emergency skip)',
                 );
 
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        widget.scanType == 'pickup'
-                          ? 'Items marked as picked up (Manual)'
-                          : 'Delivery marked as completed (Manual)',
-                      ),
-                      backgroundColor: Colors.orange,
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      widget.scanType == 'pickup'
+                        ? 'Items marked as picked up (Manual)'
+                        : 'Delivery marked as completed (Manual)',
                     ),
-                  );
-                  Navigator.pop(context, true);
-                }
+                    backgroundColor: Colors.orange,
+                  ),
+                );
+                if (!mounted) return;
+                Navigator.pop(context, true);
               } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Failed to update status: $e'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Failed to update status: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
               }
             },
             child: const Text('Skip', style: TextStyle(color: Colors.orange)),
@@ -517,9 +517,11 @@ class _ManualVerificationDialogState extends State<_ManualVerificationDialog> {
       );
 
       widget.onVerified(true);
+      if (!mounted) return;
       Navigator.pop(context);
     } catch (e) {
       setState(() => _isVerifying = false);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Verification failed: $e'),

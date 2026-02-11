@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import '../models/subscription.dart';
 
 /// Service for creating subscriptions during pharmacy registration
@@ -38,9 +39,9 @@ class SubscriptionCreationService {
       // Create subscription document
       await _firestore.collection('subscriptions').add(subscription.toMap());
 
-      print('✅ Created 30-day trial subscription for pharmacy: $pharmacyId');
+      debugPrint('✅ Created 30-day trial subscription for pharmacy: $pharmacyId');
     } catch (e) {
-      print('❌ Error creating trial subscription: $e');
+      debugPrint('❌ Error creating trial subscription: $e');
       // Don't throw - we don't want to block registration if subscription creation fails
       // The pharmacy can still use the app and we can create subscription later
     }
@@ -57,7 +58,7 @@ class SubscriptionCreationService {
 
       return snapshot.docs.isNotEmpty;
     } catch (e) {
-      print('Error checking subscription: $e');
+      debugPrint('Error checking subscription: $e');
       return false;
     }
   }
@@ -68,7 +69,7 @@ class SubscriptionCreationService {
     if (!hasExisting) {
       await createTrialSubscription(pharmacyId);
     } else {
-      print('Pharmacy $pharmacyId already has a subscription');
+      debugPrint('Pharmacy $pharmacyId already has a subscription');
     }
   }
 }

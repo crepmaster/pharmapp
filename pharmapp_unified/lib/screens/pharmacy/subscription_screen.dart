@@ -125,7 +125,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.warning, color: Colors.red),
+                  const Icon(Icons.warning, color: Colors.red),
                   const SizedBox(width: 8),
                   Text(
                     'No Active Subscription',
@@ -138,7 +138,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 ],
               ),
               const SizedBox(height: 8),
-              Text('Subscribe to access all features of PharmApp'),
+              const Text('Subscribe to access all features of PharmApp'),
             ],
           ),
         ),
@@ -155,7 +155,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.stars, color: Colors.blue),
+                  const Icon(Icons.stars, color: Colors.blue),
                   const SizedBox(width: 8),
                   Text(
                     'Free Trial Active',
@@ -170,7 +170,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               const SizedBox(height: 8),
               Text(
                 '${_currentSubscription!.trialDaysRemaining} days remaining in your trial',
-                style: TextStyle(fontSize: 16),
+                style: const TextStyle(fontSize: 16),
               ),
               const SizedBox(height: 4),
               Text(
@@ -193,7 +193,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.check_circle, color: Colors.green),
+                  const Icon(Icons.check_circle, color: Colors.green),
                   const SizedBox(width: 8),
                   Text(
                     '${_currentSubscription!.planDisplayName} Plan Active',
@@ -208,7 +208,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               const SizedBox(height: 8),
               Text(
                 '${_currentSubscription!.daysRemaining} days remaining',
-                style: TextStyle(fontSize: 16),
+                style: const TextStyle(fontSize: 16),
               ),
               const SizedBox(height: 4),
               Text(
@@ -230,7 +230,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           children: [
             Row(
               children: [
-                Icon(Icons.error_outline, color: Colors.orange),
+                const Icon(Icons.error_outline, color: Colors.orange),
                 const SizedBox(width: 8),
                 Text(
                   'Subscription Expired',
@@ -243,7 +243,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               ],
             ),
             const SizedBox(height: 8),
-            Text('Renew your subscription to continue using PharmApp'),
+            const Text('Renew your subscription to continue using PharmApp'),
           ],
         ),
       ),
@@ -289,14 +289,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       children: [
                         Text(
                           _getPlanDisplayName(plan),
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
                         Text(
                           '$_currencySymbol ${price.toStringAsFixed(0)}/month',
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: 16,
                             color: Colors.blue,
                             fontWeight: FontWeight.w500,
@@ -315,7 +315,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                         color: Colors.green,
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Text(
+                      child: const Text(
                         'Current',
                         style: TextStyle(
                           color: Colors.white,
@@ -366,12 +366,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
-          Icon(Icons.check_circle, size: 16, color: Colors.green),
+          const Icon(Icons.check_circle, size: 16, color: Colors.green),
           const SizedBox(width: 8),
           Text('$title: '),
           Text(
             value,
-            style: TextStyle(fontWeight: FontWeight.bold),
+            style: const TextStyle(fontWeight: FontWeight.bold),
           ),
         ],
       ),
@@ -398,7 +398,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Sandbox Payment'),
+        title: const Text('Sandbox Payment'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -407,7 +407,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             const SizedBox(height: 8),
             Text('Amount: \$${Subscription.getPlanPrice(_selectedPlan).toStringAsFixed(2)}/month'),
             const SizedBox(height: 16),
-            Text(
+            const Text(
               'This is a sandbox environment. Payment will be simulated.',
               style: TextStyle(
                 color: Colors.orange,
@@ -419,14 +419,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('Cancel'),
+            child: const Text('Cancel'),
           ),
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
               _simulatePayment();
             },
-            child: Text('Pay Now (Sandbox)'),
+            child: const Text('Pay Now (Sandbox)'),
           ),
         ],
       ),
@@ -438,15 +438,15 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => Center(
+      builder: (context) => const Center(
         child: Card(
           child: Padding(
-            padding: const EdgeInsets.all(24.0),
+            padding: EdgeInsets.all(24.0),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 CircularProgressIndicator(),
-                const SizedBox(height: 16),
+                SizedBox(height: 16),
                 Text('Processing payment...'),
               ],
             ),
@@ -497,21 +497,21 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Row(
+        title: const Row(
           children: [
             Icon(Icons.check_circle, color: Colors.green),
-            const SizedBox(width: 8),
+            SizedBox(width: 8),
             Text('Success!'),
           ],
         ),
-        content: Text('Your subscription has been activated.'),
+        content: const Text('Your subscription has been activated.'),
         actions: [
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
               _loadSubscription(); // Reload subscription
             },
-            child: Text('OK'),
+            child: const Text('OK'),
           ),
         ],
       ),

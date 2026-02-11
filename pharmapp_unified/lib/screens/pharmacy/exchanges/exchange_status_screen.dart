@@ -331,7 +331,8 @@ class ExchangeStatusScreen extends StatelessWidget {
   Future<void> _acceptProposal(BuildContext context, ExchangeProposal proposal) async {
     try {
       final exchangeId = await proposal.acceptProposal();
-      
+
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Proposal accepted! Exchange ID: $exchangeId'),
@@ -339,6 +340,7 @@ class ExchangeStatusScreen extends StatelessWidget {
         ),
       );
     } catch (e) {
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to accept proposal: $e'),
@@ -379,15 +381,17 @@ class ExchangeStatusScreen extends StatelessWidget {
     if (reason != null) {
       try {
         await proposal.rejectProposal(reason.isEmpty ? 'No reason provided' : reason);
-        
-          ScaffoldMessenger.of(context).showSnackBar(
+
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Proposal rejected'),
             backgroundColor: Colors.orange,
           ),
         );
       } catch (e) {
-          ScaffoldMessenger.of(context).showSnackBar(
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to reject proposal: $e'),
             backgroundColor: Colors.red,
@@ -419,15 +423,17 @@ class ExchangeStatusScreen extends StatelessWidget {
     if (confirm == true) {
       try {
         await proposal.completeDelivery(exchangeId);
-        
-          ScaffoldMessenger.of(context).showSnackBar(
+
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Delivery completed! Payment processed.'),
             backgroundColor: Colors.green,
           ),
         );
       } catch (e) {
-          ScaffoldMessenger.of(context).showSnackBar(
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to complete delivery: $e'),
             backgroundColor: Colors.red,
@@ -476,7 +482,8 @@ class ExchangeStatusScreen extends StatelessWidget {
     if (reason != null && reason.isNotEmpty) {
       try {
         await proposal.cancelExchange(exchangeId, reason);
-        
+
+        if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Exchange cancelled and amounts refunded'),
@@ -484,6 +491,7 @@ class ExchangeStatusScreen extends StatelessWidget {
           ),
         );
       } catch (e) {
+        if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to cancel exchange: $e'),

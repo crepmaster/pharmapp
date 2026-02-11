@@ -20,8 +20,7 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final _formKey = GlobalKey<FormState>();
   
-  // Controllers for basic info
-  final _pharmacyNameController = TextEditingController();
+  // Controllers for editable fields only
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
   
@@ -34,12 +33,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
-    _loadUserData();
+    // Use addPostFrameCallback to ensure context is available
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadUserData();
+    });
   }
 
   @override
   void dispose() {
-    _pharmacyNameController.dispose();
     _phoneController.dispose();
     _addressController.dispose();
     super.dispose();
@@ -69,14 +70,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         }
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error loading profile: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      // Don't use ScaffoldMessenger during initial load
+      // Just log the error and show it in the UI via _isLoading state
+      debugPrint('Error loading profile: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -84,7 +80,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _populateFields() {
     if (_currentUser != null) {
-      _pharmacyNameController.text = _currentUser!.pharmacyName;
+      // Pharmacy name is read-only, no controller needed
       _phoneController.text = _currentUser!.phoneNumber;
       _addressController.text = _currentUser!.address;
       _locationData = _currentUser!.locationData;
@@ -129,8 +125,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (currentUser == null) throw Exception('Not authenticated');
 
       // Update both users and pharmacies collections
+      // Note: Pharmacy name is read-only and not included in updates
       final updateData = {
-        'pharmacyName': _pharmacyNameController.text.trim(),
         'phoneNumber': _phoneController.text.trim(),
         'address': _addressController.text.trim(),
         if (_locationData != null) 'locationData': _locationData!.toMap(),
@@ -148,9 +144,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ]);
 
       if (mounted) {
-        // Update the auth state with new profile data
-        context.read<UnifiedAuthBloc>().add(CheckAuthStatus());
-
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Profile updated successfully!'),
@@ -158,6 +151,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         );
 
+        // Pop back to dashboard - it will reload data automatically
         Navigator.of(context).pop();
       }
     } catch (e) {
@@ -239,7 +233,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            _currentUser?.email ?? 'Loading...',
+                            _currentUser?.pharmacyName ?? 'Loading...',
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 18,
@@ -247,7 +241,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ),
                           ),
                           Text(
-                            'Pharmacy Profile',
+                            _currentUser?.email ?? '',
                             style: TextStyle(
                               color: Colors.white.withOpacity(0.9),
                               fontSize: 14,
@@ -280,16 +274,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     const SizedBox(height: 16),
                     
-                    AuthTextField(
-                      controller: _pharmacyNameController,
-                      label: 'Pharmacy Name',
-                      prefixIcon: Icons.store,
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please enter pharmacy name';
-                        }
-                        return null;
-                      },
+                    // Pharmacy Name - Read-only display
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey[300]!),
+                        borderRadius: BorderRadius.circular(12),
+                        color: Colors.grey[100],
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.store, color: Colors.grey[600]),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Pharmacy Name',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _currentUser?.pharmacyName ?? 'Loading...',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.grey[800],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(Icons.lock_outline, color: Colors.grey[400], size: 20),
+                        ],
+                      ),
                     ),
                     
                     const SizedBox(height: 16),

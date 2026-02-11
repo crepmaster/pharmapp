@@ -397,6 +397,7 @@ class _CreateCustomMedicineScreenState extends State<CreateCustomMedicineScreen>
       // Create updated medicine object with the generated ID
       final createdMedicine = medicine.copyWith(id: docRef.id);
 
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('${brandNameController.text.trim()} created successfully!'),
@@ -405,9 +406,11 @@ class _CreateCustomMedicineScreenState extends State<CreateCustomMedicineScreen>
       );
 
       // Return the created medicine to the previous screen
+      if (!mounted) return;
       Navigator.pop(context, createdMedicine);
     } catch (e) {
       // Debug statement removed for production security
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to create medicine: $e'),

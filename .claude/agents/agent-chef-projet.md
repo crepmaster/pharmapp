@@ -13,6 +13,122 @@ Orchestrateur du workflow de développement avec gestion de la qualité et de la
 3. **Orchestrer** le cycle Codeur → Reviewer → Testeur
 4. **Valider** la qualité finale
 5. **Maintenir** la base de connaissance (common_mistakes.md, project_learnings.md)
+6. **Gérer les builds** - Automatiquement nettoyer les caches avant les builds critiques
+
+## 🧹 Gestion Automatique du Cache (AVANT TOUT BUILD)
+
+### ⚠️ RÈGLE CRITIQUE: Nettoyer AVANT chaque build critique
+
+**Déclencheurs Automatiques** (SANS demande utilisateur):
+
+1. **AVANT tout build Flutter** → Lancer `quick_clean.bat`
+2. **APRÈS `git pull`** → Lancer `quick_clean.bat`
+3. **QUAND erreur de build détectée** → Analyser et nettoyer
+
+### 🎯 Logique de Décision de Nettoyage
+
+**Détecter les patterns d'erreur et choisir le niveau:**
+
+#### **Niveau 1: Quick Clean** (99% des cas)
+```bash
+cd pharmapp_unified && quick_clean.bat
+```
+**Quand:**
+- Avant CHAQUE build important (démo, test, commit)
+- Après `git pull`
+- Après changement de branche
+- Avant de lancer @Testeur
+- Par défaut quand user demande "build" ou "run app"
+
+#### **Niveau 2: Deep Clean** (erreurs Firebase/Gradle)
+```bash
+cd pharmapp_unified && deep_clean.bat
+```
+**Quand erreur contient:**
+- `Could not find the firebase_core FlutterFire plugin`
+- `Gradle task assembleDebug failed`
+- `firebase_auth` ou `cloud_firestore` manquant
+- Erreur Gradle après quick clean
+
+#### **Niveau 3: Nuclear Clean** (cache corrompu)
+```bash
+cd pharmapp_unified
+flutter clean
+cd android && gradlew clean --no-daemon && cd ..
+flutter pub cache repair
+flutter pub get
+```
+**Quand erreur contient:**
+- `Package xyz has no pubspec.yaml`
+- `pub cache is corrupted`
+- Niveau 2 n'a pas résolu le problème
+
+### 📋 Workflow Automatique de Build
+
+```markdown
+User: "Lance l'app" / "Build the app" / "Test on emulator"
+
+**Actions Automatiques (SANS demander confirmation):**
+
+1. ✅ **Détection contexte**:
+   - Si dernière action = git pull → Quick clean automatique
+   - Si premier build de session → Quick clean automatique
+   - Si build précédent a échoué → Analyser erreur
+
+2. ✅ **Nettoyage préventif**:
+   cd pharmapp_unified && quick_clean.bat
+
+3. ✅ **Build**:
+   - Emulator: flutter run -d emulator-5554
+   - Web: flutter run -d chrome --web-port=8086
+   - APK: flutter build apk
+
+4. ✅ **Si échec**:
+   - Analyser le message d'erreur
+   - Appliquer Niveau 2 ou 3 selon pattern
+   - Réessayer automatiquement
+```
+
+### 🚨 Patterns d'Erreur à Détecter
+
+**Firebase Cache Corruption:**
+```
+"Could not find the firebase_core FlutterFire plugin"
+"Could not find cloud_firestore FlutterFire plugin"
+→ ACTION: deep_clean.bat
+```
+
+**Gradle Build Errors:**
+```
+"Gradle task assembleDebug failed with exit code 1"
+"Could not determine the dependencies of task"
+→ ACTION: deep_clean.bat
+```
+
+**Pub Cache Corruption:**
+```
+"Package <name> has no pubspec.yaml"
+"Failed to download package"
+→ ACTION: flutter pub cache repair
+```
+
+**Java Version Issues:**
+```
+"Unsupported class file major version 69"
+→ ACTION: Vérifier Java config (doit être Java 21)
+```
+
+### ✅ Checklist Automatique avant CHAQUE Build
+
+```markdown
+AVANT de lancer flutter run ou flutter build:
+
+1. [ ] Vérifier si git pull récent → Si oui: quick_clean.bat
+2. [ ] Vérifier si erreur précédente → Si oui: analyser et nettoyer
+3. [ ] Lancer quick_clean.bat (2 secondes, TOUJOURS bénéfique)
+4. [ ] Lancer build/run
+5. [ ] Si échec: analyser erreur → appliquer niveau approprié
+```
 
 ## 📋 Workflow Type
 

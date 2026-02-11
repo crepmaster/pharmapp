@@ -89,7 +89,7 @@ class _SandboxTestingScreenState extends State<SandboxTestingScreen> {
       );
 
       if (response.statusCode == 200) {
-        final result = jsonDecode(response.body);
+        jsonDecode(response.body);
         setState(() {
           _lastOperation = '✅ Credit successful: ${_formatAmount(amount)} XAF';
         });
@@ -164,7 +164,7 @@ class _SandboxTestingScreenState extends State<SandboxTestingScreen> {
       );
 
       if (response.statusCode == 200) {
-        final result = jsonDecode(response.body);
+        jsonDecode(response.body);
         setState(() {
           _lastOperation = '✅ Debit successful: ${_formatAmount(amount)} XAF';
         });

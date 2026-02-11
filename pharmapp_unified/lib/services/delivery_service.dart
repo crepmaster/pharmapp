@@ -252,7 +252,7 @@ class DeliveryService {
           .length;
       final totalEarnings = deliveries.docs.fold<double>(
         0.0,
-        (sum, doc) => sum + (doc.data()['deliveryFee']?.toDouble() ?? 0.0),
+        (total, doc) => total + (doc.data()['deliveryFee']?.toDouble() ?? 0.0),
       );
 
       final successRate = totalDeliveries > 0 ? (completedDeliveries / totalDeliveries) * 100 : 0.0;

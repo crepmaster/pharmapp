@@ -6,13 +6,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:pharmapp_shared/pharmapp_shared.dart';
 import '../../blocs/unified_auth_bloc.dart';
 import '../../navigation/role_router.dart';
-import '../../services/payment_service.dart';
 import 'sandbox_testing_screen.dart';
 import 'inventory/inventory_browser_screen.dart';
 import 'exchanges/proposals_screen.dart';
-// TODO: Add back when dependencies are available
-// import '../../widgets/subscription_status_widget.dart';
-// import 'profile/profile_screen.dart';
+import 'profile/profile_screen.dart';
+import '../../widgets/pharmacy/subscription_status_widget.dart';
 
 class PharmacyMainScreen extends StatefulWidget {
   final Map<String, dynamic> userData;
@@ -52,31 +50,6 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
         _walletRefreshKey++;
       });
     }
-  }
-
-  Widget _buildPlaceholderTab(String title, IconData icon) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, size: 80, color: Colors.grey.shade400),
-          const SizedBox(height: 16),
-          Text(
-            '$title Tab',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              color: Colors.grey.shade600,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Coming soon...',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Colors.grey.shade500,
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   void _startWalletPolling() {
@@ -131,7 +104,7 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
       _buildHomeTab(),
       const InventoryBrowserScreen(),
       const ProposalsScreen(),
-      _buildPlaceholderTab('Profile', Icons.person),
+      const ProfileScreen(),
     ];
 
     return PopScope(
@@ -305,9 +278,10 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
                           ),
                           child: FutureBuilder<Map<String, dynamic>>(
                             key: ValueKey(_walletRefreshKey),
-                            future: PaymentService.getWalletBalance(
-                              userId: FirebaseAuth.instance.currentUser!.uid,
-                            ),
+                            future: Future.value({'balance': 0, 'currency': 'XAF'}), // TODO: Re-enable PaymentService when available
+                            // future: PaymentService.getWalletBalance(
+                            //   userId: FirebaseAuth.instance.currentUser!.uid,
+                            // ),
                             builder: (context, snapshot) {
                               if (snapshot.connectionState == ConnectionState.waiting) {
                                 return const Row(
@@ -464,8 +438,8 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
 
                 const SizedBox(height: 16),
 
-                // Subscription Status (temporarily removed)
-                // const SubscriptionStatusWidget(),
+                // Subscription Status
+                const SubscriptionStatusWidget(),
 
                 const SizedBox(height: 24),
 
@@ -631,7 +605,7 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
 class _TopUpWalletDialog extends StatefulWidget {
   final VoidCallback? onTopUpSuccess;
 
-  const _TopUpWalletDialog({super.key, this.onTopUpSuccess});
+  const _TopUpWalletDialog({this.onTopUpSuccess});
 
   @override
   State<_TopUpWalletDialog> createState() => _TopUpWalletDialogState();

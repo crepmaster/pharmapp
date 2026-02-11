@@ -34,6 +34,25 @@ service cloud.firestore {
       return hasPharmacyRole(userId) || hasCourierRole(userId) || hasAdminRole(userId);
     }
 
+    /// 🔒 CRITICAL: Check if pharmacy has active subscription (including trial)
+    /// Layer 3 of defense in depth (after frontend + Firebase Function)
+    function hasActiveSubscription(pharmacyId) {
+      let pharmacy = get(/databases/$(database)/documents/pharmacies/$(pharmacyId));
+      let sub = pharmacy.data.subscription;
+
+      // Check if subscription is active
+      if (sub.isActive == true) {
+        return true;
+      }
+
+      // Check if trial subscription is valid (not expired)
+      if (sub.status == 'trial' && sub.endDate != null) {
+        return sub.endDate.toMillis() > request.time.toMillis();
+      }
+
+      return false;
+    }
+
     // ========== USERS COLLECTION (Base user records) ==========
     match /users/{userId} {
       // Read: Own profile or admin
@@ -138,8 +157,12 @@ service cloud.firestore {
          resource.data.toPharmacyId == request.auth.uid ||
          hasAdminRole(request.auth.uid));
 
-      // Create: Pharmacy role only
-      allow create: if hasPharmacyRole(request.auth.uid);
+      // 🔒 CRITICAL: Create requires active subscription (Layer 3 security)
+      // This is the last line of defense - even if function is bypassed, this blocks writes
+      allow create: if hasPharmacyRole(request.auth.uid) &&
+                      hasActiveSubscription(request.auth.uid) &&
+                      request.resource.data.fromPharmacyId == request.auth.uid &&
+                      request.resource.data.fromPharmacyId != request.resource.data.toPharmacyId;
 
       // Update: Involved pharmacies only (for status updates)
       allow update: if resource.data.fromPharmacyId == request.auth.uid ||
