@@ -1,0 +1,23 @@
+#!/bin/bash
+# PharmApp Pre-commit Hook - SECRET DETECTION PRIORITY 1
+# This hook BLOCKS commits containing hardcoded secrets
+
+echo "🔍 Pre-commit: Scanning for hardcoded secrets..."
+
+# Run secret detection script
+if [ -f "scripts/detect_secrets.sh" ]; then
+    bash scripts/detect_secrets.sh
+    if [ $? -ne 0 ]; then
+        echo
+        echo "❌ COMMIT BLOCKED: Hardcoded secrets detected!"
+        echo "Remove all hardcoded secrets before committing."
+        echo "See SECURITY.md for guidelines."
+        exit 1
+    fi
+else
+    echo "⚠️  Warning: Secret detection script not found"
+    echo "Manual verification recommended"
+fi
+
+echo "✅ Pre-commit: No secrets detected, proceeding with commit"
+exit 0

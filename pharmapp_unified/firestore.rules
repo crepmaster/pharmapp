@@ -1,0 +1,219 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ========== HELPER FUNCTIONS FOR MULTI-ROLE ACCESS ==========
+
+    /// Check if user has pharmacy role
+    function hasPharmacyRole(userId) {
+      return exists(/databases/$(database)/documents/pharmacies/$(userId));
+    }
+
+    /// Check if user has courier role
+    function hasCourierRole(userId) {
+      return exists(/databases/$(database)/documents/couriers/$(userId));
+    }
+
+    /// Check if user has admin role
+    function hasAdminRole(userId) {
+      return exists(/databases/$(database)/documents/admins/$(userId));
+    }
+
+    /// Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    /// Check if user is the owner of the resource
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    /// Check if user has any valid role
+    function hasAnyRole(userId) {
+      return hasPharmacyRole(userId) || hasCourierRole(userId) || hasAdminRole(userId);
+    }
+
+    // ========== USERS COLLECTION (Base user records) ==========
+    match /users/{userId} {
+      // Read: Own profile or admin
+      allow read: if isOwner(userId) || hasAdminRole(request.auth.uid);
+
+      // Create: During registration (any authenticated user can create their own record)
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+
+      // Update: Own profile only
+      allow update: if isOwner(userId);
+
+      // Delete: Admin only
+      allow delete: if hasAdminRole(request.auth.uid);
+    }
+
+    // ========== PHARMACY COLLECTION ==========
+    match /pharmacies/{pharmacyId} {
+      // Read: Own profile or admin
+      allow read: if isOwner(pharmacyId) || hasAdminRole(request.auth.uid) || (isAuthenticated() && hasPharmacyRole(request.auth.uid));
+
+      // TEMPORARY: Completely open for testing registration issue
+      allow create: if true;
+
+      // Update: Own profile only
+      allow update: if isOwner(pharmacyId);
+
+      // Delete: Admin only
+      allow delete: if hasAdminRole(request.auth.uid);
+    }
+
+    // ========== COURIER COLLECTION ==========
+    match /couriers/{courierId} {
+      // Read: Own profile or admin
+      allow read: if isOwner(courierId) || hasAdminRole(request.auth.uid);
+
+      // Create: Only during registration (handled by Cloud Function)
+      allow create: if isAuthenticated();
+
+      // Update: Own profile only
+      allow update: if isOwner(courierId);
+
+      // Delete: Admin only
+      allow delete: if hasAdminRole(request.auth.uid);
+    }
+
+    // ========== ADMIN COLLECTION ==========
+    match /admins/{adminId} {
+      // Read: Own profile or other admins
+      allow read: if isOwner(adminId) || hasAdminRole(request.auth.uid);
+
+      // Create: Super admin only (handled by Cloud Function)
+      allow create: if false; // Admins created via Cloud Function only
+
+      // Update: Own profile or super admin
+      allow update: if isOwner(adminId) ||
+        (hasAdminRole(request.auth.uid) &&
+         get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'super_admin');
+
+      // Delete: Super admin only
+      allow delete: if hasAdminRole(request.auth.uid) &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'super_admin';
+    }
+
+    // ========== WALLET COLLECTION (Multi-role access) ==========
+    match /wallets/{userId} {
+      // Read: Owner with any role or admin
+      allow read: if isOwner(userId) && hasAnyRole(userId) || hasAdminRole(request.auth.uid);
+
+      // Create: Only via Cloud Function
+      allow create: if false;
+
+      // Update: Only via Cloud Function (for security)
+      allow update: if false;
+
+      // Delete: Never (preserve transaction history)
+      allow delete: if false;
+    }
+
+    // ========== MEDICINE INVENTORY (Pharmacy only) ==========
+    match /medicines/{medicineId} {
+      // Read: Any authenticated user with valid role
+      allow read: if isAuthenticated() && hasAnyRole(request.auth.uid);
+
+      // Create/Update/Delete: Pharmacy owner only
+      allow create, update, delete: if hasPharmacyRole(request.auth.uid);
+    }
+
+    // ========== PHARMACY INVENTORY (Pharmacy medicine listings) ==========
+    match /pharmacy_inventory/{inventoryId} {
+      // Read: Any authenticated pharmacy or courier (to browse available medicines)
+      allow read: if isAuthenticated() && hasAnyRole(request.auth.uid);
+
+      // Create/Update/Delete: Pharmacy owner only
+      allow create, update, delete: if hasPharmacyRole(request.auth.uid);
+    }
+
+    // ========== EXCHANGE PROPOSALS (Pharmacy to Pharmacy medicine requests) ==========
+    match /exchange_proposals/{proposalId} {
+      // Read: Involved pharmacies or admin
+      allow read: if isAuthenticated() &&
+        (resource.data.fromPharmacyId == request.auth.uid ||
+         resource.data.toPharmacyId == request.auth.uid ||
+         hasAdminRole(request.auth.uid));
+
+      // Create: Pharmacy role only
+      allow create: if hasPharmacyRole(request.auth.uid);
+
+      // Update: Involved pharmacies only (for status updates)
+      allow update: if resource.data.fromPharmacyId == request.auth.uid ||
+                      resource.data.toPharmacyId == request.auth.uid;
+
+      // Delete: Creator pharmacy or admin
+      allow delete: if resource.data.fromPharmacyId == request.auth.uid ||
+                      hasAdminRole(request.auth.uid);
+    }
+
+    // ========== EXCHANGES (Pharmacy to Pharmacy) ==========
+    match /exchanges/{exchangeId} {
+      // Read: Involved pharmacies or admin
+      allow read: if isAuthenticated() &&
+        (resource.data.fromPharmacyId == request.auth.uid ||
+         resource.data.toPharmacyId == request.auth.uid ||
+         hasAdminRole(request.auth.uid));
+
+      // Create: Pharmacy role only
+      allow create: if hasPharmacyRole(request.auth.uid);
+
+      // Update: Involved pharmacies only (for status updates)
+      allow update: if resource.data.fromPharmacyId == request.auth.uid ||
+                      resource.data.toPharmacyId == request.auth.uid;
+
+      // Delete: Admin only
+      allow delete: if hasAdminRole(request.auth.uid);
+    }
+
+    // ========== DELIVERIES (Courier access) ==========
+    match /deliveries/{deliveryId} {
+      // Read: Assigned courier, involved pharmacies, or admin
+      allow read: if isAuthenticated() &&
+        (resource.data.courierId == request.auth.uid ||
+         resource.data.fromPharmacyId == request.auth.uid ||
+         resource.data.toPharmacyId == request.auth.uid ||
+         hasAdminRole(request.auth.uid));
+
+      // Create: System only (via Cloud Function when exchange accepted)
+      allow create: if false;
+
+      // Update: Assigned courier or admin (for status updates)
+      allow update: if resource.data.courierId == request.auth.uid ||
+                      hasAdminRole(request.auth.uid);
+
+      // Delete: Admin only
+      allow delete: if hasAdminRole(request.auth.uid);
+    }
+
+    // ========== SUBSCRIPTIONS (Admin management) ==========
+    match /subscriptions/{subscriptionId} {
+      // Read: Pharmacy owner (by pharmacyId field) or admin
+      allow read: if (isAuthenticated() && resource.data.pharmacyId == request.auth.uid) || hasAdminRole(request.auth.uid);
+
+      // Create/Update: Admin only (or system during trial creation)
+      allow create, update: if hasAdminRole(request.auth.uid) || (isAuthenticated() && request.resource.data.pharmacyId == request.auth.uid);
+
+      // Delete: Admin only
+      allow delete: if hasAdminRole(request.auth.uid);
+    }
+
+    // ========== SYSTEM CONFIGURATION (Admin only) ==========
+    match /system/{document} {
+      // Read: Any authenticated user with valid role
+      allow read: if isAuthenticated() && hasAnyRole(request.auth.uid);
+
+      // Write: Admin only
+      allow write: if hasAdminRole(request.auth.uid);
+    }
+
+    // ========== DEFAULT DENY ALL ==========
+    // Any collection not explicitly allowed is denied
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

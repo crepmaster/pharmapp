@@ -1,4 +1,10 @@
-﻿# Node / Functions
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+
+# Node / Functions
 functions/node_modules/
 functions/lib/
 functions/.runtimeconfig.json
@@ -10,15 +16,77 @@ yarn-error.log*
 .firebase/
 firebase-debug.log
 
-# Local secrets
-.env
-.env.*
-*.secret
-serviceAccount*.json
+# Temporary Firebase testing files - NEVER COMMIT THESE
+firebase_options_temp.dart
+firebase_options.dart.backup
+setup_test_keys.bat
+cleanup_test_keys.bat
 
 # OS / IDE
 .DS_Store
 Thumbs.db
-.vscode/
+.atom/
+.buildlog/
+.history
+.svn/
 .idea/
-.claude/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Firebase configuration files - SENSITIVE DATA
+**/firebase_options.dart
+**/google-services.json
+**/GoogleService-Info.plist
+
+# Environment variables - SENSITIVE DATA
+.env
+.env.*
+**/.env
+
+# Allow .env.example for documentation
+!.env.example
+!**/.env.example
+
+# Local secrets
+*.secret
+*.key
+serviceAccount*.json
+**/secrets/
+
+# Production configuration
+**/config/production/
+**/config/staging/
+
+# Backup files
+**/firebase_options.dart.backup
+**/google-services.json.backup
+
+# Development scripts with real Firebase keys
+scripts/run-with-firebase-keys.bat
+scripts/run-with-firebase-keys.sh
+firebase-keys.*

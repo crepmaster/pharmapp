@@ -1,0 +1,35 @@
+import 'package:flutter/material.dart';
+import '../screens/main/dashboard_screen.dart';
+
+/// Navigation helper for successful courier registration
+/// Handles success message and automatic dashboard redirect
+class RegistrationNavigationHelper {
+  
+  /// Shows success message and navigates to dashboard
+  /// Used by courier registration screens to provide consistent user experience
+  static void handleSuccessfulRegistration({
+    required BuildContext context,
+    required String userName,
+    Color? successColor,
+    Duration delay = const Duration(seconds: 2),
+  }) {
+    // Show success message
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Welcome $userName! Courier account created successfully.'),
+        backgroundColor: successColor ?? const Color(0xFF4CAF50), // Courier green
+        duration: delay,
+      ),
+    );
+    
+    // Navigate to dashboard after delay
+    Future.delayed(delay, () {
+      if (context.mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const DashboardScreen()),
+          (route) => false,
+        );
+      }
+    });
+  }
+}

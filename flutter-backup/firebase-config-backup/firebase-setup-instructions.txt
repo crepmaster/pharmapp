@@ -1,0 +1,369 @@
+═══════════════════════════════════════════════════════════════════════════════
+FIREBASE CONFIGURATION BACKUP - PharmApp Mobile Project
+═══════════════════════════════════════════════════════════════════════════════
+Generated: 2025-10-20
+Firebase Project ID: mediexchange
+Firebase CLI Version: 14.19.1
+FlutterFire CLI Version: 1.3.1
+
+═══════════════════════════════════════════════════════════════════════════════
+IMPORTANT SECURITY NOTE
+═══════════════════════════════════════════════════════════════════════════════
+
+This backup does NOT include:
+  ❌ Firebase API keys (google-services.json, GoogleService-Info.plist)
+  ❌ firebase_options.dart files with actual API keys
+  ❌ Service account keys or credentials
+  ❌ Production environment secrets
+
+These files must be regenerated on the new machine using Firebase CLI for security.
+
+═══════════════════════════════════════════════════════════════════════════════
+FIREBASE PROJECT STRUCTURE
+═══════════════════════════════════════════════════════════════════════════════
+
+Firebase Project ID: mediexchange
+Project Type: Healthcare mobile application platform
+Region: europe-west1 (primary)
+
+Applications Registered:
+  1. Pharmacy App (Android + Web)
+  2. Courier App (Android + Web)
+  3. Admin Panel (Web only)
+  4. PharmApp Unified (Android + Web)
+
+Backend Services:
+  - Firebase Authentication (Email/Password)
+  - Cloud Firestore (Database)
+  - Cloud Functions (Payment processing, subscriptions, exchanges)
+  - Firebase Messaging (Push notifications)
+  - Firebase Storage (Document uploads - if configured)
+
+Backend Repository: D:\Projects\pharmapp (separate repository)
+
+═══════════════════════════════════════════════════════════════════════════════
+FIREBASE CLI INSTALLATION (New Machine)
+═══════════════════════════════════════════════════════════════════════════════
+
+Step 1: Install Firebase CLI globally via npm
+
+npm install -g firebase-tools
+
+Or using standalone installer:
+  Windows: Download from https://firebase.google.com/docs/cli#windows-standalone-binary
+
+Expected Version: 14.19.1 (or latest stable)
+
+Step 2: Verify Installation
+
+firebase --version
+
+Should output: 14.19.1 (or newer)
+
+Step 3: Login to Firebase
+
+firebase login
+
+This will open a browser for Google authentication.
+Login with the Google account that has access to the 'mediexchange' project.
+
+Step 4: List Available Projects
+
+firebase projects:list
+
+Verify that 'mediexchange' appears in the project list.
+
+═══════════════════════════════════════════════════════════════════════════════
+FLUTTERFIRE CLI INSTALLATION (New Machine)
+═══════════════════════════════════════════════════════════════════════════════
+
+Step 1: Install FlutterFire CLI globally
+
+dart pub global activate flutterfire_cli
+
+Expected Version: 1.3.1 (or latest stable)
+
+Step 2: Verify Installation
+
+flutterfire --version
+
+Step 3: Ensure Dart pub global bin is in PATH
+
+Windows: Add to PATH environment variable:
+  %USERPROFILE%\AppData\Local\Pub\Cache\bin
+
+macOS/Linux: Add to ~/.bashrc or ~/.zshrc:
+  export PATH="$PATH":"$HOME/.pub-cache/bin"
+
+═══════════════════════════════════════════════════════════════════════════════
+FIREBASE CONFIGURATION REGENERATION (Critical for New Machine)
+═══════════════════════════════════════════════════════════════════════════════
+
+IMPORTANT: Each Flutter app needs its Firebase configuration regenerated.
+
+For PHARMACY_APP:
+-----------------
+
+cd d:\Projects\pharmapp-mobile\pharmacy_app
+
+flutterfire configure \
+  --project=mediexchange \
+  --platforms=android,web \
+  --android-package-name=com.nowastemed.pharmacy \
+  --web-app-id=1:850077575356:web:67c7130629f17dd57708b9
+
+This will:
+  ✓ Create/update firebase_options.dart
+  ✓ Download google-services.json (Android)
+  ✓ Configure web Firebase settings
+
+For COURIER_APP:
+-----------------
+
+cd d:\Projects\pharmapp-mobile\courier_app
+
+flutterfire configure \
+  --project=mediexchange \
+  --platforms=android,web \
+  --android-package-name=com.nowastemed.courier \
+  --web-app-id=[Web App ID for courier - check Firebase Console]
+
+For ADMIN_PANEL:
+-----------------
+
+cd d:\Projects\pharmapp-mobile\admin_panel
+
+flutterfire configure \
+  --project=mediexchange \
+  --platforms=web \
+  --web-app-id=[Web App ID for admin - check Firebase Console]
+
+For PHARMAPP_UNIFIED:
+---------------------
+
+cd d:\Projects\pharmapp-mobile\pharmapp_unified
+
+flutterfire configure \
+  --project=mediexchange \
+  --platforms=android,web \
+  --android-package-name=com.nowastemed.unified \
+  --web-app-id=[Web App ID for unified - check Firebase Console]
+
+═══════════════════════════════════════════════════════════════════════════════
+FIREBASE CONFIGURATION FILES (Generated After flutterfire configure)
+═══════════════════════════════════════════════════════════════════════════════
+
+After running flutterfire configure, these files will be created/updated:
+
+pharmacy_app/:
+  - lib/firebase_options.dart (Flutter Firebase configuration)
+  - android/app/google-services.json (Android Firebase config)
+  - web/index.html (includes Firebase web SDK scripts)
+
+courier_app/:
+  - lib/firebase_options.dart
+  - android/app/google-services.json
+  - web/index.html
+
+admin_panel/:
+  - lib/firebase_options.dart
+  - web/index.html
+
+pharmapp_unified/:
+  - lib/firebase_options.dart
+  - android/app/google-services.json
+  - web/index.html
+
+SECURITY NOTE: These files contain API keys and should NOT be committed to
+public repositories. They are gitignored by default.
+
+═══════════════════════════════════════════════════════════════════════════════
+FIREBASE PROJECT SETTINGS (For Reference)
+═══════════════════════════════════════════════════════════════════════════════
+
+Project Name: mediexchange
+Project ID: mediexchange
+Default GCP Resource Location: europe-west1
+
+Firestore Database:
+  - Mode: Native mode
+  - Location: europe-west1
+  - Collections: users, pharmacies, couriers, exchanges, payments, wallets, etc.
+
+Authentication:
+  - Providers: Email/Password (primary)
+  - Additional providers: None (can be added later)
+
+Cloud Functions:
+  - Location: europe-west1
+  - Runtime: Node.js 20
+  - Functions: topupIntent, sandboxCredit, createTrialSubscription, etc.
+  - Source: D:\Projects\pharmapp\functions
+
+Firebase Hosting:
+  - Not currently configured (can be added for web deployment)
+
+═══════════════════════════════════════════════════════════════════════════════
+FIRESTORE SECURITY RULES (Backend Repository)
+═══════════════════════════════════════════════════════════════════════════════
+
+Security rules are managed in the backend repository:
+  D:\Projects\pharmapp\firestore.rules
+
+These rules control:
+  - User authentication requirements
+  - Pharmacy subscription validation
+  - Courier assignment verification
+  - Admin access controls (isSuperAdmin() function)
+  - Payment data protection
+
+Deploy rules from backend repository:
+  cd D:\Projects\pharmapp
+  firebase deploy --only firestore:rules
+
+═══════════════════════════════════════════════════════════════════════════════
+CLOUD FUNCTIONS DEPLOYMENT (Backend Repository)
+═══════════════════════════════════════════════════════════════════════════════
+
+Cloud Functions are managed in the backend repository:
+  D:\Projects\pharmapp\functions
+
+Key Functions:
+  - topupIntent: Wallet top-up payment processing
+  - sandboxCredit: Test wallet credits for development
+  - createTrialSubscription: Auto-create trial subscriptions
+  - checkMigrationStatus: Subscription migration utilities
+  - Payment webhooks (MTN MoMo, Orange Money)
+
+Deploy functions from backend repository:
+  cd D:\Projects\pharmapp\functions
+  npm install
+  npm run build
+  firebase deploy --only functions
+
+═══════════════════════════════════════════════════════════════════════════════
+TESTING FIREBASE CONNECTION (After Configuration)
+═══════════════════════════════════════════════════════════════════════════════
+
+Test Firebase Authentication:
+  1. Run pharmacy_app: cd pharmacy_app && flutter run -d chrome
+  2. Navigate to registration screen
+  3. Create a test account
+  4. Verify account appears in Firebase Console > Authentication
+
+Test Firestore Connection:
+  1. Check Firebase Console > Firestore Database
+  2. Verify collections exist (users, pharmacies, etc.)
+  3. Test read/write operations from app
+
+Test Cloud Functions:
+  1. Use curl to test topupIntent or sandboxCredit
+  2. Verify function logs in Firebase Console > Functions
+  3. Check wallet balance updates in Firestore
+
+═══════════════════════════════════════════════════════════════════════════════
+FIREBASE EMULATOR (Optional - For Local Development)
+═══════════════════════════════════════════════════════════════════════════════
+
+To test locally without affecting production Firebase:
+
+cd D:\Projects\pharmapp
+firebase emulators:start
+
+This starts local emulators for:
+  - Authentication (localhost:9099)
+  - Firestore (localhost:8080)
+  - Functions (localhost:5001)
+
+Update Flutter apps to use emulators in development mode:
+  - See firebase_options.dart for emulator configuration
+
+═══════════════════════════════════════════════════════════════════════════════
+TROUBLESHOOTING COMMON FIREBASE ISSUES
+═══════════════════════════════════════════════════════════════════════════════
+
+Issue: "Firebase project not found"
+Solution: Run 'firebase login' and verify project access
+
+Issue: "Permission denied" when deploying functions
+Solution: Verify IAM roles in Google Cloud Console
+
+Issue: "API not enabled"
+Solution: Enable required APIs in Google Cloud Console
+  - Cloud Firestore API
+  - Cloud Functions API
+  - Firebase Authentication API
+
+Issue: "CORS errors" when calling functions from web
+Solution: Ensure CORS is configured in functions (cors middleware)
+
+Issue: "flutter run" fails with Firebase errors
+Solution: Re-run 'flutterfire configure' to regenerate configuration files
+
+═══════════════════════════════════════════════════════════════════════════════
+FIREBASE BILLING & QUOTAS
+═══════════════════════════════════════════════════════════════════════════════
+
+Current Plan: Likely Blaze (Pay-as-you-go) for Cloud Functions
+
+Free Tier Quotas:
+  - Firestore: 50K reads/day, 20K writes/day
+  - Authentication: Unlimited free
+  - Functions: 125K invocations/month, 40K GB-seconds
+  - Storage: 1GB stored, 10GB/month transfer
+
+Monitor Usage:
+  - Firebase Console > Usage and Billing
+  - Set up budget alerts to avoid unexpected charges
+
+═══════════════════════════════════════════════════════════════════════════════
+RESTORATION CHECKLIST
+═══════════════════════════════════════════════════════════════════════════════
+
+New Machine Firebase Setup:
+  [ ] Install Firebase CLI (npm install -g firebase-tools)
+  [ ] Login to Firebase (firebase login)
+  [ ] Install FlutterFire CLI (dart pub global activate flutterfire_cli)
+  [ ] Configure Pharmacy App (flutterfire configure)
+  [ ] Configure Courier App (flutterfire configure)
+  [ ] Configure Admin Panel (flutterfire configure)
+  [ ] Configure Unified App (flutterfire configure)
+  [ ] Test Firebase connection (run apps and verify authentication)
+  [ ] Clone backend repository (D:\Projects\pharmapp)
+  [ ] Deploy Firestore rules (firebase deploy --only firestore:rules)
+  [ ] Deploy Cloud Functions (firebase deploy --only functions)
+  [ ] Verify all apps can connect to Firebase
+
+═══════════════════════════════════════════════════════════════════════════════
+SECURITY REMINDERS
+═══════════════════════════════════════════════════════════════════════════════
+
+1. NEVER commit firebase_options.dart with real API keys to public repos
+2. NEVER commit google-services.json to public repos
+3. Use environment variables for sensitive configuration
+4. Regenerate API keys if they are accidentally exposed
+5. Use Firebase App Check for production apps (prevents API abuse)
+6. Implement proper Firestore security rules (already in backend repo)
+7. Rotate service account keys regularly
+8. Monitor Firebase Console for suspicious activity
+
+═══════════════════════════════════════════════════════════════════════════════
+ADDITIONAL RESOURCES
+═══════════════════════════════════════════════════════════════════════════════
+
+FlutterFire Documentation:
+  https://firebase.flutter.dev/
+
+Firebase CLI Documentation:
+  https://firebase.google.com/docs/cli
+
+PharmApp Backend Repository:
+  D:\Projects\pharmapp (contains functions, rules, detailed setup)
+
+CLAUDE.md (Project Documentation):
+  d:\Projects\pharmapp-mobile\CLAUDE.md
+  (Contains complete project history and implementation details)
+
+═══════════════════════════════════════════════════════════════════════════════
+END OF FIREBASE CONFIGURATION BACKUP
+═══════════════════════════════════════════════════════════════════════════════
