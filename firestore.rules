@@ -200,21 +200,32 @@ service cloud.firestore {
 
     match /deliveries/{id} {
       allow read: if isAuthenticated() && (
-        resource.data.status == 'pending' ||                     // ✅ FIX: Couriers can read pending deliveries
+        // Only couriers can browse pending deliveries, and only in their operating city
+        (resource.data.status == 'pending' &&
+         exists(/databases/$(db)/documents/couriers/$(request.auth.uid)) &&
+         resource.data.city == get(/databases/$(db)/documents/couriers/$(request.auth.uid)).data.operatingCity) ||
         resource.data.courierId == request.auth.uid ||           // Courier can read assigned deliveries
         resource.data.fromPharmacyId == request.auth.uid ||      // Source pharmacy can read
         resource.data.toPharmacyId == request.auth.uid ||        // Destination pharmacy can read
         isSuperAdmin(request.auth.uid)                           // Super admin can read all
       );
       allow create: if isAuthenticated() && isSuperAdmin(request.auth.uid); // Only admins create deliveries
+      // Update rules:
+      // 1. Courier accepting: must be pending, unassigned, courier in same city, must set courierId to self
+      // 2. Assigned courier: can update status/location on their own delivery
+      // 3. Admin: can update anything
+      // Pharmacies CANNOT update deliveries (status changes go through Cloud Functions)
       allow update: if isAuthenticated() && (
-        // B4 fix: Allow any authenticated courier to accept a pending delivery
-        // (sets courierId on an unassigned delivery)
-        (resource.data.status == 'pending' && resource.data.courierId == null) ||
-        resource.data.courierId == request.auth.uid ||           // Courier can update status/location
-        resource.data.fromPharmacyId == request.auth.uid ||      // Source pharmacy can update
-        resource.data.toPharmacyId == request.auth.uid ||        // Destination pharmacy can update
-        isSuperAdmin(request.auth.uid)                           // Super admin can update all
+        // Accept: courier in same city, delivery pending+unassigned, must assign to self
+        (resource.data.status == 'pending' &&
+         resource.data.courierId == null &&
+         exists(/databases/$(db)/documents/couriers/$(request.auth.uid)) &&
+         resource.data.city == get(/databases/$(db)/documents/couriers/$(request.auth.uid)).data.operatingCity &&
+         request.resource.data.courierId == request.auth.uid) ||
+        // Assigned courier can update their own delivery
+        resource.data.courierId == request.auth.uid ||
+        // Admin override
+        isSuperAdmin(request.auth.uid)
       );
     }
 

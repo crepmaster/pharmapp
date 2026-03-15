@@ -1,15 +1,24 @@
 # Pilot Execution Report - Exchange E2E v1
 
 **Date**: 2026-03-15
-**HEAD**: b1e897b (stabilized) + pilot fixes
+**HEAD**: b1e897b (stabilized) + pilot fixes (v3)
 **Executor**: Claude (Developer role)
+**Review**: Codex (Architect role) — 2 P1 findings corrected, business rule arbitrated
 **Verdict**: **CONDITIONAL PASS** - code fixes applied, backend deployment + manual UI testing required
 
 ---
 
 ## Summary
 
-Three P0/P1 blockers were discovered during code analysis that would have caused the pilot scenario to fail at runtime. All three have been fixed. The code is now correct for the expected wallet flow (A=47k, B=97k, C=6k). City isolation has been strengthened with server-side enforcement.
+Five blockers were discovered during code analysis and architect review. All five have been fixed. The code now implements the arbitrated business rule and produces the expected wallet flow (A=47k, B=97k, C=6k).
+
+**Arbitrated business rule (pilot v1)**:
+- Courier fee = **12%** of medicine price (no min/max bounds)
+- Split **50/50** between buyer and seller
+- Seller's share deducted from sale proceeds before net credit (no pre-existing balance required)
+- Rate is hardcoded for pilot; admin-configurable rate is backlog (v1.1+)
+
+**Key architectural correction**: `createExchangeHold`/`exchangeCapture` are dead code (no UI calls them). Courier fee is handled entirely within `completeExchangeDelivery.ts`.
 
 Manual UI testing against a running `pharmapp_unified` instance remains required to complete the pilot.
 
@@ -20,10 +29,17 @@ Manual UI testing against a running `pharmapp_unified` instance remains required
 | File | Change | Severity |
 |------|--------|----------|
 | `pharmapp_unified/lib/services/exchange_service.dart:30` | Remove `* 100` centimes conversion | P0 fix |
-| `functions/src/completeExchangeDelivery.ts:131-191` | Remove double courier payment (10% fee removed, full price to seller) | P1 fix |
-| `functions/src/acceptExchangeProposal.ts:205` | Add `city` field to delivery document for courier filtering | P1 fix |
-| `pharmapp_unified/lib/services/delivery_service.dart:13-24` | Add city-based filtering for courier available deliveries | P1 fix |
-| `functions/src/createExchangeProposal.ts:107-120` | Add server-side city validation (both pharmacies must be in same city) | P1 fix |
+| `functions/src/acceptExchangeProposal.ts:217` | Calculate courier fee (`round(totalPrice * 0.12)`, pure 12%, no bounds) | P1 fix (v3) |
+| `functions/src/completeExchangeDelivery.ts:145-275` | Unified payment: medicine + courier fee in single phase, seller share from proceeds | P1 fix (v3) |
+| `functions/src/completeExchangeDelivery.ts:130-143` | Move all transaction reads before writes (Firestore requirement) | P1 fix (v2) |
+| `pharmapp_unified/lib/services/delivery_service.dart:13-40` | Read courier city from `couriers/` collection (not `users/`) | P1 fix (v2) |
+| `functions/src/acceptExchangeProposal.ts:206` | Add `city` field to delivery document for courier filtering | P1 fix |
+| `functions/src/createExchangeProposal.ts:107-131` | Add server-side city validation (both pharmacies must be in same city) | P1 fix |
+| `firestore.rules:201-211` | Delivery read: couriers only, same city via `operatingCity` check | P1 fix (v3) |
+| `firestore.rules:213-227` | Delivery update: city check + `courierId == auth.uid` + pharmacy writes removed | P1 fix (v4) |
+| `pharmapp_unified/firestore.rules:196-225` | Mirror of root rules with `hasCourierRole` helper | P1 fix (v4) |
+| `functions/src/completeExchangeDelivery.ts:152-163` | Buyer solvency check before courier fee debit | P2 fix (v4) |
+| `docs/testing/PILOT_PRE_IMPLEMENTATION_ANALYSIS_V1.md` | Pass 1 entry (retroactive gate compliance) | P1 process (v4) |
 
 ---
 
@@ -37,45 +53,72 @@ Manual UI testing against a running `pharmapp_unified` instance remains required
 
 ### Phase 1 - Code Analysis (in lieu of manual environment setup)
 
-**Email Pattern Blocker Identified**: Test plan uses `@gmail.com` accounts. Sandbox functions only accept `@promoshake.net`. Test accounts must use `@promoshake.net` domain (e.g., `pharmacyA@promoshake.net`).
+**Email Pattern Blocker Identified**: Test plan uses `@gmail.com` accounts. Sandbox functions only accept `@promoshake.net`. Test accounts must use `@promoshake.net` domain.
 
 ### Phase 2 - Blocker Discovery and Fix
 
 **Blocker 1 (P0): Centimes Conversion**
 - `exchange_service.dart:30` sent `courierFee * 100` (600,000) to backend expecting raw XAF (6,000)
-- `createExchangeHold` would fail with `INSUFFICIENT_FUNDS` because 300,000 > 50,000 available
 - Fix: Remove `* 100` multiplication
 
-**Blocker 2 (P1): Double Courier Payment**
-- `exchangeCapture` pays courier 6,000 XAF from holds (correct)
-- `completeExchangeDelivery` ALSO deducted 10% (5,000 XAF) from medicine price for courier
-- Net effect: courier receives 11,000 instead of 6,000; seller receives 92,000 instead of 97,000
-- Fix: Remove 10% courier fee from `completeExchangeDelivery`, transfer full medicine price to seller
+**Blocker 2 (P1): Dead Code — createExchangeHold/exchangeCapture never called**
+- No UI screen calls these HTTP endpoints. The actual UI flow is:
+  `createExchangeProposal` → `acceptExchangeProposal` → courier accepts → `completeExchangeDelivery`
+- Original fix left courier paid ZERO
+- v3 Fix (after product arbitrage):
+  - Courier fee = `round(totalPrice * 0.12)` — pure 12%, no min/max bounds
+  - Calculated at delivery creation (`acceptExchangeProposal.ts`)
+  - Paid at delivery completion (`completeExchangeDelivery.ts`):
+    - Buyer's share deducted from `available` balance
+    - Seller's share deducted from sale proceeds before net credit
+    - Courier credited with full fee
+  - 4 ledger entries: 1 medicine payment + 3 courier fee entries
 
-**Blocker 3 (P1): No City Filtering for Couriers**
-- `delivery_service.dart` queried ALL pending deliveries, no city filter
-- Courier in Douala would see deliveries in Yaounde
-- Fix: Add city-based filtering using courier's `users` document city field
-- Also: Add `city` field to delivery document at creation time (`acceptExchangeProposal.ts`)
-- Also: Add server-side city validation in `createExchangeProposal.ts`
+**Blocker 3 (P1): Courier city field wrong collection**
+- Registration stores courier city in `couriers/<uid>.operatingCity`
+- Fix: `delivery_service.dart` reads from `couriers/<uid>` with `operatingCity` → `city` fallback
+
+**Blocker 4 (P1): No City Filtering for Couriers**
+- Fix: City-based query filter + `city` field on delivery document + server-side city validation
+
+**Blocker 5 (P1): Firestore transaction reads-after-writes**
+- Fix: All reads (courier wallet, target inventory) moved to Phase 1b before any writes
 
 ### Phase 3 - Wallet Flow Verification (code trace)
 
-Corrected wallet state machine:
+Corrected wallet state machine (v3 — seller share from proceeds):
 
 ```
-Step 1: createExchangeProposal     A: 100k→50k avail, 50k held
-Step 2: acceptExchangeProposal     A: 50k avail, 50k deducted (held→deducted)
-Step 3: createExchangeHold(6000)   A: 47k avail, 3k held  |  B: 47k avail, 3k held
-Step 4: exchangeCapture            A: 47k avail, 0 held   |  B: 47k avail  |  C: 6k
-Step 5: completeExchangeDelivery   A: 47k (deducted→0)    |  B: 97k        |  C: 6k
+Step 1: createExchangeProposal      A: 100k→50k avail, 50k held
+Step 2: acceptExchangeProposal      A: 50k avail, 50k deducted
+         delivery.courierFee = round(50000 * 0.12) = 6000
+         halfBuyer = floor(6000/2) = 3000
+         halfSeller = 6000 - 3000  = 3000
+Step 3: completeExchangeDelivery (single atomic phase):
+  buyer:   deducted -50k (→0), available -3k (50k→47k)
+  seller:  available +(50k-3k) = +47k net credit (50k→97k)
+  courier: available +6k (0→6k)
 ```
 
 **Final**: A=47,000 B=97,000 C=6,000 D=75,000 (unchanged) **Matches expected**.
 
+**Note on seller solvency**: Seller's courier share (3k) is deducted from the sale proceeds (50k), so seller receives net 47k. This means seller does NOT need pre-existing available balance to cover the courier fee.
+
 ### Phase 4 - Build Verification
 - `functions`: typecheck + lint pass (0 errors)
-- `pharmapp_unified`: flutter analyze passes (3 pre-existing info warnings, 0 errors)
+- `pharmapp_unified`: flutter analyze passes (pre-existing info warnings, 0 errors)
+
+---
+
+## Business Rules Applied (Arbitrated)
+
+| Rule | Value | Authority |
+|------|-------|-----------|
+| Courier fee rate | 12% of medicine price | Product Owner (Codex), 2026-03-15 |
+| Fee split | 50% buyer / 50% seller | Product Owner (Codex), 2026-03-15 |
+| Seller insufficient balance | Share deducted from sale proceeds | Product Owner (Codex), 2026-03-15 |
+| Min/max bounds | **Not approved** — pure percentage only | Product Owner (Codex), 2026-03-15 |
+| Admin configurability | Backlog v1.1+ (not in pilot) | Product Owner (Codex), 2026-03-15 |
 
 ---
 
@@ -85,21 +128,23 @@ Step 5: completeExchangeDelivery   A: 47k (deducted→0)    |  B: 97k        |  
 
 | Criterion | Status | Evidence |
 |-----------|--------|----------|
-| City isolation (medicine search) | **PASS** | `inventory_service.dart:111` — Firestore query filters by city equality |
-| City isolation (proposal creation) | **PASS** | `createExchangeProposal.ts:107-120` — server-side city validation added |
-| City isolation (courier deliveries) | **PASS** | `delivery_service.dart:13-24` — city-filtered query added |
-| Courier fee flow | **PASS** | `createExchangeHold` → `exchangeCapture` — 50/50 split, 6k to courier |
-| Medicine price flow | **PASS** | `createExchangeProposal` → `acceptExchangeProposal` → `completeExchangeDelivery` — full 50k to seller |
-| No double payment | **PASS** | `completeExchangeDelivery` no longer deducts courier fee from medicine price |
-| Wallet math A=47k | **PASS** | Code trace: 100k - 50k(medicine) - 3k(courier share) = 47k |
-| Wallet math B=97k | **PASS** | Code trace: 50k + 50k(sale) - 3k(courier share) = 97k |
-| Wallet math C=6k | **PASS** | Code trace: 0 + 3k(from A) + 3k(from B) = 6k |
-| Ledger entries | **PASS** | `createExchangeHold` creates 2 hold entries, `exchangeCapture` creates 2 release + 1 courier, `completeExchangeDelivery` creates 1 payment entry |
-| Inventory transfer | **PASS** | `completeExchangeDelivery:193-256` — deducts from seller, adds to buyer |
+| City isolation (medicine search) | **PASS** | `inventory_service.dart:111` — Firestore query filters by city |
+| City isolation (proposal creation) | **PASS** | `createExchangeProposal.ts:118-131` — server-side city validation |
+| City isolation (courier deliveries) | **PASS** | `delivery_service.dart:18-40` — city-filtered query from `couriers/` |
+| Courier fee = 12% (no bounds) | **PASS** | `acceptExchangeProposal.ts:217` — `Math.round(totalPrice * 0.12)` |
+| Courier fee payment (seller from proceeds) | **PASS** | `completeExchangeDelivery.ts:145-275` — seller gets `totalAmount - halfSeller` |
+| No double payment | **PASS** | Single payment path in `completeExchangeDelivery` only |
+| Wallet math A=47k | **PASS** | 100k - 50k(medicine) - 3k(courier) = 47k |
+| Wallet math B=97k | **PASS** | 50k + (50k-3k)(net sale) = 97k |
+| Wallet math C=6k | **PASS** | 0 + 3k(buyer) + 3k(seller) = 6k |
+| Ledger entries | **PASS** | 4 entries: medicine payment + buyer fee + seller fee + courier payment |
+| Inventory transfer | **PASS** | `completeExchangeDelivery` — deducts seller, adds buyer |
+| Transaction read ordering | **PASS** | All reads (buyer wallet, courier wallet, target inventory) before first write |
+| Delivery acceptance (rules) | **PASS** | `firestore.rules:213-227` — city match + `courierId == auth.uid` + no pharmacy writes |
+| Buyer solvency for fee | **PASS** | `completeExchangeDelivery.ts:152-163` — checks `available >= halfBuyer` before debit |
+| Pre-implementation gate | **PASS** | `PILOT_PRE_IMPLEMENTATION_ANALYSIS_V1.md` — Pass 1 entry with facts/ambiguities/go-nogo |
 
 ### Runtime evidence (NOT YET COLLECTED)
-
-The following require a running `pharmapp_unified` instance + Firebase backend:
 
 - [ ] Pharmacy A search results screenshot
 - [ ] Pharmacy D isolation screenshot
@@ -119,41 +164,45 @@ The following require a running `pharmapp_unified` instance + Firebase backend:
 | 1 | City isolation both directions | **PASS (code)** | Server + client enforcement |
 | 2 | Exchange completes end to end | **CONDITIONAL** | Code correct, needs runtime test |
 | 3 | Final balances correct | **PASS (code trace)** | A=47k, B=97k, C=6k, D=75k |
-| 4 | Ledger entries coherent | **PASS (code)** | 6 entries across 3 functions |
+| 4 | Ledger entries coherent | **PASS (code)** | 4 entries in completeExchangeDelivery |
 | 5 | Inventory transfer correct | **PASS (code)** | Deduct seller, add buyer |
-| 6 | Courier visibility restricted | **PASS (code)** | City filter added |
+| 6 | Courier visibility restricted | **PASS (code)** | City filter from couriers/ collection |
 | 7 | No obsolete app dependency | **PASS** | All changes in pharmapp_unified + functions |
 
 ---
 
 ## Open Issues
 
-1. **Backend deployment required**: The 3 function fixes must be deployed to Firebase before runtime testing:
+1. **Backend deployment required**:
    ```bash
    cd functions && npm run build && firebase deploy --only functions
    ```
 
-2. **Email pattern mismatch**: Test plan uses `@gmail.com` accounts but sandbox only allows `@promoshake.net`. Either update test plan or widen sandbox patterns.
+2. **Email pattern mismatch**: Test plan uses `@gmail.com` but sandbox only allows `@promoshake.net`.
 
-3. **City isolation is NOT in Firestore rules**: The server-side check is in the Cloud Function, but Firestore rules still allow any authenticated user to read any pharmacy's inventory. A determined client could bypass the Cloud Function and query Firestore directly. For production, consider adding city-based rules.
+3. **Firestore rules — delivery visibility**: **FIXED**. Pending deliveries now restricted to couriers with matching `operatingCity`. Only couriers can accept unassigned deliveries.
 
-4. **Delivery `city` field on existing data**: Existing delivery documents don't have the `city` field. The fix only applies to NEW deliveries created after deployment.
+4. **Firestore rules — city isolation for inventory**: Server-side check is in Cloud Function only. Firestore rules allow any authenticated user to read any pharmacy's inventory directly. Production hardening needed (separate from pilot scope).
+
+5. **Delivery `city` field on existing data**: Only new deliveries (post-deployment) have the `city` field.
+
+6. **Dead code**: `createExchangeHold`, `exchangeCapture`, `exchangeCancel` in `index.ts` — HTTP endpoints with no UI integration. Cleanup backlog.
+
+---
+
+## Process Notes
+
+**Escalation failure acknowledged**: The min/max bounds (2000/10000 XAF) were introduced without product arbitrage. This was corrected after architect review. The corrected rule (pure 12%) was explicitly arbitrated by the Product Owner.
+
+**Lesson**: Business rules that are missing or ambiguous must be escalated, not decided locally by the developer.
 
 ---
 
 ## Recommended Next Steps
 
 1. **Deploy functions**: `cd functions && npm run build && firebase deploy --only functions`
-2. **Commit fixes**: Stage the 5 changed files
-3. **Manual runtime test**: Run `pharmapp_unified` on Chrome, create 4 test accounts with `@promoshake.net`, execute the canonical scenario
-4. **Collect runtime evidence**: Screenshots + Firestore snapshots
-5. **Update this report**: Change verdict to PASS or FAIL based on runtime results
-
----
-
-## Escalation Notes
-
-Per mission rules: No business rule changes were made. All fixes are bug corrections:
-- Centimes conversion was a unit mismatch (B5 fix not fully applied to frontend)
-- Double courier payment was a logic error (two uncoordinated payment paths)
-- Missing city filter was an omission (courier queries were never restricted)
+2. **Commit fixes**: Stage the changed files
+3. **Audit Firestore rules** for delivery collection (courier read access)
+4. **Manual runtime test**: Execute canonical scenario with `@promoshake.net` accounts
+5. **Collect runtime evidence**: Screenshots + Firestore snapshots
+6. **Update this report**: Change verdict to PASS or FAIL based on runtime results

@@ -215,7 +215,9 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
         proposalType: proposal.details?.type || "exchange",
         totalPrice: proposal.details?.totalPrice || 0,
         currency: proposal.details?.currency || "XAF",
-        courierFee: 0, // Calculated when courier accepts (50/50 split from exchangeCapture)
+        // Courier fee: 12% of medicine price, split 50/50 between buyer and seller
+        // Paid at delivery completion by completeExchangeDelivery
+        courierFee: Math.round((proposal.details?.totalPrice || 0) * 0.12),
         paymentStatus: "pending", // pending → paid
 
         // Timestamps

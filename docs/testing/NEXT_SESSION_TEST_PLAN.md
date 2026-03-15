@@ -29,8 +29,9 @@ Read in this order before execution:
 2. `docs/testing/SESSION_2025-10-24_MASTER_APP_MIGRATION.md`
 3. `docs/testing/NEXT_SESSION_EXCHANGE_TESTING.md`
 4. `docs/testing/PILOT_BRIEF_EXCHANGE_E2E_V1.md`
-5. `docs/testing/PILOT_TASK_EXCHANGE_E2E_V1.md`
-6. `docs/testing/PILOT_SPEC_EXCHANGE_E2E_V1.md`
+5. `docs/testing/PILOT_PRE_IMPLEMENTATION_ANALYSIS_V1.md`
+6. `docs/testing/PILOT_TASK_EXCHANGE_E2E_V1.md`
+7. `docs/testing/PILOT_SPEC_EXCHANGE_E2E_V1.md`
 
 If any older note contradicts these documents, treat the older note as obsolete for this pilot.
 
@@ -51,6 +52,11 @@ Do not start the pilot unless all items below are true:
 5. Evidence capture is ready.
 
 If the worktree is still in a misleading intermediate state, do not start.
+
+For any non-trivial correction pass after the pilot starts:
+
+6. `docs/testing/PILOT_PRE_IMPLEMENTATION_ANALYSIS_V1.md` has been created or updated for the current pass.
+7. Any ambiguity affecting money, ledger, permissions, Firestore rules, city isolation, or pilot verdict has been escalated before code changes.
 
 ---
 
@@ -106,6 +112,19 @@ This is the only required pilot path for the session.
 - confirm who owns environment setup for this run:
   - operator
   - or developer with explicit credentials and setup instructions
+
+### Phase 0b - Pre-implementation analysis
+
+Before any non-trivial code correction during the pilot:
+
+- write or update `docs/testing/PILOT_PRE_IMPLEMENTATION_ANALYSIS_V1.md`
+- list the confirmed facts from code and docs
+- list the ambiguities still present
+- list the options considered
+- mark which points require escalation
+- record an explicit go / no-go for coding
+
+No code changes should start from an unresolved ambiguity in money flow, ledger logic, city isolation, permissions, or pass/fail semantics.
 
 ### Phase 1 - Environment setup
 
@@ -242,3 +261,4 @@ This backlog is intentionally out of scope for the current pilot and must not de
   - review file
   - iteration and stop conditions
 - [ ] Only after the pilot post-mortem, decide whether to implement a local script to automate the Claude -> review -> Claude loop.
+- [ ] After the pilot, decide whether the pre-implementation analysis gate should become a generic orchestrator artifact for all non-trivial development passes.

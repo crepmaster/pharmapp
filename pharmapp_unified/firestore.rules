@@ -194,9 +194,12 @@ service cloud.firestore {
 
     // ========== DELIVERIES (Courier access) ==========
     match /deliveries/{deliveryId} {
-      // Read: Pending deliveries (any courier can browse), assigned courier, involved pharmacies, or admin
+      // Read: Pending deliveries (couriers in same city only), assigned courier, involved pharmacies, or admin
       allow read: if isAuthenticated() &&
-        (resource.data.status == 'pending' ||
+        (// Only couriers can browse pending deliveries, restricted to their operating city
+         (resource.data.status == 'pending' &&
+          hasCourierRole(request.auth.uid) &&
+          resource.data.city == get(/databases/$(database)/documents/couriers/$(request.auth.uid)).data.operatingCity) ||
          resource.data.courierId == request.auth.uid ||
          resource.data.fromPharmacyId == request.auth.uid ||
          resource.data.toPharmacyId == request.auth.uid ||
@@ -205,9 +208,22 @@ service cloud.firestore {
       // Create: System only (via Cloud Function when exchange accepted)
       allow create: if false;
 
-      // Update: Assigned courier or admin (for status updates)
-      allow update: if resource.data.courierId == request.auth.uid ||
-                      hasAdminRole(request.auth.uid);
+      // Update rules:
+      // 1. Accept: courier in same city, delivery pending+unassigned, must set courierId to self
+      // 2. Assigned courier: can update status/location on their own delivery
+      // 3. Admin: can update anything
+      // Pharmacies CANNOT update deliveries (status changes go through Cloud Functions)
+      allow update: if isAuthenticated() &&
+        (// Accept: courier in same city, must assign to self
+         (resource.data.status == 'pending' &&
+          resource.data.courierId == null &&
+          hasCourierRole(request.auth.uid) &&
+          resource.data.city == get(/databases/$(database)/documents/couriers/$(request.auth.uid)).data.operatingCity &&
+          request.resource.data.courierId == request.auth.uid) ||
+         // Assigned courier can update their own delivery
+         resource.data.courierId == request.auth.uid ||
+         // Admin override
+         hasAdminRole(request.auth.uid));
 
       // Delete: Admin only
       allow delete: if hasAdminRole(request.auth.uid);

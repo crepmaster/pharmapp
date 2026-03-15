@@ -14,13 +14,15 @@ class DeliveryService {
     final currentUser = _auth.currentUser;
     if (currentUser == null) return Stream.value([]);
 
-    // First get courier's operating city, then filter deliveries
+    // Read courier's operating city from couriers/ collection (set at registration)
     return _firestore
-        .collection('users')
+        .collection('couriers')
         .doc(currentUser.uid)
         .snapshots()
-        .asyncExpand((userDoc) {
-      final city = userDoc.data()?['city'] as String? ?? '';
+        .asyncExpand((courierDoc) {
+      final city = courierDoc.data()?['operatingCity'] as String?
+          ?? courierDoc.data()?['city'] as String?
+          ?? '';
       if (city.isEmpty) {
         return Stream.value(<Delivery>[]);
       }

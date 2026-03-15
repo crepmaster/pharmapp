@@ -61,6 +61,37 @@ If these three conditions are not met, the pilot should not start.
 
 ---
 
+## 3b. Mandatory pre-implementation analysis gate
+
+For any non-trivial correction pass during this pilot, code changes must not start immediately.
+
+Before coding, the developer must first complete or update:
+
+- `docs/testing/PILOT_PRE_IMPLEMENTATION_ANALYSIS_V1.md`
+
+This analysis is not meant to be a long brainstorm dump.
+It is a short gate that must explicitly state:
+
+- confirmed facts from code and docs
+- ambiguities still present
+- options considered
+- required escalations
+- go / no-go for coding
+
+If an ambiguity affects any of the following, coding must stop until the point is escalated and answered:
+
+- money movement
+- wallet balances
+- ledger behavior
+- permissions or Firestore rules
+- city isolation
+- pilot pass/fail interpretation
+
+The developer must not fill those gaps with a "reasonable" local rule.
+An explicit product or security answer is required first.
+
+---
+
 ## 4. Pilot scope
 
 ### In scope
@@ -246,6 +277,11 @@ This pilot must not become "finish the whole platform".
    - one `TASK` document: business objective only
    - one `SPEC` document: repo-aware implementation/testing scope
 4. Start the collab pilot on this scenario.
+
+For any follow-up correction pass after the pilot starts:
+
+5. update `docs/testing/PILOT_PRE_IMPLEMENTATION_ANALYSIS_V1.md`
+6. escalate any unresolved business or security ambiguity before patching code
 
 ---
 

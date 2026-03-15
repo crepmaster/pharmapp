@@ -126,20 +126,57 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
 
       const proposal = proposalSnapshot.data();
 
-      // ===== PHASE 2: FINALIZE PAYMENT (for purchase proposals) =====
+      // ===== PHASE 1b: READ ALL DOCUMENTS NEEDED (Firestore requires reads before writes) =====
+
+      const buyerWalletRef = db.collection("wallets").doc(delivery.fromPharmacyId);
+      const sellerWalletRef = db.collection("wallets").doc(delivery.toPharmacyId);
+      const courierWalletRef = db.collection("wallets").doc(userId);
+
+      // Target inventory for Phase 3
+      const targetInventoryItemId = `${delivery.toPharmacyId}_${delivery.items?.[0]?.medicineId || "unknown"}`;
+      const targetInventoryRef = db.collection("pharmacy_inventory").doc(targetInventoryItemId);
+
+      // Read all wallets + target inventory upfront (Firestore: all reads before first write)
+      const [buyerWalletSnap, courierWalletSnap, targetInventorySnapshot] = await Promise.all([
+        transaction.get(buyerWalletRef),
+        transaction.get(courierWalletRef),
+        transaction.get(targetInventoryRef),
+      ]);
+
+      // ===== PHASE 2: FINALIZE PAYMENT + COURIER FEE =====
+      //
+      // Business rule (pilot v1):
+      //   courier_fee = 12% of medicine price
+      //   split 50/50 between buyer and seller
+      //   seller's share is deducted from sale proceeds before net credit
+      //   buyer must have sufficient available balance for their courier fee share
+      //
+      // This avoids requiring seller to have pre-existing available balance.
+
+      const courierFee = delivery.courierFee || 0;
+      const halfBuyer = Math.floor(courierFee / 2);
+      const halfSeller = courierFee - halfBuyer;
+      const currency = proposal?.details?.currency || delivery.currency || "XAF";
 
       if (proposal?.details?.type === "purchase" && proposal?.reservations?.walletReserved) {
-        const sellerWalletRef = db
-          .collection("wallets")
-          .doc(delivery.toPharmacyId); // Target pharmacy receives payment
-        const buyerWalletRef = db
-          .collection("wallets")
-          .doc(delivery.fromPharmacyId); // Creator pharmacy paid
-        // Courier fee handled by createExchangeHold/exchangeCapture, not here
-
-        // Transfer medicine price from buyer to seller.
-        // Courier fee is handled separately by createExchangeHold/exchangeCapture.
         const totalAmount = proposal.reservations.walletReserved;
+        // Seller receives: medicine price minus their courier fee share
+        const sellerNetCredit = totalAmount - halfSeller;
+
+        // Verify buyer has sufficient available balance for courier fee share
+        if (halfBuyer > 0) {
+          const buyerAvailable = buyerWalletSnap.data()?.available || 0;
+          if (buyerAvailable < halfBuyer) {
+            logger.warn(
+              `completeExchangeDelivery: Buyer ${delivery.fromPharmacyId} has insufficient balance for courier fee share`,
+              { required: halfBuyer, available: buyerAvailable }
+            );
+            throw new HttpsError(
+              "failed-precondition",
+              `Buyer has insufficient balance for courier fee. Required: ${halfBuyer} ${currency}, Available: ${buyerAvailable} ${currency}`
+            );
+          }
+        }
 
         // Move buyer's deducted balance → gone (payment captured)
         transaction.update(buyerWalletRef, {
@@ -147,25 +184,56 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
           updatedAt: FieldValue.serverTimestamp(),
         });
 
-        // Credit seller's wallet with full medicine price
+        // Deduct buyer's courier fee share from available balance
+        if (halfBuyer > 0) {
+          transaction.update(buyerWalletRef, {
+            available: FieldValue.increment(-halfBuyer),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        }
+
+        // Credit seller with net amount (sale price minus courier share)
         transaction.update(sellerWalletRef, {
-          available: FieldValue.increment(totalAmount),
+          available: FieldValue.increment(sellerNetCredit),
           updatedAt: FieldValue.serverTimestamp(),
         });
 
+        // Credit courier wallet (create if needed)
+        if (courierFee > 0) {
+          if (!courierWalletSnap.exists) {
+            transaction.set(courierWalletRef, {
+              available: courierFee,
+              held: 0,
+              currency,
+              updatedAt: FieldValue.serverTimestamp(),
+              createdAt: FieldValue.serverTimestamp(),
+            });
+          } else {
+            transaction.update(courierWalletRef, {
+              available: FieldValue.increment(courierFee),
+              updatedAt: FieldValue.serverTimestamp(),
+            });
+          }
+        }
+
         logger.info(
-          `completeExchangeDelivery: Payment finalized - Seller receives: ${totalAmount} ${proposal.details?.currency || "XAF"}`,
+          `completeExchangeDelivery: Payment finalized`,
           {
             totalAmount,
+            sellerNetCredit,
+            courierFee,
+            halfBuyer,
+            halfSeller,
             sellerId: delivery.toPharmacyId,
             buyerId: delivery.fromPharmacyId,
             courierId: userId,
+            currency,
           }
         );
 
-        // Record transaction in ledger
-        const ledgerRef = db.collection("ledger").doc();
-        transaction.set(ledgerRef, {
+        // Record medicine payment in ledger
+        const medicineLedgerRef = db.collection("ledger").doc();
+        transaction.set(medicineLedgerRef, {
           type: "exchange_delivery_payment",
           deliveryId: deliveryId,
           proposalId: proposal?.proposalId || delivery.proposalId,
@@ -173,11 +241,55 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
           toPharmacyId: delivery.toPharmacyId,
           courierId: userId,
           totalAmount,
-          sellerAmount: totalAmount,
-          courierFee: 0,
-          currency: proposal.details?.currency || "XAF",
+          sellerAmount: sellerNetCredit,
+          courierFee,
+          currency,
           createdAt: FieldValue.serverTimestamp(),
         });
+
+        // Record courier fee ledger entries
+        if (courierFee > 0) {
+          const buyerFeeLedger = db.collection("ledger").doc();
+          transaction.set(buyerFeeLedger, {
+            type: "courier_fee",
+            userId: delivery.fromPharmacyId,
+            amount: halfBuyer,
+            currency,
+            from: "wallet",
+            to: "courier",
+            deliveryId,
+            courierId: userId,
+            description: "Courier fee (buyer share)",
+            createdAt: FieldValue.serverTimestamp(),
+          });
+
+          const sellerFeeLedger = db.collection("ledger").doc();
+          transaction.set(sellerFeeLedger, {
+            type: "courier_fee",
+            userId: delivery.toPharmacyId,
+            amount: halfSeller,
+            currency,
+            from: "sale_proceeds",
+            to: "courier",
+            deliveryId,
+            courierId: userId,
+            description: "Courier fee (seller share, deducted from sale proceeds)",
+            createdAt: FieldValue.serverTimestamp(),
+          });
+
+          const courierPayLedger = db.collection("ledger").doc();
+          transaction.set(courierPayLedger, {
+            type: "courier_payment",
+            userId,
+            amount: courierFee,
+            currency,
+            from: "exchange",
+            to: "wallet",
+            deliveryId,
+            description: "Courier delivery fee",
+            createdAt: FieldValue.serverTimestamp(),
+          });
+        }
       }
 
       // ===== PHASE 3: UPDATE INVENTORY COUNTS =====
@@ -209,12 +321,7 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
       }
 
       // Add received medicine to target pharmacy's inventory
-      const targetInventoryItemId = `${delivery.toPharmacyId}_${delivery.items?.[0]?.medicineId || "unknown"}`;
-      const targetInventoryRef = db
-        .collection("pharmacy_inventory")
-        .doc(targetInventoryItemId);
-      const targetInventorySnapshot = await transaction.get(targetInventoryRef);
-
+      // (targetInventoryRef and targetInventorySnapshot read in Phase 1b)
       const receivedQuantity = proposal?.details?.quantity || 0;
 
       if (targetInventorySnapshot.exists) {

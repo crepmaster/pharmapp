@@ -50,10 +50,27 @@ It is the expected technical surface for the pilot.
    The stabilization commit must include the pilot brief, task, and spec documents referenced by the mission.
 4. `docs/testing/NEXT_SESSION_TEST_PLAN.md` is the active plan for this session.
 5. The operator must either prepare the pilot environment or provide explicit setup credentials and instructions.
+6. Any non-trivial correction pass must go through `docs/testing/PILOT_PRE_IMPLEMENTATION_ANALYSIS_V1.md` before code changes begin.
 
 ---
 
 ## 4. Execution requirements
+
+### Pre-analysis gate
+
+Before any non-trivial patch in this pilot, the active pass must record:
+
+- what is already confirmed by code
+- what remains ambiguous
+- which options were considered
+- which points require product or security escalation
+- whether coding is allowed to proceed
+
+This pre-analysis must be written in:
+
+- `docs/testing/PILOT_PRE_IMPLEMENTATION_ANALYSIS_V1.md`
+
+If a missing rule affects money, wallet movements, ledger entries, permissions, Firestore rules, city isolation, or pass/fail interpretation, the developer must stop and escalate instead of inventing a local rule.
 
 ### Setup
 
@@ -107,6 +124,7 @@ The pilot spec is satisfied only if:
 
 The pilot should produce:
 
+- pre-implementation analysis for each non-trivial correction pass
 - evidence package
 - concise execution notes
 - pass/fail result against the acceptance criteria
