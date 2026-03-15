@@ -277,6 +277,9 @@ class Subscription extends Equatable {
     );
   }
 
+  /// Parse plan from string (public)
+  static SubscriptionPlan parsePlanPublic(String? planString) => _parsePlan(planString);
+
   /// Parse plan from string
   static SubscriptionPlan _parsePlan(String? planString) {
     switch (planString?.toLowerCase()) {

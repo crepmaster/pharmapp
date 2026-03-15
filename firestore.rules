@@ -88,6 +88,14 @@ service cloud.firestore {
              get(/databases/$(db)/documents/admins/$(userId)).data.role == 'super_admin';
     }
 
+    // User profiles (base user records)
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isSuperAdmin(request.auth.uid);
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isOwner(userId);
+      allow delete: if isSuperAdmin(request.auth.uid);
+    }
+
     // Mobile app collections
     match /pharmacies/{userId} {
       allow read: if isAuthenticated(); // Other pharmacies can read basic profile info

@@ -345,3 +345,158 @@ No options needed. Stage and commit `PILOT_RUNTIME_PREPARATION_V1.md`.
 - The 9 allowed fields are derived from `delivery_service.dart` client code analysis
 - No change to fee calculation, payment logic, or ledger entries
 - Report/runtime note header corrections are factual accuracy
+
+---
+
+## Pass 4 — Inventory subscription validation failure (2026-03-15)
+
+See above (inserted after Pass 3 in the document body).
+
+---
+
+## Pass 5 — Mini-correction UX : modes explicites dans Inventory (2026-03-15)
+
+**Scope**: UX clarity — replace hidden toggle with explicit TabBar in inventory browser; add "Published" badge on inventory items
+
+**This pass is forward-looking. No code has been written yet.**
+
+### Confirmed facts
+
+1. `inventory_browser_screen.dart` uses an icon button toggle (globe/inventory) to switch between "My Inventory" and "Available Medicines". There is no visible label or TabBar — the user must discover the toggle by guessing.
+2. The title changes dynamically (`showMyInventory ? 'My Inventory' : 'Available Medicines'`) but there is no persistent indication of which mode is active.
+3. `pharmacy_main_screen.dart:105` shows "Inventory" as a single bottom nav entry — no distinction between own stock and marketplace.
+4. `_buildMyInventoryCard` does not display the `availableForExchange` status. A pharmacy owner cannot see which of their medicines are published for exchange.
+5. The `availableForExchange` default is currently `true` in `PharmacyInventoryItem.create()`. Changing this default is **out of scope** for this pass — it is a business behavior change that requires its own pass.
+6. This pass does not touch: money flow, wallet, ledger, Firestore rules, navigation structure, data model.
+
+### Ambiguities
+
+1. **Should the tab be called "Available Medicines" or "Marketplace"?**
+   - "Marketplace" better reflects the 3-tier model (Inventory / Marketplace / Exchanges) decided in this session.
+   - "Available Medicines" is descriptive but doesn't establish the concept boundary.
+   - **Conclusion**: Use "Marketplace" for consistency with the architecture decision. Apply the name in both the tab label and the AppBar title.
+
+2. **Should the "Published" badge be interactive (toggle)?**
+   - Adding a toggle to flip `availableForExchange` on each card would be useful but exceeds the "mini-correction" scope.
+   - **Conclusion**: Display-only badge for this pass. A toggle is a separate feature (noted for future).
+
+### Options considered
+
+| Option | Description | Trade-off |
+|--------|-------------|-----------|
+| A. TabBar with 2 tabs | Explicit mode switching, standard Flutter pattern | Requires converting to TabController, slightly more code |
+| B. SegmentedButton | Material 3 segmented control | Less standard for full-screen mode switching |
+| C. Keep icon toggle, add label | Minimal change | Still not discoverable enough |
+
+**Recommended: A** — TabBar with "My Inventory" and "Marketplace" tabs. Standard Flutter pattern, immediately clear to the user.
+
+### Constraints (from architect review)
+
+- "Add" button / FAB only in "My Inventory" tab
+- "Exchanges" remains for engaged negotiations, not for browsing
+- "Marketplace" naming must be consistent in tab label and title
+
+### Escalations required
+
+- None. This is a UI clarity fix. No money flow, no data model change, no Firestore rules change.
+
+### Go / No-Go
+
+- **Go** — bounded UX correction within developer authority
+- No business rule change (availableForExchange default unchanged)
+- No navigation restructuring
+- Display-only "Published" badge, no toggle
+
+## Pass 4 — Inventory subscription validation failure (2026-03-15)
+
+**Scope**: P1 — transport errors misclassified as "Access Denied / Upgrade"; Cloud Functions not deployed; error typing absent in `SecureSubscriptionService`
+
+**This pass is forward-looking. No code has been written yet.**
+
+### Confirmed facts
+
+1. **Cloud Functions exist but are not deployed.** `validateInventoryAccess` (index.ts:788), `validateProposalAccess` (index.ts:853), and `getSubscriptionStatus` (index.ts:937) all compile cleanly (`npm run build` → success). They have never been deployed to Firebase.
+
+2. **The HTTP call fails with a network/404 error.** `SecureSubscriptionService.validateInventoryAccess()` calls `https://europe-west1-mediexchange.cloudfunctions.net/validateInventoryAccess` — which does not exist on the server. The `catch (e)` at line 61 catches this and returns `InventoryAccessResult(canAccess: false, error: 'Network error: $e')`.
+
+3. **The error result has no typed error code for transport failures.** `InventoryAccessResult` has `errorCode` (String?) and convenience getters `isLimitExceeded` and `needsSubscription`, but no `isTransportError` or `isServerError`. The `errorCode` is only populated from the 403 response body — network errors leave it null.
+
+4. **`AddMedicineScreen._addMedicine()` treats all `!canAccess` as either `isLimitExceeded` or generic "Access Denied / Upgrade".** Lines 616-666: if `canAccess == false` and not `isLimitExceeded`, the user sees a red snackbar with "Access Denied" and an "Upgrade" button. This is architecturally wrong when the real cause is a transport failure — the user has a valid subscription.
+
+5. **Firestore rules are the true security gate.** `firestore.rules` requires `hasActiveSubscription(request.auth.uid)` on `pharmacy_inventory` create. Even if the Cloud Function validation is skipped or fails, a user without a valid subscription cannot write to the collection. This means: if transport validation fails but the user has a valid subscription, letting them attempt the Firestore write is safe — rules will enforce.
+
+6. **The 3 functions use `requireAuth()` from `functions/src/lib/auth.ts`.** This verifies Firebase ID tokens and returns 401 for missing/invalid tokens, 403 for userId mismatch. The functions also read subscription state from `pharmacies/{uid}` flat fields via `getValidSubscription()` — consistent with the v1 single source of truth.
+
+7. **`functions/src/lib/auth.ts` is a new file (untracked).** It needs to be deployed alongside the functions.
+
+8. **Selective deployment is possible.** `firebase deploy --only functions:validateInventoryAccess,functions:validateProposalAccess,functions:getSubscriptionStatus` deploys only these 3 functions without affecting existing deployed functions.
+
+### Ambiguities
+
+1. **Should transport errors block the user or fall through?**
+   - Option A: Block — show "Network error, try again" (not "Access Denied")
+   - Option B: Fall through — let the user attempt `addMedicineToInventory()`, rely on Firestore rules as final gate
+   - The mission prompt recommends Option B (transport_error fallback). This does NOT bypass security — Firestore rules enforce subscription at write time.
+   - **Conclusion**: Option B is correct. The Cloud Function is a UX optimization (show remaining slots, plan info), not the security gate. Firestore rules are the security gate. Falling through on transport failure is architecturally sound.
+
+2. **What error codes should the typed result support?**
+   - The mission prompt specifies 6 codes: `allowed`, `subscription_required`, `limit_exceeded`, `unauthorized`, `transport_error`, `server_error`
+   - Current code has 2 implicit states: `canAccess: true` (allowed) and `canAccess: false` + `errorCode` (from server 403)
+   - **Conclusion**: Keep the boolean `canAccess` and add an `errorCategory` enum field alongside it (Option C). This is an additive, non-breaking change. All consumers are in `add_medicine_screen.dart` (1 call site) and `create_proposal_screen.dart` (1 call site).
+
+3. **Does this change affect money flow?**
+   - No. Inventory creation has no money flow. The medicine is added to `pharmacy_inventory` — no wallet, no ledger, no fees.
+   - **Conclusion**: Not a blocking ambiguity. No escalation needed.
+
+4. **Does `create_proposal_screen.dart` have the same error classification bug?**
+   - `ProposalAccessResult` has the same pattern: `canAccess: false` with no transport error distinction.
+   - The mission prompt covers `validateProposalAccess` deployment but doesn't explicitly scope `create_proposal_screen.dart` error handling refactoring.
+   - **Conclusion**: Fix both result classes in the same pass for consistency, but only refactor `add_medicine_screen.dart` UI handling (the active test path). `create_proposal_screen.dart` UI refactoring can be deferred — it's not on the current pilot test path.
+
+### Options considered
+
+**Error typing model:**
+
+| Option | Description | Trade-off |
+|--------|-------------|-----------|
+| A. Add `isTransportError` getter to existing result class | Minimal change, check if `errorCode == null && !canAccess && error?.startsWith('Network') == true` | Fragile — string matching on error message |
+| B. Add an enum `AccessCode` with 6 values | Replace boolean `canAccess` with typed enum | Clean, exhaustive, but changes the interface |
+| C. Keep `canAccess` boolean, add `errorCategory` enum field | Additive change, no breaking interface change | Slightly redundant (canAccess + errorCategory overlap) but backward-compatible |
+
+**Recommended: C** — add an `AccessErrorCategory` enum (`none`, `subscription_required`, `limit_exceeded`, `unauthorized`, `transport_error`, `server_error`) as a new field alongside `canAccess`. This preserves the existing boolean interface (no risk of breaking other consumers) while adding typed error information. The `canAccess` boolean remains the primary gate; `errorCategory` provides the reason.
+
+**Transport error fallback behavior:**
+
+| Option | Description | Trade-off |
+|--------|-------------|-----------|
+| A. Block with retry prompt | Show "Connection error — Retry?" dialog | User is blocked if server is unreachable |
+| B. Fall through silently | Skip validation, attempt Firestore write | User might not understand if Firestore rules then block |
+| C. Fall through with warning | Show info snackbar "Offline validation skipped", proceed to Firestore write | User is informed, not blocked; Firestore rules enforce |
+
+**Recommended: C** — fall through with a brief info message. If Firestore rules then reject the write (no subscription), the existing `catch (e)` at line 692 will show the Firestore error.
+
+### Escalations required
+
+- None. This change:
+  - Does NOT touch money flow, wallet, or ledger
+  - Does NOT change Firestore rules (the security gate remains unchanged)
+  - Does NOT introduce new business rules
+  - Deploys existing, already-compiled Cloud Functions
+  - Adds error typing to a service result class (developer authority)
+  - The fallback behavior relies on Firestore rules already enforcing `hasActiveSubscription` — no security weakening
+
+### Go / No-Go
+
+- **Go** — this is an error classification fix + function deployment, within developer authority
+- No money flow, no new business rule, no rule change
+- Firestore rules remain the security gate regardless of the Cloud Function deployment
+- The fallback (let Firestore rules decide on transport error) is architecturally correct: defense in depth, not bypass
+
+### Implementation plan (post-Go)
+
+1. Deploy 3 Cloud Functions: `firebase deploy --only functions:validateInventoryAccess,functions:validateProposalAccess,functions:getSubscriptionStatus`
+2. Add `AccessErrorCategory` enum to `secure_subscription_service.dart`
+3. Populate `errorCategory` in all return paths of `validateInventoryAccess()` and `validateProposalAccess()`
+4. Refactor `add_medicine_screen.dart:_addMedicine()` to switch on `errorCategory` instead of the current if/else
+5. For `transport_error`: show info snackbar, proceed to `addMedicineToInventory()`, let Firestore rules be final gate
+6. Hot-restart and test with pilotB (has active subscription → should succeed)

@@ -4,7 +4,8 @@ import '../../models/subscription.dart';
 import '../../services/subscription_service.dart';
 import '../../screens/pharmacy/subscription_screen.dart';
 
-/// Widget to display subscription status on pharmacy dashboard
+/// Widget to display subscription status on pharmacy dashboard.
+/// Reads subscription state via SubscriptionService (single abstraction).
 class SubscriptionStatusWidget extends StatelessWidget {
   const SubscriptionStatusWidget({super.key});
 

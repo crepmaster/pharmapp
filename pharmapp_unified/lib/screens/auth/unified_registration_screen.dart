@@ -6,6 +6,62 @@ import 'package:pharmapp_shared/models/country_config.dart';
 import '../../blocs/unified_auth_bloc.dart';
 import '../../services/subscription_creation_service.dart';
 
+Map<String, dynamic> buildUnifiedRegistrationProfileData({
+  required UserType userType,
+  required String phoneNumber,
+  required Country selectedCountry,
+  required String selectedCity,
+  required PaymentPreferences paymentPreferences,
+  String pharmacyName = '',
+  String address = '',
+  String fullName = '',
+  String vehicleType = 'Motorcycle',
+  String licensePlate = '',
+  String adminName = '',
+  String department = '',
+}) {
+  final commonData = {
+    'phoneNumber': phoneNumber.trim(),
+    'country': selectedCountry.toString().split('.').last,
+    'city': selectedCity,
+    'paymentPreferences': paymentPreferences.toMap(),
+  };
+
+  switch (userType) {
+    case UserType.pharmacy:
+      return {
+        ...commonData,
+        'pharmacyName': pharmacyName.trim(),
+        'displayName': pharmacyName.trim(),
+        'name': pharmacyName.trim(),
+        'address': address.trim(),
+        // TODO: Add proper geocoding service to convert address to GPS coordinates
+        // For now using placeholder values - should use Nominatim or similar free geocoding API
+        'latitude': 0.0,
+        'longitude': 0.0,
+      };
+
+    case UserType.courier:
+      return {
+        ...commonData,
+        'fullName': fullName.trim(),
+        'displayName': fullName.trim(),
+        'name': fullName.trim(),
+        'vehicleType': vehicleType,
+        'licensePlate': licensePlate.trim(),
+        'operatingCity': selectedCity,
+      };
+
+    case UserType.admin:
+      return {
+        ...commonData,
+        'displayName': adminName.trim(),
+        'name': adminName.trim(),
+        'department': department.trim(),
+      };
+  }
+}
+
 /// Unified Registration Screen for all user types
 ///
 /// Features:
@@ -795,45 +851,20 @@ class _UnifiedRegistrationScreenState
 
   Map<String, dynamic> _buildProfileData(
       PaymentPreferences paymentPreferences) {
-    final commonData = {
-      'phoneNumber': _phoneController.text.trim(),
-      'country': widget.selectedCountry.toString().split('.').last,
-      'city': widget.selectedCity,
-      'paymentPreferences': paymentPreferences.toMap(),
-    };
-
-    switch (widget.userType) {
-      case UserType.pharmacy:
-        return {
-          ...commonData,
-          'displayName': _pharmacyNameController.text.trim(),
-          'name': _pharmacyNameController.text.trim(),
-          'address': _addressController.text.trim(),
-          // TODO: Add proper geocoding service to convert address to GPS coordinates
-          // For now using placeholder values - should use Nominatim or similar free geocoding API
-          'latitude': 0.0,
-          'longitude': 0.0,
-        };
-
-      case UserType.courier:
-        return {
-          ...commonData,
-          'fullName': _fullNameController.text.trim(),
-          'displayName': _fullNameController.text.trim(),
-          'name': _fullNameController.text.trim(),
-          'vehicleType': _selectedVehicleType,
-          'licensePlate': _licensePlateController.text.trim(),
-          'operatingCity': widget.selectedCity,
-        };
-
-      case UserType.admin:
-        return {
-          ...commonData,
-          'displayName': _adminNameController.text.trim(),
-          'name': _adminNameController.text.trim(),
-          'department': _departmentController.text.trim(),
-        };
-    }
+    return buildUnifiedRegistrationProfileData(
+      userType: widget.userType,
+      phoneNumber: _phoneController.text,
+      selectedCountry: widget.selectedCountry,
+      selectedCity: widget.selectedCity,
+      paymentPreferences: paymentPreferences,
+      pharmacyName: _pharmacyNameController.text,
+      address: _addressController.text,
+      fullName: _fullNameController.text,
+      vehicleType: _selectedVehicleType,
+      licensePlate: _licensePlateController.text,
+      adminName: _adminNameController.text,
+      department: _departmentController.text,
+    );
   }
 
   void _navigateToDashboard(UserType userType) {

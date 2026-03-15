@@ -5,6 +5,7 @@ import 'package:pharmapp_unified/screens/auth/unified_registration_screen.dart';
 import 'package:pharmapp_unified/blocs/unified_auth_bloc.dart';
 import 'package:pharmapp_shared/services/unified_auth_service.dart';
 import 'package:pharmapp_shared/models/country_config.dart';
+import 'package:pharmapp_shared/models/payment_preferences.dart';
 
 void main() {
   Widget createTestWidget(UserType userType) {
@@ -19,6 +20,36 @@ void main() {
       ),
     );
   }
+
+  PaymentPreferences createPaymentPreferences() {
+    return PaymentPreferences.createSecure(
+      method: 'mtnCameroon',
+      phoneNumber: '677123456',
+      country: Country.cameroon,
+      operator: PaymentOperator.mtnCameroon,
+      isSetupComplete: true,
+    );
+  }
+
+  group('UnifiedRegistrationScreen - Profile Data Builder', () {
+    test('includes pharmacyName in pharmacy profile payload', () {
+      final profileData = buildUnifiedRegistrationProfileData(
+        userType: UserType.pharmacy,
+        phoneNumber: '677123456',
+        selectedCountry: Country.cameroon,
+        selectedCity: 'Douala',
+        paymentPreferences: createPaymentPreferences(),
+        pharmacyName: 'Central Pharmacy',
+        address: '123 Main St',
+      );
+
+      expect(profileData['pharmacyName'], 'Central Pharmacy');
+      expect(profileData['displayName'], 'Central Pharmacy');
+      expect(profileData['name'], 'Central Pharmacy');
+      expect(profileData['address'], '123 Main St');
+      expect(profileData['city'], 'Douala');
+    });
+  });
 
   group('UnifiedRegistrationScreen - Common Fields', () {
     testWidgets('renders all common fields for pharmacy', (tester) async {

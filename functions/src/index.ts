@@ -823,6 +823,7 @@ export const validateInventoryAccess = onRequest({ region: "europe-west1", cors:
           plan: subscription.plan,
           canAccess: false
         });
+        return;
       }
     }
 

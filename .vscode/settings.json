@@ -1,9 +1,6 @@
 {
   "dart.flutterSdkPath": "C:\\tools\\flutter",
   "android.sdk.path": "C:\\Users\\aebon\\AppData\\Local\\Android\\Sdk",
-  "dart.flutterAdditionalArgs": [
-    "--no-sound-null-safety"
-  ],
   // ============================================
   // SHOW ONLY CRITICAL ERRORS (NO WARNINGS)
   // ============================================
@@ -25,6 +22,9 @@
 
   // Hide info and warning squiggles in editor
   "dart.analysisExcludedFolders": [
+    "pharmapp_unified",
+    "admin_panel",
+    "functions",
     "build",
     ".dart_tool"
   ],
@@ -36,5 +36,7 @@
   // Minimize clutter
   "explorer.compactFolders": false,
   "breadcrumbs.enabled": true,
-  "java.configuration.updateBuildConfiguration": "automatic"
+  "java.configuration.updateBuildConfiguration": "automatic",
+  "java.jdt.ls.java.home": "C:\\Program Files\\Android\\Android Studio\\jbr",
+  "java.import.gradle.java.home": "C:\\Program Files\\Android\\Android Studio\\jbr"
 }

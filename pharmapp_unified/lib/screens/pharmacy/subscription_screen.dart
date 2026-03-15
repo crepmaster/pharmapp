@@ -18,7 +18,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   bool _isLoading = true;
   SubscriptionPlan _selectedPlan = SubscriptionPlan.basic;
   String _currencySymbol = 'FCFA'; // Default to XAF
-  String _currency = 'XAF';
 
   @override
   void initState() {
@@ -47,7 +46,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         final countryConfig = Countries.getByCountry(country);
         if (countryConfig != null) {
           _currencySymbol = countryConfig.currencySymbol;
-          _currency = countryConfig.currency;
+          // _currency removed — SubscriptionService handles currency
         }
       }
     }
@@ -458,34 +457,33 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     // Simulate payment processing
     await Future.delayed(const Duration(seconds: 2));
 
-    // Create new subscription
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      final now = DateTime.now();
-      final newSubscription = Subscription(
-        id: '',
-        pharmacyId: user.uid,
-        plan: _selectedPlan,
-        planConfigId: null,
-        status: SubscriptionStatus.active,
-        amount: Subscription.getPlanPrice(_selectedPlan),
-        currency: _currency,
-        startDate: now,
-        endDate: now.add(const Duration(days: 30)),
-        trialEndDate: null,
-        isYearly: false,
-        createdAt: now,
-        activatedAt: now,
-        suspendedAt: null,
-        paymentReference: 'SANDBOX_PAYMENT_${DateTime.now().millisecondsSinceEpoch}',
-        adminUserId: null,
-        adminNotes: 'Sandbox payment - upgraded from trial',
-        features: Subscription.getPlanFeatures(_selectedPlan),
-      );
+      try {
+        final now = DateTime.now();
+        final endDate = now.add(const Duration(days: 30));
 
-      await FirebaseFirestore.instance
-          .collection('subscriptions')
-          .add(newSubscription.toMap());
+        // Write subscription fields directly on pharmacies/{uid}
+        // (subscriptions/ collection is backend-only, rules deny client writes)
+        await FirebaseFirestore.instance
+            .collection('pharmacies')
+            .doc(user.uid)
+            .update({
+          'hasActiveSubscription': true,
+          'subscriptionStatus': 'active',
+          'subscriptionPlan': _selectedPlan.toString().split('.').last,
+          'subscriptionStartDate': Timestamp.fromDate(now),
+          'subscriptionEndDate': Timestamp.fromDate(endDate),
+          'subscriptionPaymentRef': 'SANDBOX_${now.millisecondsSinceEpoch}',
+        });
+      } catch (e) {
+        if (!mounted) return;
+        Navigator.pop(context); // Close loading
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Payment failed: $e'), backgroundColor: Colors.red),
+        );
+        return;
+      }
     }
 
     if (!mounted) return;
@@ -504,7 +502,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             Text('Success!'),
           ],
         ),
-        content: const Text('Your subscription has been activated.'),
+        content: Text('Your ${_getPlanDisplayName(_selectedPlan)} subscription has been activated for 30 days.'),
         actions: [
           ElevatedButton(
             onPressed: () {

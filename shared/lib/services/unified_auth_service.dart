@@ -155,6 +155,12 @@ class UnifiedAuthService {
         print('🔍 DEBUG: Firestore transaction completed successfully!');
       } catch (e) {
         print('🔍 DEBUG: Firestore transaction FAILED: $e');
+        try {
+          await credential.user?.delete();
+          print('🔍 DEBUG: Cleaned up orphan Firebase Auth user after Firestore failure');
+        } catch (cleanupError) {
+          print('🔍 DEBUG: Failed to cleanup orphan Firebase Auth user: $cleanupError');
+        }
         rethrow;
       }
 

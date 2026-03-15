@@ -611,16 +611,18 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
       return;
     }
 
-    // 🔒 CRITICAL SERVER-SIDE SUBSCRIPTION CHECK (SECURE)
+    // 🔒 SERVER-SIDE SUBSCRIPTION CHECK (with typed error handling)
     final accessResult = await SecureSubscriptionService.validateInventoryAccess();
     if (!accessResult.canAccess) {
-      if (mounted) {
-        if (accessResult.isLimitExceeded) {
+      if (!mounted) return;
+
+      switch (accessResult.errorCategory) {
+        case AccessErrorCategory.limitExceeded:
           // Show limit exceeded dialog with specific details
           showDialog(
             context: context,
             builder: (context) => AlertDialog(
-              title: const Text('🚫 Inventory Limit Reached'),
+              title: const Text('Inventory Limit Reached'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -639,18 +641,19 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
                 ElevatedButton(
                   onPressed: () {
                     Navigator.of(context).pop();
-                    Navigator.of(context).pop(); // Return to previous screen
+                    Navigator.of(context).pop();
                   },
                   child: const Text('Upgrade Plan'),
                 ),
               ],
             ),
           );
-        } else {
-          // Show general subscription required message
+          return;
+
+        case AccessErrorCategory.subscriptionRequired:
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('❌ Access Denied: ${accessResult.error ?? "Subscription required"}'),
+              content: Text('Subscription required: ${accessResult.error ?? "Please subscribe to add medicines"}'),
               backgroundColor: Colors.red,
               duration: const Duration(seconds: 5),
               action: SnackBarAction(
@@ -660,9 +663,33 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
               ),
             ),
           );
-        }
+          return;
+
+        case AccessErrorCategory.unauthorized:
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Authentication error. Please log in again.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+
+        case AccessErrorCategory.transportError:
+        case AccessErrorCategory.serverError:
+          // Block: Firestore rules cannot enforce plan limits (Basic ≤ 100).
+          // Only the Cloud Function knows the inventory count constraint.
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Unable to verify subscription. Please check your connection and try again.'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 5),
+            ),
+          );
+          return;
+
+        case AccessErrorCategory.none:
+          break; // Should not reach here since canAccess is false
       }
-      return;
     }
 
     setState(() {

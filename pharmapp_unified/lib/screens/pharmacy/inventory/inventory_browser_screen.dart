@@ -11,15 +11,16 @@ class InventoryBrowserScreen extends StatefulWidget {
   State<InventoryBrowserScreen> createState() => _InventoryBrowserScreenState();
 }
 
-class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
+class _InventoryBrowserScreenState extends State<InventoryBrowserScreen>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
   String selectedCategory = 'All';
   String searchQuery = '';
-  bool showMyInventory = false;
 
   final List<String> categories = [
     'All',
     'Antimalarials',
-    'Antibiotics', 
+    'Antibiotics',
     'Antiretrovirals',
     'Maternal Health',
     'Pediatric Care',
@@ -29,34 +30,46 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      setState(() {}); // Rebuild to toggle FAB visibility
+    });
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  bool get _isMyInventoryTab => _tabController.index == 0;
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(showMyInventory ? 'My Inventory' : 'Available Medicines'),
+        title: const Text('Inventory'),
         backgroundColor: const Color(0xFF1976D2),
         foregroundColor: Colors.white,
         actions: [
-          IconButton(
-            icon: Icon(showMyInventory ? Icons.public : Icons.inventory),
-            onPressed: () {
-              setState(() {
-                showMyInventory = !showMyInventory;
-              });
-            },
-          ),
-          if (showMyInventory)
+          if (_isMyInventoryTab)
             IconButton(
               icon: const Icon(Icons.add),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const AddMedicineScreen(),
-                  ),
-                );
-              },
+              onPressed: _navigateToAddMedicine,
             ),
         ],
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: Colors.white,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          tabs: const [
+            Tab(text: 'My Inventory'),
+            Tab(text: 'Marketplace'),
+          ],
+        ),
       ),
       body: Column(
         children: [
@@ -66,7 +79,6 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
             color: Colors.grey[50],
             child: Column(
               children: [
-                // Search Bar
                 TextField(
                   onChanged: (value) {
                     setState(() {
@@ -82,13 +94,11 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
                     ),
                     filled: true,
                     fillColor: Colors.white,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   ),
                 ),
-                
                 const SizedBox(height: 12),
-                
-                // Category Filter
                 SizedBox(
                   height: 40,
                   child: ListView.builder(
@@ -97,7 +107,7 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
                     itemBuilder: (context, index) {
                       final category = categories[index];
                       final isSelected = selectedCategory == category;
-                      
+
                       return Padding(
                         padding: const EdgeInsets.only(right: 8.0),
                         child: FilterChip(
@@ -109,7 +119,8 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
                             });
                           },
                           backgroundColor: Colors.white,
-                          selectedColor: const Color(0xFF1976D2).withValues(alpha: 0.2),
+                          selectedColor:
+                              const Color(0xFF1976D2).withOpacity(0.2),
                           checkmarkColor: const Color(0xFF1976D2),
                         ),
                       );
@@ -119,27 +130,35 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
               ],
             ),
           ),
-          
-          // Inventory List
+
+          // Tab content
           Expanded(
-            child: showMyInventory ? _buildMyInventory() : _buildAvailableMedicines(),
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildMyInventory(),
+                _buildMarketplace(),
+              ],
+            ),
           ),
         ],
       ),
-      floatingActionButton: showMyInventory 
+      floatingActionButton: _isMyInventoryTab
           ? FloatingActionButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const AddMedicineScreen(),
-                  ),
-                );
-              },
+              onPressed: _navigateToAddMedicine,
               backgroundColor: const Color(0xFF1976D2),
               child: const Icon(Icons.add, color: Colors.white),
             )
           : null,
+    );
+  }
+
+  void _navigateToAddMedicine() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const AddMedicineScreen(),
+      ),
     );
   }
 
@@ -157,20 +176,24 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
 
         final allItems = snapshot.data ?? [];
         final items = allItems.where((item) {
-          // Apply filters
           final medicine = item.medicine;
           if (medicine == null) return false;
-          
+
           if (searchQuery.isNotEmpty &&
-              !medicine.name.toLowerCase().contains(searchQuery.toLowerCase()) &&
-              !medicine.genericName.toLowerCase().contains(searchQuery.toLowerCase())) {
+              !medicine.name
+                  .toLowerCase()
+                  .contains(searchQuery.toLowerCase()) &&
+              !medicine.genericName
+                  .toLowerCase()
+                  .contains(searchQuery.toLowerCase())) {
             return false;
           }
-          
-          if (selectedCategory != 'All' && medicine.category != selectedCategory) {
+
+          if (selectedCategory != 'All' &&
+              medicine.category != selectedCategory) {
             return false;
           }
-          
+
           return true;
         }).toList();
 
@@ -182,8 +205,8 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
                 const Icon(Icons.inventory_2, size: 64, color: Colors.grey),
                 const SizedBox(height: 16),
                 Text(
-                  searchQuery.isNotEmpty || selectedCategory != 'All' 
-                      ? 'No medicines match your filters' 
+                  searchQuery.isNotEmpty || selectedCategory != 'All'
+                      ? 'No medicines match your filters'
                       : 'Your inventory is empty',
                   style: const TextStyle(fontSize: 18, color: Colors.grey),
                 ),
@@ -194,14 +217,7 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
                 ),
                 const SizedBox(height: 16),
                 ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const AddMedicineScreen(),
-                      ),
-                    );
-                  },
+                  onPressed: _navigateToAddMedicine,
                   icon: const Icon(Icons.add),
                   label: const Text('Add Medicine'),
                 ),
@@ -222,7 +238,7 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
     );
   }
 
-  Widget _buildAvailableMedicines() {
+  Widget _buildMarketplace() {
     return StreamBuilder<List<PharmacyInventoryItem>>(
       stream: InventoryService.getAvailableMedicines(
         categoryFilter: selectedCategory,
@@ -244,17 +260,17 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.search_off, size: 64, color: Colors.grey),
+                const Icon(Icons.storefront, size: 64, color: Colors.grey),
                 const SizedBox(height: 16),
                 Text(
                   searchQuery.isNotEmpty || selectedCategory != 'All'
                       ? 'No medicines match your search'
-                      : 'No medicines available',
+                      : 'No medicines available in your city',
                   style: const TextStyle(fontSize: 18, color: Colors.grey),
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Try adjusting your search or filters',
+                  'Other pharmacies in your city will appear here',
                   style: TextStyle(color: Colors.grey),
                 ),
               ],
@@ -275,9 +291,11 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
   }
 
   Widget _buildMyInventoryCard(PharmacyInventoryItem item) {
-    final daysUntilExpiry = item.expirationDate?.difference(DateTime.now()).inDays;
+    final daysUntilExpiry =
+        item.expirationDate?.difference(DateTime.now()).inDays;
     final isExpiringSoon = daysUntilExpiry != null && daysUntilExpiry <= 30;
     final isExpired = daysUntilExpiry != null && daysUntilExpiry < 0;
+    final isPublished = item.availabilitySettings.availableForExchange;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -318,43 +336,75 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
                     ],
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _getCategoryColor(item.medicine?.category ?? 'Unknown'),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    item.medicine?.category ?? 'Unknown',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _getCategoryColor(
+                            item.medicine?.category ?? 'Unknown'),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        item.medicine?.category ?? 'Unknown',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: isPublished
+                            ? Colors.green.shade50
+                            : Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: isPublished
+                              ? Colors.green.shade300
+                              : Colors.grey.shade300,
+                          width: 1,
+                        ),
+                      ),
+                      child: Text(
+                        isPublished ? 'Published' : 'Private',
+                        style: TextStyle(
+                          color: isPublished
+                              ? Colors.green.shade700
+                              : Colors.grey.shade600,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-            
             const SizedBox(height: 12),
-            
             Row(
               children: [
-                _buildInfoChip('${item.availableQuantity} ${item.packaging}', Colors.blue),
+                _buildInfoChip(
+                    '${item.availableQuantity} ${item.packaging}', Colors.blue),
                 const SizedBox(width: 8),
                 if (item.batchNumber.isNotEmpty)
                   _buildInfoChip('Batch: ${item.batchNumber}', Colors.grey),
               ],
             ),
-            
             if (item.expirationDate != null) ...[
               const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: isExpired 
+                  color: isExpired
                       ? Colors.red.shade50
-                      : isExpiringSoon 
+                      : isExpiringSoon
                           ? Colors.orange.shade50
                           : Colors.green.shade50,
                   borderRadius: BorderRadius.circular(6),
@@ -362,30 +412,30 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
                 child: Row(
                   children: [
                     Icon(
-                      isExpired 
+                      isExpired
                           ? Icons.error
-                          : isExpiringSoon 
+                          : isExpiringSoon
                               ? Icons.warning
                               : Icons.check_circle,
                       size: 16,
-                      color: isExpired 
+                      color: isExpired
                           ? Colors.red
-                          : isExpiringSoon 
+                          : isExpiringSoon
                               ? Colors.orange
                               : Colors.green,
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      isExpired 
+                      isExpired
                           ? 'Expired ${(-daysUntilExpiry)} days ago'
-                          : isExpiringSoon 
+                          : isExpiringSoon
                               ? 'Expires in $daysUntilExpiry days'
                               : 'Expires: ${item.expirationDate!.day}/${item.expirationDate!.month}/${item.expirationDate!.year}',
                       style: TextStyle(
                         fontSize: 12,
-                        color: isExpired 
+                        color: isExpired
                             ? Colors.red.shade700
-                            : isExpiringSoon 
+                            : isExpiringSoon
                                 ? Colors.orange.shade700
                                 : Colors.green.shade700,
                       ),
@@ -394,7 +444,6 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
                 ),
               ),
             ],
-            
             if (item.notes.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(
@@ -413,7 +462,8 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
   }
 
   Widget _buildAvailableMedicineCard(PharmacyInventoryItem item) {
-    final daysUntilExpiry = item.expirationDate?.difference(DateTime.now()).inDays;
+    final daysUntilExpiry =
+        item.expirationDate?.difference(DateTime.now()).inDays;
     final isExpiringSoon = daysUntilExpiry != null && daysUntilExpiry <= 30;
 
     return Card(
@@ -460,7 +510,8 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => CreateProposalScreen(inventoryItem: item),
+                        builder: (context) =>
+                            CreateProposalScreen(inventoryItem: item),
                       ),
                     );
                   },
@@ -472,17 +523,19 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
                 ),
               ],
             ),
-            
             const SizedBox(height: 12),
-            
             Row(
               children: [
-                _buildInfoChip('${item.availableQuantity} ${item.packaging} available', Colors.green),
+                _buildInfoChip(
+                    '${item.availableQuantity} ${item.packaging} available',
+                    Colors.green),
                 const SizedBox(width: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: _getCategoryColor(item.medicine?.category ?? 'Unknown'),
+                    color:
+                        _getCategoryColor(item.medicine?.category ?? 'Unknown'),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
@@ -500,7 +553,6 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
                 ],
               ],
             ),
-            
             if (item.expirationDate != null) ...[
               const SizedBox(height: 8),
               Text(
@@ -521,7 +573,7 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
+        color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(

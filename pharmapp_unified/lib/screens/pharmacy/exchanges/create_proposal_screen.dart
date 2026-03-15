@@ -46,19 +46,43 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
   Future<void> _checkSubscriptionAccess() async {
     final result = await SecureSubscriptionService.validateProposalAccess();
     if (!result.canAccess && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('⚠️ Subscription required to create proposals: ${result.error ?? ""}'),
-          backgroundColor: Colors.orange,
-          duration: const Duration(seconds: 6),
-          action: SnackBarAction(
-            label: 'Upgrade',
-            onPressed: () {
-              // TODO: Navigate to subscription screen
-            },
-          ),
-        ),
-      );
+      switch (result.errorCategory) {
+        case AccessErrorCategory.subscriptionRequired:
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Subscription required: ${result.error ?? "Please subscribe to create proposals"}'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 6),
+              action: SnackBarAction(
+                label: 'Upgrade',
+                textColor: Colors.white,
+                onPressed: () {},
+              ),
+            ),
+          );
+          break;
+        case AccessErrorCategory.unauthorized:
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Authentication error. Please log in again.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          break;
+        case AccessErrorCategory.transportError:
+        case AccessErrorCategory.serverError:
+          // Fallback OK for proposals: Firestore rules enforce hasActiveSubscription
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Subscription check unavailable. Continuing...'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 2),
+            ),
+          );
+          break;
+        default:
+          break;
+      }
     }
   }
 
@@ -755,42 +779,50 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
       return;
     }
 
-    // 🔒 CRITICAL SERVER-SIDE SUBSCRIPTION CHECK (SECURE)
+    // 🔒 SERVER-SIDE SUBSCRIPTION CHECK (with typed error handling)
     final accessResult = await SecureSubscriptionService.validateProposalAccess();
-
-    // TEMPORARY FIX: Check if user has trial subscription
     if (!accessResult.canAccess) {
-      // Check if user is in trial period (backend might not recognize trial as valid)
-      final statusResult = await SecureSubscriptionService.getSubscriptionStatus();
-      final isInTrial = statusResult.isInTrial && (statusResult.daysRemaining ?? 0) > 0;
+      if (!mounted) return;
 
-      if (!isInTrial) {
-        // Only block if NOT in trial
-        if (mounted) {
+      switch (accessResult.errorCategory) {
+        case AccessErrorCategory.subscriptionRequired:
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('❌ Proposal Access Denied: ${accessResult.error ?? "Subscription required"}'),
+              content: Text('Subscription required: ${accessResult.error ?? "Please subscribe to create proposals"}'),
               backgroundColor: Colors.red,
               duration: const Duration(seconds: 5),
-                action: SnackBarAction(
-                  label: 'Upgrade',
-                  textColor: Colors.white,
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Please contact admin to activate or upgrade your subscription.'),
-                        backgroundColor: Colors.blue,
-                      ),
-                    );
-                  },
-                ),
+              action: SnackBarAction(
+                label: 'Upgrade',
+                textColor: Colors.white,
+                onPressed: () {},
+              ),
             ),
           );
-        }
-        return;
-      } else {
-        // User is in trial - allow proposal creation
-        debugPrint('✅ Trial user allowed: ${statusResult.daysRemaining} days remaining');
+          return;
+
+        case AccessErrorCategory.unauthorized:
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Authentication error. Please log in again.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+
+        case AccessErrorCategory.transportError:
+        case AccessErrorCategory.serverError:
+          // Fallback OK: Firestore rules enforce hasActiveSubscription on exchange_proposals
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Subscription check unavailable. Continuing...'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 2),
+            ),
+          );
+          break; // Continue — Firestore rules are the final gate
+
+        default:
+          break;
       }
     }
 

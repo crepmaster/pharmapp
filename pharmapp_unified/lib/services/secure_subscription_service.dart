@@ -2,6 +2,17 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
 
+/// Error categories for subscription validation results.
+/// Used to distinguish business errors from infrastructure errors.
+enum AccessErrorCategory {
+  none,                  // No error — access granted
+  subscriptionRequired,  // No active subscription
+  limitExceeded,         // Plan limit reached
+  unauthorized,          // Auth token invalid or missing
+  transportError,        // Network/connection failure — server unreachable
+  serverError,           // Server returned unexpected status
+}
+
 /// 🔒 SECURE SUBSCRIPTION SERVICE
 /// Uses server-side validation functions to prevent client-side bypass attacks
 /// ALL subscription validation is now done server-side for maximum security
@@ -25,6 +36,7 @@ class SecureSubscriptionService {
     if (userId == null) {
       return InventoryAccessResult(
         canAccess: false,
+        errorCategory: AccessErrorCategory.unauthorized,
         error: 'User not authenticated',
       );
     }
@@ -39,28 +51,41 @@ class SecureSubscriptionService {
         final data = json.decode(response.body) as Map<String, dynamic>;
         return InventoryAccessResult(
           canAccess: true,
+          errorCategory: AccessErrorCategory.none,
           plan: data['plan'],
           status: data['status'],
           remainingSlots: data['remainingSlots'],
         );
-      } else if (response.statusCode == 403) {
-        final error = json.decode(response.body) as Map<String, dynamic>;
+      } else if (response.statusCode == 401) {
         return InventoryAccessResult(
           canAccess: false,
+          errorCategory: AccessErrorCategory.unauthorized,
+          error: 'Authentication failed',
+        );
+      } else if (response.statusCode == 403) {
+        final error = json.decode(response.body) as Map<String, dynamic>;
+        final errorCode = error['error'] as String?;
+        return InventoryAccessResult(
+          canAccess: false,
+          errorCategory: errorCode == 'INVENTORY_LIMIT_EXCEEDED'
+              ? AccessErrorCategory.limitExceeded
+              : AccessErrorCategory.subscriptionRequired,
           error: error['message'],
-          errorCode: error['error'],
+          errorCode: errorCode,
           currentCount: error['currentCount'],
           maxAllowed: error['maxAllowed'],
         );
       } else {
         return InventoryAccessResult(
           canAccess: false,
+          errorCategory: AccessErrorCategory.serverError,
           error: 'Server validation failed: ${response.statusCode}',
         );
       }
     } catch (e) {
       return InventoryAccessResult(
         canAccess: false,
+        errorCategory: AccessErrorCategory.transportError,
         error: 'Network error: $e',
       );
     }
@@ -73,6 +98,7 @@ class SecureSubscriptionService {
     if (userId == null) {
       return ProposalAccessResult(
         canAccess: false,
+        errorCategory: AccessErrorCategory.unauthorized,
         error: 'User not authenticated',
       );
     }
@@ -87,25 +113,35 @@ class SecureSubscriptionService {
         final data = json.decode(response.body) as Map<String, dynamic>;
         return ProposalAccessResult(
           canAccess: true,
+          errorCategory: AccessErrorCategory.none,
           plan: data['plan'],
           status: data['status'],
+        );
+      } else if (response.statusCode == 401) {
+        return ProposalAccessResult(
+          canAccess: false,
+          errorCategory: AccessErrorCategory.unauthorized,
+          error: 'Authentication failed',
         );
       } else if (response.statusCode == 403) {
         final error = json.decode(response.body) as Map<String, dynamic>;
         return ProposalAccessResult(
           canAccess: false,
+          errorCategory: AccessErrorCategory.subscriptionRequired,
           error: error['message'],
           errorCode: error['error'],
         );
       } else {
         return ProposalAccessResult(
           canAccess: false,
+          errorCategory: AccessErrorCategory.serverError,
           error: 'Server validation failed: ${response.statusCode}',
         );
       }
     } catch (e) {
       return ProposalAccessResult(
         canAccess: false,
+        errorCategory: AccessErrorCategory.transportError,
         error: 'Network error: $e',
       );
     }
@@ -158,6 +194,7 @@ class SecureSubscriptionService {
 
 class InventoryAccessResult {
   final bool canAccess;
+  final AccessErrorCategory errorCategory;
   final String? plan;
   final String? status;
   final int? remainingSlots;
@@ -168,6 +205,7 @@ class InventoryAccessResult {
 
   InventoryAccessResult({
     required this.canAccess,
+    this.errorCategory = AccessErrorCategory.none,
     this.plan,
     this.status,
     this.remainingSlots,
@@ -177,12 +215,15 @@ class InventoryAccessResult {
     this.maxAllowed,
   });
 
-  bool get isLimitExceeded => errorCode == 'INVENTORY_LIMIT_EXCEEDED';
-  bool get needsSubscription => errorCode == 'SUBSCRIPTION_REQUIRED';
+  bool get isLimitExceeded => errorCategory == AccessErrorCategory.limitExceeded;
+  bool get needsSubscription => errorCategory == AccessErrorCategory.subscriptionRequired;
+  bool get isTransportError => errorCategory == AccessErrorCategory.transportError;
+  bool get isServerError => errorCategory == AccessErrorCategory.serverError;
 }
 
 class ProposalAccessResult {
   final bool canAccess;
+  final AccessErrorCategory errorCategory;
   final String? plan;
   final String? status;
   final String? error;
@@ -190,13 +231,15 @@ class ProposalAccessResult {
 
   ProposalAccessResult({
     required this.canAccess,
+    this.errorCategory = AccessErrorCategory.none,
     this.plan,
     this.status,
     this.error,
     this.errorCode,
   });
 
-  bool get needsSubscription => errorCode == 'SUBSCRIPTION_REQUIRED';
+  bool get needsSubscription => errorCategory == AccessErrorCategory.subscriptionRequired;
+  bool get isTransportError => errorCategory == AccessErrorCategory.transportError;
 }
 
 class SubscriptionStatusResult {
