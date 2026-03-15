@@ -129,6 +129,18 @@ class UnifiedAuthService {
             'isActive': true,
             'role': _mapUserTypeToRole(userType).toString().split('.').last,
             ...user.roleData,
+            // B2 fix: Write trial subscription fields directly on pharmacies/{uid}
+            // so that createExchangeProposal callable can validate subscription status.
+            // The subscriptions/ collection is backend-only (rules deny client writes),
+            // so the callable reads these flat fields instead.
+            if (userType == UserType.pharmacy) ...{
+              'hasActiveSubscription': true,
+              'subscriptionStatus': 'trial',
+              'subscriptionPlan': 'basic',
+              'subscriptionEndDate': Timestamp.fromDate(
+                DateTime.now().add(const Duration(days: 30)),
+              ),
+            },
           };
 
           // Debug: Log what we're sending to Firestore

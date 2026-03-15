@@ -164,7 +164,7 @@ export const cancelExchangeProposal = onCall<CancelProposalData>(
       // ===== PHASE 4: UPDATE PROPOSAL STATUS =====
 
       const isCancelled = action === "cancel" || isCreator;
-      const isRejected = action === "reject" || isTarget;
+      const _isRejected = action === "reject" || isTarget;
 
       const newStatus = isCancelled ? "cancelled" : "rejected";
       const actionBy = userId;

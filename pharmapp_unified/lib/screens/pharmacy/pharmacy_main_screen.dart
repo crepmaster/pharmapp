@@ -278,10 +278,9 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
                           ),
                           child: FutureBuilder<Map<String, dynamic>>(
                             key: ValueKey(_walletRefreshKey),
-                            future: Future.value({'balance': 0, 'currency': 'XAF'}), // TODO: Re-enable PaymentService when available
-                            // future: PaymentService.getWalletBalance(
-                            //   userId: FirebaseAuth.instance.currentUser!.uid,
-                            // ),
+                            future: UnifiedWalletService.getWalletBalance(
+                              userId: FirebaseAuth.instance.currentUser!.uid,
+                            ),
                             builder: (context, snapshot) {
                               if (snapshot.connectionState == ConnectionState.waiting) {
                                 return const Row(
@@ -301,28 +300,25 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
                                     borderRadius: BorderRadius.circular(6),
                                     border: Border.all(color: Colors.orange.shade200),
                                   ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                  child: Row(
                                     children: [
-                                      Row(
-                                        children: [
-                                          Icon(Icons.warning_amber_rounded,
-                                               color: Colors.orange.shade700, size: 18),
-                                          const SizedBox(width: 8),
-                                          Text('Wallet Service Unavailable',
-                                               style: TextStyle(
-                                                 color: Colors.orange.shade700,
-                                                 fontWeight: FontWeight.w600,
-                                               )),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        'Backend functions not deployed yet. Wallet will be available once cloud functions are set up.',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.orange.shade600,
+                                      Icon(Icons.warning_amber_rounded,
+                                           color: Colors.orange.shade700, size: 18),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          'Unable to load wallet. Tap to retry.',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.orange.shade700,
+                                          ),
                                         ),
+                                      ),
+                                      IconButton(
+                                        icon: Icon(Icons.refresh, color: Colors.orange.shade700, size: 20),
+                                        onPressed: _refreshWalletBalance,
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(),
                                       ),
                                     ],
                                   ),

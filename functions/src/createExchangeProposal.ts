@@ -114,12 +114,15 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
       }
 
       const pharmacyData = pharmacyDoc.data();
-      const subscription = pharmacyData?.subscription;
 
-      // Check subscription status
-      const isActive = subscription?.isActive === true;
-      const isTrial = subscription?.status === "trial";
-      const trialEndDate = subscription?.endDate?.toDate?.();
+      // Support both flat fields (subscriptionStatus) and nested (subscription.status)
+      const subStatus = pharmacyData?.subscriptionStatus ?? pharmacyData?.subscription?.status;
+      const subEndDate = pharmacyData?.subscriptionEndDate ?? pharmacyData?.subscription?.endDate;
+
+      const isActive = subStatus === "active" ||
+                        pharmacyData?.subscription?.isActive === true;
+      const isTrial = subStatus === "trial";
+      const trialEndDate = subEndDate?.toDate?.();
       const isTrialValid = isTrial && trialEndDate && trialEndDate > new Date();
 
       if (!isActive && !isTrialValid) {
@@ -136,7 +139,7 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
           "Active subscription required to create proposals",
           {
             code: "SUBSCRIPTION_REQUIRED",
-            subscriptionStatus: subscription?.status || "none",
+            subscriptionStatus: subStatus || "none",
           }
         );
       }

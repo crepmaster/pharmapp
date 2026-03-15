@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../blocs/admin_auth_bloc.dart';
 import '../services/admin_auth_service.dart';
 
@@ -261,20 +262,38 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
 
                           // Forgot password
                           TextButton(
-                            onPressed: isLoading ? null : () {
-                              if (_emailController.text.trim().isNotEmpty) {
-                                // TODO: Implement forgot password
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Password reset functionality coming soon'),
-                                  ),
-                                );
-                              } else {
+                            onPressed: isLoading ? null : () async {
+                              final email = _emailController.text.trim();
+                              if (email.isEmpty) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
                                     content: Text('Please enter your email first'),
                                   ),
                                 );
+                                return;
+                              }
+                              try {
+                                await FirebaseAuth.instance
+                                    .sendPasswordResetEmail(email: email);
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                          'Password reset email sent. Check your inbox.'),
+                                      backgroundColor: Colors.green,
+                                    ),
+                                  );
+                                }
+                              } on FirebaseAuthException catch (e) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                          e.message ?? 'Failed to send reset email'),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                }
                               }
                             },
                             child: Text(

@@ -21,6 +21,12 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
  * @returns JSON response with wallet update results
  */
 export const devCredit = onRequest({ region: 'europe-west1' }, async (req, res) => {
+  // 🔒 Block in production unless explicitly enabled
+  if (process.env.FUNCTIONS_EMULATOR !== "true" && process.env.SANDBOX_ENABLED !== "true") {
+    res.status(403).json({ error: "Dev functions are disabled in production", code: "DEV_DISABLED" });
+    return;
+  }
+
   // Enable CORS for local development
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');

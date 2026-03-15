@@ -1,7 +1,8 @@
 import { onRequest } from "firebase-functions/v2/https";
 import { getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
-import { sendValidationError, sendError, BusinessErrors } from "./lib/validation.js";
+import { sendError, BusinessErrors } from "./lib/validation.js";
+import { requireAuth } from "./lib/auth.js";
 
 // Initialize Firebase Admin if not already done
 if (getApps().length === 0) initializeApp();
@@ -40,16 +41,10 @@ async function getValidSubscription(userId: string) {
 // Validate inventory creation (server-side enforcement)
 export const validateInventoryAccess = onRequest({ region: "europe-west1", cors: true }, async (req, res) => {
   try {
-    const userId = req.query?.userId as string | undefined;
-    
-    if (!userId) {
-      sendValidationError(res, [{
-        field: "userId",
-        message: "userId is required",
-        code: "REQUIRED"
-      }]);
-      return;
-    }
+    const requestedUserId = req.query?.userId as string | undefined;
+    const uid = await requireAuth(req, res, requestedUserId ?? undefined);
+    if (!uid) return;
+    const userId = uid;
 
     const subscription = await getValidSubscription(userId);
     
@@ -109,19 +104,13 @@ export const validateInventoryAccess = onRequest({ region: "europe-west1", cors:
   }
 });
 
-// Validate proposal creation (server-side enforcement) 
+// Validate proposal creation (server-side enforcement)
 export const validateProposalAccess = onRequest({ region: "europe-west1", cors: true }, async (req, res) => {
   try {
-    const userId = req.query?.userId as string | undefined;
-    
-    if (!userId) {
-      sendValidationError(res, [{
-        field: "userId", 
-        message: "userId is required",
-        code: "REQUIRED"
-      }]);
-      return;
-    }
+    const requestedUserId = req.query?.userId as string | undefined;
+    const uid = await requireAuth(req, res, requestedUserId ?? undefined);
+    if (!uid) return;
+    const userId = uid;
 
     const subscription = await getValidSubscription(userId);
     
@@ -158,16 +147,10 @@ export const validateProposalAccess = onRequest({ region: "europe-west1", cors: 
 // Get comprehensive subscription status (server-side truth source)
 export const getSubscriptionStatus = onRequest({ region: "europe-west1", cors: true }, async (req, res) => {
   try {
-    const userId = req.query?.userId as string | undefined;
-    
-    if (!userId) {
-      sendValidationError(res, [{
-        field: "userId",
-        message: "userId is required",
-        code: "REQUIRED"
-      }]);
-      return;
-    }
+    const requestedUserId = req.query?.userId as string | undefined;
+    const uid = await requireAuth(req, res, requestedUserId ?? undefined);
+    if (!uid) return;
+    const userId = uid;
 
     const subscription = await getValidSubscription(userId);
     

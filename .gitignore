@@ -4,9 +4,15 @@
 *.pyc
 *.swp
 
+# Android signing keys (NEVER commit)
+**/key.properties
+**/*.jks
+**/*.keystore
+
 # Node / Functions
 functions/node_modules/
 functions/lib/
+functions/coverage/
 functions/.runtimeconfig.json
 functions/*.log
 npm-debug.log*
@@ -30,7 +36,15 @@ Thumbs.db
 .history
 .svn/
 .idea/
+.vscode/
 migrate_working_dir/
+
+# Claude Code
+.claude/worktrees/
+**/.claude/
+
+# Build artifacts
+**/build/
 
 # IntelliJ related
 *.iml

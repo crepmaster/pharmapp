@@ -17,6 +17,12 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 export const devSubscription = functions.https.onRequest(async (req, res) => {
+  // 🔒 Block in production unless explicitly enabled
+  if (process.env.FUNCTIONS_EMULATOR !== "true" && process.env.SANDBOX_ENABLED !== "true") {
+    res.status(403).json({ error: "Dev functions are disabled in production", code: "DEV_DISABLED" });
+    return;
+  }
+
   // Enable CORS
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -51,19 +57,20 @@ export const devSubscription = functions.https.onRequest(async (req, res) => {
     const pharmacyData = pharmacyDoc.data();
     const email = pharmacyData?.email || '';
 
-    // Security check: Only allow test accounts
+    // Security check: Only allow test accounts (NO wildcard @gmail.com)
     const testPatterns = [
-      /@gmail\.com$/i,
       /@promoshake\.net$/i,
       /^test/i,
       /@test\./i,
+      /^dev/i,
+      /^sandbox/i,
     ];
 
     const isTestAccount = testPatterns.some(pattern => pattern.test(email));
 
     if (!isTestAccount) {
       res.status(403).json({
-        error: 'devSubscription only works with test accounts (gmail.com, promoshake.net, test*)',
+        error: 'devSubscription only works with test accounts (promoshake.net, test*, dev*, sandbox*)',
         email: email,
       });
       return;

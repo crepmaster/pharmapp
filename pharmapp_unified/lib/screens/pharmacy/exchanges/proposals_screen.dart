@@ -330,7 +330,7 @@ class _ProposalsScreenState extends State<ProposalsScreen>
                           MaterialPageRoute(
                             builder: (context) => ExchangeStatusScreen(
                               proposalId: proposal.id,
-                              exchangeId: null, // Will be loaded from proposal
+                              deliveryId: proposal.deliveryId,
                             ),
                           ),
                         );
@@ -363,7 +363,7 @@ class _ProposalsScreenState extends State<ProposalsScreen>
                 MaterialPageRoute(
                   builder: (context) => ExchangeStatusScreen(
                     proposalId: proposal.id,
-                    exchangeId: null,
+                    deliveryId: proposal.deliveryId,
                   ),
                 ),
               );
@@ -470,7 +470,7 @@ class _ProposalsScreenState extends State<ProposalsScreen>
                 MaterialPageRoute(
                   builder: (context) => ExchangeStatusScreen(
                     proposalId: proposal.id,
-                    exchangeId: null,
+                    deliveryId: proposal.deliveryId,
                   ),
                 ),
               );
@@ -637,7 +637,7 @@ class _ProposalsScreenState extends State<ProposalsScreen>
       builder: (context) => AlertDialog(
         title: const Text('Accept Proposal'),
         content: Text(
-          'Accept this proposal for ${proposal.details.totalOfferAmount} ${proposal.details.currency}?\n\nThis will create an exchange hold and notify the buyer.',
+          'Accept this proposal for ${proposal.details.totalOfferAmount} ${proposal.details.currency}?\n\nThis will create the delivery workflow and notify the buyer.',
         ),
         actions: [
           TextButton(
@@ -655,12 +655,12 @@ class _ProposalsScreenState extends State<ProposalsScreen>
 
     if (confirm == true) {
       try {
-        await proposal.acceptProposal();
+        final deliveryId = await proposal.acceptProposal();
 
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Proposal accepted! Exchange created.'),
+          SnackBar(
+            content: Text('Proposal accepted. Delivery created: $deliveryId'),
             backgroundColor: Colors.green,
           ),
         );

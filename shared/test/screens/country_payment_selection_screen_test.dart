@@ -12,7 +12,7 @@ void main() {
           home: CountryPaymentSelectionScreen(
             title: 'Test Registration',
             subtitle: 'Select your country',
-            registrationScreenBuilder: (country, city, operator) {
+            registrationScreenBuilder: (country, city) {
               return const Scaffold(body: Text('Registration'));
             },
           ),
@@ -35,7 +35,7 @@ void main() {
           home: CountryPaymentSelectionScreen(
             title: 'Test',
             subtitle: 'Test',
-            registrationScreenBuilder: (c, ci, o) => const Scaffold(),
+            registrationScreenBuilder: (c, ci) => const Scaffold(),
           ),
         ),
       );

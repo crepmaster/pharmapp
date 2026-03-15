@@ -234,6 +234,37 @@ class Delivery extends Equatable {
     failureReason, proofImages
   ];
 
+  /// Converts DeliveryStatus to backend-compatible string.
+  static String statusToBackend(DeliveryStatus s) {
+    switch (s) {
+      case DeliveryStatus.pending: return 'pending';
+      case DeliveryStatus.accepted: return 'accepted';
+      case DeliveryStatus.enRoute: return 'in_transit';
+      case DeliveryStatus.pickedUp: return 'picked_up';
+      case DeliveryStatus.delivered: return 'delivered';
+      case DeliveryStatus.failed: return 'failed';
+      case DeliveryStatus.cancelled: return 'cancelled';
+    }
+  }
+
+  /// Parses backend status string to DeliveryStatus (handles both formats).
+  static DeliveryStatus statusFromBackend(String raw) {
+    switch (raw) {
+      case 'pending': return DeliveryStatus.pending;
+      case 'accepted':
+      case 'assigned': return DeliveryStatus.accepted;
+      case 'en_route':
+      case 'in_transit':
+      case 'enRoute': return DeliveryStatus.enRoute;
+      case 'picked_up':
+      case 'pickedUp': return DeliveryStatus.pickedUp;
+      case 'delivered': return DeliveryStatus.delivered;
+      case 'failed': return DeliveryStatus.failed;
+      case 'cancelled': return DeliveryStatus.cancelled;
+      default: return DeliveryStatus.pending;
+    }
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -242,7 +273,7 @@ class Delivery extends Equatable {
       'pickup': pickup.toMap(),
       'delivery': delivery.toMap(),
       'items': items.map((item) => item.toMap()).toList(),
-      'status': status.toString().split('.').last,
+      'status': statusToBackend(status),
       'deliveryFee': deliveryFee,
       'totalValue': totalValue,
       'createdAt': createdAt.toIso8601String(),
@@ -256,25 +287,25 @@ class Delivery extends Equatable {
   }
 
   factory Delivery.fromMap(Map<String, dynamic> map, String id) {
+    final pickupMap = _extractLocationMap(map, isPickup: true);
+    final deliveryMap = _extractLocationMap(map, isPickup: false);
+
     return Delivery(
       id: id,
-      exchangeId: map['exchangeId'] ?? '',
+      exchangeId: map['exchangeId'] ?? map['proposalId'] ?? '',
       courierId: map['courierId'] ?? '',
-      pickup: DeliveryLocation.fromMap(map['pickup'] ?? {}),
-      delivery: DeliveryLocation.fromMap(map['delivery'] ?? {}),
+      pickup: DeliveryLocation.fromMap(pickupMap),
+      delivery: DeliveryLocation.fromMap(deliveryMap),
       items: (map['items'] as List<dynamic>?)
           ?.map((item) => DeliveryItem.fromMap(item))
           .toList() ?? [],
-      status: DeliveryStatus.values.firstWhere(
-        (s) => s.toString().split('.').last == map['status'],
-        orElse: () => DeliveryStatus.pending,
-      ),
+      status: statusFromBackend(map['status'] ?? 'pending'),
       deliveryFee: map['deliveryFee']?.toDouble() ?? 0.0,
       totalValue: map['totalValue']?.toDouble() ?? 0.0,
-      createdAt: DateTime.parse(map['createdAt']),
-      acceptedAt: map['acceptedAt'] != null ? DateTime.parse(map['acceptedAt']) : null,
-      pickedUpAt: map['pickedUpAt'] != null ? DateTime.parse(map['pickedUpAt']) : null,
-      deliveredAt: map['deliveredAt'] != null ? DateTime.parse(map['deliveredAt']) : null,
+      createdAt: _parseDateTime(map['createdAt']) ?? DateTime.now(),
+      acceptedAt: _parseDateTime(map['acceptedAt']) ?? _parseDateTime(map['assignedAt']),
+      pickedUpAt: _parseDateTime(map['pickedUpAt']),
+      deliveredAt: _parseDateTime(map['deliveredAt']) ?? _parseDateTime(map['completedAt']),
       notes: map['notes'],
       failureReason: map['failureReason'],
       proofImages: List<String>.from(map['proofImages'] ?? []),
@@ -284,5 +315,51 @@ class Delivery extends Equatable {
   factory Delivery.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
     return Delivery.fromMap(data, doc.id);
+  }
+
+  static DateTime? _parseDateTime(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) return value;
+    if (value is Timestamp) return value.toDate();
+    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+    if (value is String && value.isNotEmpty) {
+      return DateTime.tryParse(value);
+    }
+    return null;
+  }
+
+  static Map<String, dynamic> _extractLocationMap(
+    Map<String, dynamic> map, {
+    required bool isPickup,
+  }) {
+    final directKey = isPickup ? 'pickup' : 'delivery';
+    final directMap = map[directKey];
+    if (directMap is Map<String, dynamic>) {
+      return directMap;
+    }
+
+    final prefix = isPickup ? 'fromPharmacy' : 'toPharmacy';
+    final location = map['${prefix}Location'];
+
+    double? latitude;
+    double? longitude;
+
+    if (location is GeoPoint) {
+      latitude = location.latitude;
+      longitude = location.longitude;
+    } else if (location is Map<String, dynamic>) {
+      latitude = (location['latitude'] as num?)?.toDouble();
+      longitude = (location['longitude'] as num?)?.toDouble();
+    }
+
+    return {
+      'pharmacyId': map['${prefix}Id'] ?? '',
+      'pharmacyName': map['${prefix}Name'] ?? '',
+      'address': map['${prefix}Address'] ?? '',
+      'latitude': latitude,
+      'longitude': longitude,
+      'phoneNumber': map['${prefix}Phone'],
+      'contactPerson': null,
+    };
   }
 }

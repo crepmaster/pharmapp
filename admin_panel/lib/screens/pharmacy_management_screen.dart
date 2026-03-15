@@ -320,7 +320,7 @@ class _PharmacyManagementScreenState extends State<PharmacyManagementScreen> {
     // TODO: Implement create pharmacy dialog
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Create pharmacy functionality coming soon'),
+        content: Text('Create pharmacy is not enabled in this panel yet. Use onboarding flow or Firestore admin tools.'),
       ),
     );
   }
@@ -329,7 +329,7 @@ class _PharmacyManagementScreenState extends State<PharmacyManagementScreen> {
     // TODO: Implement edit pharmacy dialog
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Edit ${pharmacy.pharmacyName} functionality coming soon'),
+        content: Text('Edit ${pharmacy.pharmacyName} is not enabled in this panel yet. Update this pharmacy via admin tooling.'),
       ),
     );
   }
@@ -559,8 +559,45 @@ class _PharmacyListItem extends StatelessWidget {
   }
 
   Future<Subscription?> _getPharmacySubscription(String pharmacyId) async {
-    // TODO: Implement subscription lookup
-    return null;
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('subscriptions')
+          .where('pharmacyId', isEqualTo: pharmacyId)
+          .orderBy('createdAt', descending: true)
+          .limit(1)
+          .get();
+
+      if (snapshot.docs.isNotEmpty) {
+        return Subscription.fromFirestore(snapshot.docs.first);
+      }
+
+      // Fallback: check flat fields on pharmacy document
+      final pharmacyDoc = await FirebaseFirestore.instance
+          .collection('pharmacies')
+          .doc(pharmacyId)
+          .get();
+
+      if (pharmacyDoc.exists) {
+        final data = pharmacyDoc.data()!;
+        final status = data['subscriptionStatus'] as String?;
+        final plan = data['subscriptionPlan'] as String?;
+        if (status != null) {
+          return Subscription(
+            id: 'flat_$pharmacyId',
+            pharmacyId: pharmacyId,
+            plan: Subscription.parsePlan(plan),
+            status: Subscription.parseStatus(status),
+            amount: 0,
+            startDate: DateTime.now(),
+            endDate: (data['subscriptionEndDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
+            createdAt: DateTime.now(),
+          );
+        }
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
   }
 
   MaterialColor _getSubscriptionStatusColor(SubscriptionStatus status) {

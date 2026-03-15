@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:equatable/equatable.dart';
-import '../services/exchange_service.dart';
 
 // Medicine Purchase Proposal Model
 // Simple proposal system: Multiple buyers can propose on same medicine
@@ -20,10 +20,14 @@ import '../services/exchange_service.dart';
 //   quantity: 5,
 // );
 class ExchangeProposal extends Equatable {
+  static final FirebaseFunctions _functions =
+      FirebaseFunctions.instanceFor(region: 'europe-west1');
+
   final String id;
   final String inventoryItemId; // Reference to PharmacyInventoryItem
   final String fromPharmacyId; // Pharmacy making the proposal
   final String toPharmacyId; // Pharmacy receiving the proposal
+  final String? deliveryId; // Linked delivery ID after acceptance
   final ProposalDetails details;
   final ProposalStatus status;
   final String? rejectionReason;
@@ -37,6 +41,7 @@ class ExchangeProposal extends Equatable {
     required this.inventoryItemId,
     required this.fromPharmacyId,
     required this.toPharmacyId,
+    this.deliveryId,
     required this.details,
     required this.status,
     this.rejectionReason,
@@ -52,6 +57,7 @@ class ExchangeProposal extends Equatable {
         inventoryItemId,
         fromPharmacyId,
         toPharmacyId,
+        deliveryId,
         details,
         status,
         rejectionReason,
@@ -99,6 +105,7 @@ class ExchangeProposal extends Equatable {
       inventoryItemId: data['inventoryItemId'] ?? '',
       fromPharmacyId: data['fromPharmacyId'] ?? '',
       toPharmacyId: data['toPharmacyId'] ?? '',
+      deliveryId: data['deliveryId'] as String?,
       details: ProposalDetails.fromMap(data['details'] ?? {}),
       status: ProposalStatus.values.firstWhere(
         (e) => e.toString().split('.').last == data['status'],
@@ -119,6 +126,7 @@ class ExchangeProposal extends Equatable {
       'inventoryItemId': inventoryItemId,
       'fromPharmacyId': fromPharmacyId,
       'toPharmacyId': toPharmacyId,
+      if (deliveryId != null) 'deliveryId': deliveryId,
       'details': details.toMap(),
       'status': status.toString().split('.').last,
       if (rejectionReason != null) 'rejectionReason': rejectionReason,
@@ -134,6 +142,7 @@ class ExchangeProposal extends Equatable {
     String? inventoryItemId,
     String? fromPharmacyId,
     String? toPharmacyId,
+    String? deliveryId,
     ProposalDetails? details,
     ProposalStatus? status,
     String? rejectionReason,
@@ -147,6 +156,7 @@ class ExchangeProposal extends Equatable {
       inventoryItemId: inventoryItemId ?? this.inventoryItemId,
       fromPharmacyId: fromPharmacyId ?? this.fromPharmacyId,
       toPharmacyId: toPharmacyId ?? this.toPharmacyId,
+      deliveryId: deliveryId ?? this.deliveryId,
       details: details ?? this.details,
       status: status ?? this.status,
       rejectionReason: rejectionReason ?? this.rejectionReason,
@@ -164,32 +174,22 @@ class ExchangeProposal extends Equatable {
   bool get canBeRejected => isPending;
 
   // Backend integration methods
-  Future<String> acceptProposal() async {
+  Future<String> acceptProposal({String? notes}) async {
     if (!canBeAccepted) {
       throw Exception('Proposal cannot be accepted in current state');
     }
 
-    // Calculate courier fee (split 50/50 between pharmacies)
-    final courierFeeXAF = (deliveryInfo?.deliveryFee ?? 5000).toInt();
-    
-    // Create exchange hold in backend
-    final exchangeId = await ExchangeService.createHold(
-      pharmacyAId: fromPharmacyId,
-      pharmacyBId: toPharmacyId,
-      courierFeeXAF: courierFeeXAF,
-    );
-
-    // Update proposal status in Firestore
-    await FirebaseFirestore.instance
-        .collection('exchange_proposals')
-        .doc(id)
-        .update({
-      'status': ProposalStatus.accepted.toString().split('.').last,
-      'exchangeId': exchangeId,
-      'updatedAt': Timestamp.now(),
+    final result = await _functions.httpsCallable('acceptExchangeProposal').call({
+      'proposalId': id,
+      if (notes != null && notes.isNotEmpty) 'notes': notes,
     });
 
-    return exchangeId;
+    final data = Map<String, dynamic>.from(result.data as Map);
+    final linkedDeliveryId = data['deliveryId'] as String?;
+    if (linkedDeliveryId == null || linkedDeliveryId.isEmpty) {
+      throw Exception('acceptExchangeProposal returned no deliveryId');
+    }
+    return linkedDeliveryId;
   }
 
   Future<void> rejectProposal(String reason) async {
@@ -197,42 +197,32 @@ class ExchangeProposal extends Equatable {
       throw Exception('Proposal cannot be rejected in current state');
     }
 
-    await FirebaseFirestore.instance
-        .collection('exchange_proposals')
-        .doc(id)
-        .update({
-      'status': ProposalStatus.rejected.toString().split('.').last,
-      'rejectionReason': reason,
-      'updatedAt': Timestamp.now(),
+    await _functions.httpsCallable('cancelExchangeProposal').call({
+      'proposalId': id,
+      'reason': reason,
+      'action': 'reject',
     });
   }
 
-  Future<void> completeDelivery(String exchangeId) async {
-    // Capture the exchange in backend (complete payment)
-    await ExchangeService.captureExchange(exchangeId: exchangeId);
-
-    // Update proposal status
-    await FirebaseFirestore.instance
-        .collection('exchange_proposals')
-        .doc(id)
-        .update({
-      'status': ProposalStatus.completed.toString().split('.').last,
-      'updatedAt': Timestamp.now(),
+  Future<void> completeDelivery({
+    required String deliveryId,
+    String? deliveryNotes,
+    String? photoProofUrl,
+  }) async {
+    await _functions.httpsCallable('completeExchangeDelivery').call({
+      'deliveryId': deliveryId,
+      if (deliveryNotes != null && deliveryNotes.isNotEmpty)
+        'deliveryNotes': deliveryNotes,
+      if (photoProofUrl != null && photoProofUrl.isNotEmpty)
+        'photoProofUrl': photoProofUrl,
     });
   }
 
-  Future<void> cancelExchange(String exchangeId, String reason) async {
-    // Cancel exchange hold in backend (refund held amounts)
-    await ExchangeService.cancelExchange(exchangeId: exchangeId);
-
-    // Update proposal status
-    await FirebaseFirestore.instance
-        .collection('exchange_proposals')
-        .doc(id)
-        .update({
-      'status': ProposalStatus.cancelled.toString().split('.').last,
-      'rejectionReason': reason,
-      'updatedAt': Timestamp.now(),
+  Future<void> cancelProposal(String reason) async {
+    await _functions.httpsCallable('cancelExchangeProposal').call({
+      'proposalId': id,
+      'reason': reason,
+      'action': 'cancel',
     });
   }
 }
@@ -271,12 +261,14 @@ class ProposalDetails extends Equatable {
       ];
 
   factory ProposalDetails.fromMap(Map<String, dynamic> map) {
+    final rawType = (map['type'] ?? map['proposalType'] ?? 'purchase').toString();
+
     return ProposalDetails(
-      offeredPrice: (map['offeredPrice'] ?? 0).toDouble(),
-      requestedQuantity: map['requestedQuantity']?.toInt() ?? 0,
+      offeredPrice: (map['pricePerUnit'] ?? map['offeredPrice'] ?? 0).toDouble(),
+      requestedQuantity: map['quantity']?.toInt() ?? map['requestedQuantity']?.toInt() ?? 0,
       currency: map['currency'] ?? 'USD',
       proposalType: ProposalType.values.firstWhere(
-        (e) => e.toString().split('.').last == map['proposalType'],
+        (e) => e.toString().split('.').last == rawType,
         orElse: () => ProposalType.purchase,
       ),
       exchangeMedicineId: map['exchangeMedicineId'],
@@ -287,10 +279,11 @@ class ProposalDetails extends Equatable {
 
   Map<String, dynamic> toMap() {
     return {
-      'offeredPrice': offeredPrice,
-      'requestedQuantity': requestedQuantity,
+      'type': proposalType.toString().split('.').last,
+      'quantity': requestedQuantity,
+      'pricePerUnit': offeredPrice,
+      'totalPrice': totalOfferAmount,
       'currency': currency,
-      'proposalType': proposalType.toString().split('.').last,
       if (exchangeMedicineId != null) 'exchangeMedicineId': exchangeMedicineId,
       if (exchangeInventoryItemId != null) 'exchangeInventoryItemId': exchangeInventoryItemId,
       if (exchangeQuantity != null) 'exchangeQuantity': exchangeQuantity,

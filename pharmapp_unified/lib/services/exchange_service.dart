@@ -1,8 +1,19 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class ExchangeService {
   static const String functionsUrl = 'https://europe-west1-mediexchange.cloudfunctions.net';
+  static final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  static Future<Map<String, String>> _authHeaders() async {
+    final token = await _auth.currentUser?.getIdToken();
+    return {
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
+  }
   
   static Future<String> createHold({
     required String pharmacyAId,
@@ -12,7 +23,7 @@ class ExchangeService {
     try {
       final response = await http.post(
         Uri.parse('$functionsUrl/createExchangeHold'),
-        headers: {'Content-Type': 'application/json'},
+        headers: await _authHeaders(),
         body: jsonEncode({
           'aId': pharmacyAId,
           'bId': pharmacyBId,
@@ -37,8 +48,8 @@ class ExchangeService {
   }) async {
     try {
       final response = await http.post(
-        Uri.parse('$functionsUrl/captureExchange'),
-        headers: {'Content-Type': 'application/json'},
+        Uri.parse('$functionsUrl/exchangeCapture'),
+        headers: await _authHeaders(),
         body: jsonEncode({
           'exchangeId': exchangeId,
         }),
@@ -57,8 +68,8 @@ class ExchangeService {
   }) async {
     try {
       final response = await http.post(
-        Uri.parse('$functionsUrl/cancelExchange'),
-        headers: {'Content-Type': 'application/json'},
+        Uri.parse('$functionsUrl/exchangeCancel'),
+        headers: await _authHeaders(),
         body: jsonEncode({
           'exchangeId': exchangeId,
         }),
@@ -76,18 +87,18 @@ class ExchangeService {
     required String exchangeId,
   }) async {
     try {
-      final response = await http.get(
-        Uri.parse('$functionsUrl/getExchange?exchangeId=$exchangeId'),
-        headers: {'Content-Type': 'application/json'},
-      );
-      
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body);
+      final doc = await FirebaseFirestore.instance
+          .collection('exchanges')
+          .doc(exchangeId)
+          .get();
+
+      if (doc.exists) {
+        return {'exchangeId': doc.id, ...doc.data()!};
       } else {
-        throw Exception('Failed to get exchange status: ${response.body}');
+        throw Exception('Exchange not found: $exchangeId');
       }
     } catch (e) {
-      throw Exception('Network error getting exchange: $e');
+      throw Exception('Error getting exchange status: $e');
     }
   }
 }

@@ -73,8 +73,8 @@ service cloud.firestore {
       // Read: Own profile or admin
       allow read: if isOwner(pharmacyId) || hasAdminRole(request.auth.uid) || (isAuthenticated() && hasPharmacyRole(request.auth.uid));
 
-      // TEMPORARY: Completely open for testing registration issue
-      allow create: if true;
+      // Create: Only during registration (user creates their own pharmacy doc)
+      allow create: if isAuthenticated() && request.auth.uid == pharmacyId;
 
       // Update: Own profile only
       allow update: if isOwner(pharmacyId);
@@ -194,9 +194,10 @@ service cloud.firestore {
 
     // ========== DELIVERIES (Courier access) ==========
     match /deliveries/{deliveryId} {
-      // Read: Assigned courier, involved pharmacies, or admin
+      // Read: Pending deliveries (any courier can browse), assigned courier, involved pharmacies, or admin
       allow read: if isAuthenticated() &&
-        (resource.data.courierId == request.auth.uid ||
+        (resource.data.status == 'pending' ||
+         resource.data.courierId == request.auth.uid ||
          resource.data.fromPharmacyId == request.auth.uid ||
          resource.data.toPharmacyId == request.auth.uid ||
          hasAdminRole(request.auth.uid));

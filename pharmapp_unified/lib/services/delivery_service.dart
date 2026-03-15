@@ -6,21 +6,19 @@ import '../models/delivery.dart';
 class DeliveryService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static final FirebaseAuth _auth = FirebaseAuth.instance;
-  static final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  static final FirebaseFunctions _functions =
+      FirebaseFunctions.instanceFor(region: 'europe-west1');
 
   /// Get all available deliveries (not yet assigned to any courier)
   static Stream<List<Delivery>> getAvailableDeliveries() {
-    // Debug statement removed for production security
-    
     return _firestore
         .collection('deliveries')
         .where('status', isEqualTo: 'pending')
         .snapshots()
         .map((snapshot) {
-      final deliveries = snapshot.docs.map((doc) => Delivery.fromFirestore(doc)).toList();
-      // Sort by creation time on client-side (newest first)
+      final deliveries =
+          snapshot.docs.map((doc) => Delivery.fromFirestore(doc)).toList();
       deliveries.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      // Debug statement removed for production security
       return deliveries;
     });
   }
@@ -28,22 +26,16 @@ class DeliveryService {
   /// Get deliveries assigned to current courier
   static Stream<List<Delivery>> getCourierDeliveries() {
     final currentUser = _auth.currentUser;
-    if (currentUser == null) {
-      // No authenticated user for delivery service
-      return Stream.value([]);
-    }
+    if (currentUser == null) return Stream.value([]);
 
-    // Debug statement removed for production security
-    
     return _firestore
         .collection('deliveries')
         .where('courierId', isEqualTo: currentUser.uid)
         .snapshots()
         .map((snapshot) {
-      final deliveries = snapshot.docs.map((doc) => Delivery.fromFirestore(doc)).toList();
-      // Sort by creation time on client-side (newest first)
+      final deliveries =
+          snapshot.docs.map((doc) => Delivery.fromFirestore(doc)).toList();
       deliveries.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      // Debug statement removed for production security
       return deliveries;
     });
   }
@@ -51,74 +43,45 @@ class DeliveryService {
   /// Get active delivery for current courier (if any)
   static Stream<Delivery?> getActiveDelivery() {
     final currentUser = _auth.currentUser;
-    if (currentUser == null) {
-      return Stream.value(null);
-    }
+    if (currentUser == null) return Stream.value(null);
 
+    // Query using backend-compatible status values
     return _firestore
         .collection('deliveries')
         .where('courierId', isEqualTo: currentUser.uid)
-        .where('status', whereIn: ['accepted', 'enRoute', 'pickedUp'])
+        .where('status', whereIn: ['accepted', 'in_transit', 'picked_up'])
         .limit(1)
         .snapshots()
         .map((snapshot) {
-      if (snapshot.docs.isEmpty) {
-        return null;
-      }
-      final delivery = Delivery.fromFirestore(snapshot.docs.first);
-      // Debug statement removed for production security
-      return delivery;
+      if (snapshot.docs.isEmpty) return null;
+      return Delivery.fromFirestore(snapshot.docs.first);
     });
   }
 
-  /// Accept a delivery
+  /// Accept a delivery.
+  /// Updates the delivery document to assign the current courier.
+  /// Exchange hold is managed by the proposal system, not the courier.
   static Future<void> acceptDelivery(String deliveryId) async {
     final currentUser = _auth.currentUser;
-    if (currentUser == null) {
-      throw 'No authenticated user';
-    }
+    if (currentUser == null) throw 'No authenticated user';
 
     try {
-      // Debug statement removed for production security
-
-      // Get delivery details to retrieve exchangeId
-      final deliveryDoc = await _firestore.collection('deliveries').doc(deliveryId).get();
-      final deliveryData = deliveryDoc.data();
-      final exchangeId = deliveryData?['exchangeId'];
-
-      if (exchangeId == null) {
-        throw 'Delivery has no associated exchange';
-      }
-
-      // Call Firebase Function to create exchange hold (locks courier fee in escrow)
-      try {
-        final result = await _functions.httpsCallable('createExchangeHold').call({
-          'exchangeId': exchangeId,
-          'courierId': currentUser.uid,
-        });
-
-        if (result.data['success'] != true) {
-          throw result.data['error'] ?? 'Failed to create exchange hold';
-        }
-      } catch (e) {
-        throw 'Payment hold failed: $e';
-      }
-
-      // Update delivery status after successful hold
       await _firestore.collection('deliveries').doc(deliveryId).update({
         'courierId': currentUser.uid,
+        'courierName': currentUser.displayName,
         'status': 'accepted',
+        'assignedAt': FieldValue.serverTimestamp(),
         'acceptedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
       });
-
-      // Debug statement removed for production security
     } catch (e) {
-      // Debug statement removed for production security
       throw 'Failed to accept delivery: $e';
     }
   }
 
-  /// Update delivery status
+  /// Update delivery status.
+  /// Uses backend-compatible status strings and calls the correct Cloud
+  /// Functions for financial operations.
   static Future<void> updateDeliveryStatus(
     String deliveryId,
     DeliveryStatus status, {
@@ -127,101 +90,102 @@ class DeliveryService {
     List<String>? proofImages,
   }) async {
     try {
-      // Debug statement removed for production security
-
       final updateData = <String, dynamic>{
-        'status': status.toString().split('.').last,
+        'status': Delivery.statusToBackend(status),
+        'updatedAt': FieldValue.serverTimestamp(),
       };
 
-      // Add timestamp fields based on status
       switch (status) {
         case DeliveryStatus.enRoute:
-          // No additional timestamp needed
+          // No extra fields needed
           break;
+
         case DeliveryStatus.pickedUp:
           updateData['pickedUpAt'] = FieldValue.serverTimestamp();
           break;
+
         case DeliveryStatus.delivered:
-          updateData['deliveredAt'] = FieldValue.serverTimestamp();
-
-          // Call Firebase Function to capture payment (release courier fee from escrow)
-          final deliveryDoc = await _firestore.collection('deliveries').doc(deliveryId).get();
-          final deliveryData = deliveryDoc.data();
-          final exchangeId = deliveryData?['exchangeId'];
-
-          if (exchangeId != null) {
-            try {
-              final result = await _functions.httpsCallable('exchangeCapture').call({
-                'exchangeId': exchangeId,
-                'deliveryId': deliveryId,
-                'proofImages': proofImages ?? [],
-              });
-
-              if (result.data['success'] != true) {
-                // Log error but don't block status update
-                // Payment capture can be retried manually if needed
-              }
-            } catch (e) {
-              // Log error but don't block delivery completion
-              // Debug statement removed for production security
-            }
+          // Call completeExchangeDelivery first.
+          // If this fails, do not mark delivery as delivered in Firestore.
+          try {
+            await _functions
+                .httpsCallable('completeExchangeDelivery')
+                .call({
+              'deliveryId': deliveryId,
+              'photoProofUrl': proofImages?.isNotEmpty == true
+                  ? proofImages!.first
+                  : null,
+              'deliveryNotes': notes,
+            });
+          } catch (e) {
+            throw 'Failed to finalize delivery payment: $e';
           }
+          updateData['deliveredAt'] = FieldValue.serverTimestamp();
           break;
+
         case DeliveryStatus.failed:
           updateData['failureReason'] = failureReason;
-
-          // Call Firebase Function to cancel exchange (refund held amounts)
-          final deliveryDoc = await _firestore.collection('deliveries').doc(deliveryId).get();
-          final deliveryData = deliveryDoc.data();
-          final exchangeId = deliveryData?['exchangeId'];
-
-          if (exchangeId != null) {
-            try {
-              await _functions.httpsCallable('exchangeCancel').call({
-                'exchangeId': exchangeId,
-                'reason': failureReason ?? 'Delivery failed',
-              });
-            } catch (e) {
-              // Log error but don't block status update
-              // Debug statement removed for production security
-            }
-          }
+          await _cancelProposalForDelivery(
+            deliveryId,
+            failureReason ?? 'Delivery failed',
+          );
           break;
+
         case DeliveryStatus.cancelled:
-          // Call Firebase Function to cancel exchange (refund held amounts)
-          final deliveryDoc = await _firestore.collection('deliveries').doc(deliveryId).get();
-          final deliveryData = deliveryDoc.data();
-          final exchangeId = deliveryData?['exchangeId'];
-
-          if (exchangeId != null) {
-            try {
-              await _functions.httpsCallable('exchangeCancel').call({
-                'exchangeId': exchangeId,
-                'reason': notes ?? 'Delivery cancelled',
-              });
-            } catch (e) {
-              // Log error but don't block status update
-              // Debug statement removed for production security
-            }
-          }
+          await _cancelProposalForDelivery(
+            deliveryId,
+            notes ?? 'Delivery cancelled',
+          );
           break;
+
         default:
           break;
       }
 
-      if (notes != null) {
-        updateData['notes'] = notes;
-      }
+      if (notes != null) updateData['notes'] = notes;
+      if (proofImages != null) updateData['proofImages'] = proofImages;
 
-      if (proofImages != null) {
-        updateData['proofImages'] = proofImages;
-      }
-
-      await _firestore.collection('deliveries').doc(deliveryId).update(updateData);
-      // Debug statement removed for production security
+      await _firestore
+          .collection('deliveries')
+          .doc(deliveryId)
+          .update(updateData);
     } catch (e) {
-      // Debug statement removed for production security
       throw 'Failed to update delivery status: $e';
+    }
+  }
+
+  /// Cancels the linked proposal when a delivery fails or is cancelled.
+  static Future<void> _cancelProposalForDelivery(
+    String deliveryId,
+    String reason,
+  ) async {
+    try {
+      final deliveryDoc =
+          await _firestore.collection('deliveries').doc(deliveryId).get();
+      final proposalId = deliveryDoc.data()?['proposalId'] as String?;
+
+      if (proposalId != null && proposalId.isNotEmpty) {
+        // Try the cancelExchangeProposal callable first (handles refunds)
+        try {
+          await _functions.httpsCallable('cancelExchangeProposal').call({
+            'proposalId': proposalId,
+            'reason': reason,
+            'action': 'cancel',
+          });
+        } catch (_) {
+          // Fallback: update proposal status directly in Firestore
+          await _firestore
+              .collection('exchange_proposals')
+              .doc(proposalId)
+              .update({
+            'status': 'cancelled',
+            'cancelledAt': FieldValue.serverTimestamp(),
+            'cancelReason': reason,
+          });
+        }
+      }
+    } catch (_) {
+      // Non-blocking – admin can reconcile manually
     }
   }
 
@@ -239,8 +203,6 @@ class DeliveryService {
     }
 
     try {
-      // Debug statement removed for production security
-      
       final deliveries = await _firestore
           .collection('deliveries')
           .where('courierId', isEqualTo: currentUser.uid)
@@ -252,17 +214,18 @@ class DeliveryService {
           .length;
       final totalEarnings = deliveries.docs.fold<double>(
         0.0,
-        (total, doc) => total + (doc.data()['deliveryFee']?.toDouble() ?? 0.0),
+        (total, doc) =>
+            total + (doc.data()['deliveryFee']?.toDouble() ?? 0.0),
       );
 
-      final successRate = totalDeliveries > 0 ? (completedDeliveries / totalDeliveries) * 100 : 0.0;
+      final successRate = totalDeliveries > 0
+          ? (completedDeliveries / totalDeliveries) * 100
+          : 0.0;
 
-      // Get courier profile for rating
       final courierDoc = await _firestore
           .collection('couriers')
           .doc(currentUser.uid)
           .get();
-      
       final courierData = courierDoc.data() ?? {};
       final averageRating = courierData['rating']?.toDouble() ?? 0.0;
 
@@ -273,8 +236,7 @@ class DeliveryService {
         'averageRating': averageRating,
         'successRate': successRate,
       };
-    } catch (e) {
-      // Debug statement removed for production security
+    } catch (_) {
       return {
         'totalDeliveries': 0,
         'completedDeliveries': 0,
@@ -286,12 +248,12 @@ class DeliveryService {
   }
 
   /// Update courier location during active delivery
-  static Future<void> updateCourierLocation(double latitude, double longitude) async {
+  static Future<void> updateCourierLocation(
+      double latitude, double longitude) async {
     final currentUser = _auth.currentUser;
     if (currentUser == null) return;
 
     try {
-      // Update courier's current location in their profile
       await _firestore.collection('couriers').doc(currentUser.uid).update({
         'currentLocation': {
           'latitude': latitude,
@@ -299,70 +261,55 @@ class DeliveryService {
           'updatedAt': FieldValue.serverTimestamp(),
         },
       });
-
-      // Debug statement removed for production security
-    } catch (e) {
-      // Debug statement removed for production security
+    } catch (_) {
+      // Non-critical – next update will succeed
     }
   }
 
   /// Create a mock delivery for testing purposes
   static Future<void> createMockDelivery() async {
-    try {
-      // Debug statement removed for production security
-      
-      final mockDelivery = {
-        'exchangeId': 'mock_exchange_${DateTime.now().millisecondsSinceEpoch}',
-        'courierId': '', // Empty - available for pickup
-        'pickup': {
-          'pharmacyId': 'mock_pharmacy_1',
-          'pharmacyName': 'Central Pharmacy',
-          'address': '123 Main Street, Downtown',
-          'latitude': 37.7749,
-          'longitude': -122.4194,
-          'phoneNumber': '+1234567890',
-          'contactPerson': 'Dr. Smith',
+    final mockDelivery = {
+      'exchangeId':
+          'mock_exchange_${DateTime.now().millisecondsSinceEpoch}',
+      'courierId': '',
+      'pickup': {
+        'pharmacyId': 'mock_pharmacy_1',
+        'pharmacyName': 'Central Pharmacy',
+        'address': '123 Main Street, Downtown',
+        'latitude': 37.7749,
+        'longitude': -122.4194,
+        'phoneNumber': '+1234567890',
+        'contactPerson': 'Dr. Smith',
+      },
+      'delivery': {
+        'pharmacyId': 'mock_pharmacy_2',
+        'pharmacyName': 'HealthCare Plus',
+        'address': '456 Oak Avenue, Midtown',
+        'latitude': 37.7849,
+        'longitude': -122.4094,
+        'phoneNumber': '+1234567891',
+        'contactPerson': 'Nurse Johnson',
+      },
+      'items': [
+        {
+          'medicineId': 'med_001',
+          'medicineName': 'Amoxicillin 500mg',
+          'quantity': 20,
+          'unit': 'tablets',
+          'pricePerUnit': 2.5,
+          'expirationDate': DateTime.now()
+              .add(const Duration(days: 365))
+              .toIso8601String(),
         },
-        'delivery': {
-          'pharmacyId': 'mock_pharmacy_2',
-          'pharmacyName': 'HealthCare Plus',
-          'address': '456 Oak Avenue, Midtown',
-          'latitude': 37.7849,
-          'longitude': -122.4094,
-          'phoneNumber': '+1234567891',
-          'contactPerson': 'Nurse Johnson',
-        },
-        'items': [
-          {
-            'medicineId': 'med_001',
-            'medicineName': 'Amoxicillin 500mg',
-            'quantity': 20,
-            'unit': 'tablets',
-            'pricePerUnit': 2.5,
-            'expirationDate': DateTime.now().add(const Duration(days: 365)).toIso8601String(),
-          },
-          {
-            'medicineId': 'med_002',
-            'medicineName': 'Paracetamol 500mg',
-            'quantity': 50,
-            'unit': 'tablets',
-            'pricePerUnit': 0.5,
-            'expirationDate': DateTime.now().add(const Duration(days: 300)).toIso8601String(),
-          },
-        ],
-        'status': 'pending',
-        'deliveryFee': 15.0,
-        'totalValue': 75.0,
-        'createdAt': DateTime.now().toIso8601String(),
-        'proofImages': [],
-      };
+      ],
+      'status': 'pending',
+      'deliveryFee': 15.0,
+      'totalValue': 75.0,
+      'createdAt': DateTime.now().toIso8601String(),
+      'proofImages': [],
+    };
 
-      await _firestore.collection('deliveries').add(mockDelivery);
-      // Debug statement removed for production security
-    } catch (e) {
-      // Debug statement removed for production security
-      throw 'Failed to create mock delivery: $e';
-    }
+    await _firestore.collection('deliveries').add(mockDelivery);
   }
 
   /// Report an issue with a delivery
@@ -371,27 +318,19 @@ class DeliveryService {
     String issueType,
   ) async {
     final currentUser = _auth.currentUser;
-    if (currentUser == null) {
-      throw 'No authenticated user';
-    }
+    if (currentUser == null) throw 'No authenticated user';
 
-    try {
-      // Create an issue report in Firestore
-      await _firestore.collection('delivery_issues').add({
-        'deliveryId': deliveryId,
-        'courierId': currentUser.uid,
-        'issueType': issueType,
-        'reportedAt': FieldValue.serverTimestamp(),
-        'status': 'open',
-      });
+    await _firestore.collection('delivery_issues').add({
+      'deliveryId': deliveryId,
+      'courierId': currentUser.uid,
+      'issueType': issueType,
+      'reportedAt': FieldValue.serverTimestamp(),
+      'status': 'open',
+    });
 
-      // Also update the delivery document with issue flag
-      await _firestore.collection('deliveries').doc(deliveryId).update({
-        'hasIssue': true,
-        'lastIssueReportedAt': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      throw 'Failed to report issue: $e';
-    }
+    await _firestore.collection('deliveries').doc(deliveryId).update({
+      'hasIssue': true,
+      'lastIssueReportedAt': FieldValue.serverTimestamp(),
+    });
   }
 }

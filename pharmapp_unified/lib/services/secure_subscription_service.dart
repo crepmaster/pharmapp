@@ -9,6 +9,15 @@ class SecureSubscriptionService {
   static const String _baseUrl = 'https://europe-west1-mediexchange.cloudfunctions.net';
   static final FirebaseAuth _auth = FirebaseAuth.instance;
 
+  /// Get authenticated headers with Firebase ID token
+  static Future<Map<String, String>> _authHeaders() async {
+    final token = await _auth.currentUser?.getIdToken();
+    return {
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
+  }
+
   /// Validate inventory access (server-side enforcement)
   /// This replaces the client-side SubscriptionGuardService.canCreateInventoryItem()
   static Future<InventoryAccessResult> validateInventoryAccess() async {
@@ -23,7 +32,7 @@ class SecureSubscriptionService {
     try {
       final response = await http.get(
         Uri.parse('$_baseUrl/validateInventoryAccess?userId=$userId'),
-        headers: {'Content-Type': 'application/json'},
+        headers: await _authHeaders(),
       );
 
       if (response.statusCode == 200) {
@@ -71,7 +80,7 @@ class SecureSubscriptionService {
     try {
       final response = await http.get(
         Uri.parse('$_baseUrl/validateProposalAccess?userId=$userId'),
-        headers: {'Content-Type': 'application/json'},
+        headers: await _authHeaders(),
       );
 
       if (response.statusCode == 200) {
@@ -116,7 +125,7 @@ class SecureSubscriptionService {
     try {
       final response = await http.get(
         Uri.parse('$_baseUrl/getSubscriptionStatus?userId=$userId'),
-        headers: {'Content-Type': 'application/json'},
+        headers: await _authHeaders(),
       );
 
       if (response.statusCode == 200) {

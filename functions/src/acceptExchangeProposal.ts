@@ -19,7 +19,7 @@
  */
 
 import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
+import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 
 const db = getFirestore();

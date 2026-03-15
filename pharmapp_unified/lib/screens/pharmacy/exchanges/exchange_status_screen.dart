@@ -1,16 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../models/exchange_proposal.dart';
-import '../../../services/exchange_service.dart';
 
 class ExchangeStatusScreen extends StatelessWidget {
   final String proposalId;
-  final String? exchangeId;
+  final String? deliveryId;
 
   const ExchangeStatusScreen({
     super.key,
     required this.proposalId,
-    this.exchangeId,
+    this.deliveryId,
   });
 
   @override
@@ -44,6 +43,7 @@ class ExchangeStatusScreen extends StatelessWidget {
           }
 
           final proposal = ExchangeProposal.fromFirestore(snapshot.data!);
+          final linkedDeliveryId = proposal.deliveryId ?? deliveryId;
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16.0),
@@ -91,9 +91,9 @@ class ExchangeStatusScreen extends StatelessWidget {
                                       fontSize: 14,
                                     ),
                                   ),
-                                  if (exchangeId != null)
+                                  if (linkedDeliveryId != null)
                                     Text(
-                                      'Exchange ID: $exchangeId',
+                                      'Delivery ID: $linkedDeliveryId',
                                       style: TextStyle(
                                         color: Colors.grey[600],
                                         fontSize: 14,
@@ -204,10 +204,10 @@ class ExchangeStatusScreen extends StatelessWidget {
                   ),
                 ],
 
-                // Backend Exchange Status (if available)
-                if (exchangeId != null) ...[
+                // Delivery status from backend (if linked)
+                if (linkedDeliveryId != null) ...[
                   const SizedBox(height: 16),
-                  
+
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
@@ -215,33 +215,48 @@ class ExchangeStatusScreen extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
-                            'Payment Status',
+                            'Delivery Status',
                             style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
                           const SizedBox(height: 12),
-                          FutureBuilder<Map<String, dynamic>>(
-                            future: ExchangeService.getExchangeStatus(exchangeId: exchangeId!),
+                          FutureBuilder<DocumentSnapshot>(
+                            future: FirebaseFirestore.instance
+                                .collection('deliveries')
+                                .doc(linkedDeliveryId)
+                                .get(),
                             builder: (context, snapshot) {
                               if (snapshot.connectionState == ConnectionState.waiting) {
                                 return const CircularProgressIndicator();
                               }
-                              
-                              if (snapshot.hasError) {
-                                return Text('Error loading payment status: ${snapshot.error}');
+
+                              if (snapshot.hasError || !snapshot.hasData) {
+                                return Text('Error loading delivery status: ${snapshot.error}');
                               }
-                              
-                              final exchangeData = snapshot.data ?? {};
+
+                              if (!snapshot.data!.exists) {
+                                return Text('Delivery $linkedDeliveryId not found yet.');
+                              }
+
+                              final deliveryData =
+                                  snapshot.data!.data() as Map<String, dynamic>;
+                              final status =
+                                  (deliveryData['status'] ?? 'pending').toString();
+                              final courierId =
+                                  deliveryData['courierId']?.toString();
+                              final paymentStatus =
+                                  deliveryData['paymentStatus']?.toString();
+
                               return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  _buildDetailRow('Backend Status', exchangeData['status'] ?? 'Unknown'),
-                                  if (exchangeData['holdAmount'] != null)
-                                    _buildDetailRow('Hold Amount', 
-                                        '${(exchangeData['holdAmount'] / 100).toStringAsFixed(0)} XAF'),
-                                  if (exchangeData['createdAt'] != null)
-                                    _buildDetailRow('Created', exchangeData['createdAt'].toString()),
+                                  _buildDetailRow('Status', status),
+                                  if (courierId != null && courierId.isNotEmpty)
+                                    _buildDetailRow('Courier', courierId),
+                                  if (paymentStatus != null && paymentStatus.isNotEmpty)
+                                    _buildDetailRow('Payment', paymentStatus),
                                 ],
                               );
                             },
@@ -254,34 +269,27 @@ class ExchangeStatusScreen extends StatelessWidget {
 
                 const SizedBox(height: 24),
 
-                // Actions
-                if (proposal.status == ProposalStatus.accepted && exchangeId != null) ...[
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () => _completeDelivery(context, proposal, exchangeId!),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green,
-                            foregroundColor: Colors.white,
+                if (proposal.status == ProposalStatus.accepted &&
+                    linkedDeliveryId != null)
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.info_outline, color: Colors.blue.shade700),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Delivery is in progress. Assigned courier updates completion from the courier app.',
+                            style: TextStyle(color: Colors.blue.shade700),
                           ),
-                          child: const Text('Complete Delivery'),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () => _cancelExchange(context, proposal, exchangeId!),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.orange,
-                            foregroundColor: Colors.white,
-                          ),
-                          child: const Text('Cancel Exchange'),
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ],
               ],
             ),
           );
@@ -330,12 +338,12 @@ class ExchangeStatusScreen extends StatelessWidget {
 
   Future<void> _acceptProposal(BuildContext context, ExchangeProposal proposal) async {
     try {
-      final exchangeId = await proposal.acceptProposal();
+      final deliveryId = await proposal.acceptProposal();
 
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Proposal accepted! Exchange ID: $exchangeId'),
+          content: Text('Proposal accepted. Delivery created: $deliveryId'),
           backgroundColor: Colors.green,
         ),
       );
@@ -394,107 +402,6 @@ class ExchangeStatusScreen extends StatelessWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to reject proposal: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _completeDelivery(BuildContext context, ExchangeProposal proposal, String exchangeId) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Complete Delivery'),
-        content: const Text('Are you sure the delivery has been completed? This will process the payment.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Complete'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm == true) {
-      try {
-        await proposal.completeDelivery(exchangeId);
-
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Delivery completed! Payment processed.'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } catch (e) {
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to complete delivery: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _cancelExchange(BuildContext context, ExchangeProposal proposal, String exchangeId) async {
-    final reasonController = TextEditingController();
-    
-    final reason = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Cancel Exchange'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('This will cancel the exchange and refund any held amounts.'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: reasonController,
-              decoration: const InputDecoration(
-                labelText: 'Reason for cancellation',
-                hintText: 'Required...',
-              ),
-              maxLines: 3,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Keep Exchange'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, reasonController.text),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Cancel Exchange'),
-          ),
-        ],
-      ),
-    );
-
-    if (reason != null && reason.isNotEmpty) {
-      try {
-        await proposal.cancelExchange(exchangeId, reason);
-
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Exchange cancelled and amounts refunded'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      } catch (e) {
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to cancel exchange: $e'),
             backgroundColor: Colors.red,
           ),
         );

@@ -11,9 +11,16 @@ import crypto from "node:crypto";
 import { withIdempotency } from "./lib/idempotency.js";
 import { cancelExchangeTx } from "./lib/exchange.js";
 import { validateFields, validators, sendValidationError, sendError, BusinessErrors, AppError } from "./lib/validation.js";
+import { requireAuth } from "./lib/auth.js";
 // 👉 expose aussi la tâche planifiée
 export { expireExchangeHolds } from "./scheduled.js";
 // export { cleanupTestUser } from "./cleanup.js";  // Commented out - file missing
+
+// ======================= Exchange Proposal Callable Functions =======================
+export { createExchangeProposal } from "./createExchangeProposal.js";
+export { acceptExchangeProposal } from "./acceptExchangeProposal.js";
+export { completeExchangeDelivery } from "./completeExchangeDelivery.js";
+export { cancelExchangeProposal } from "./cancelExchangeProposal.js";
 
 // --------- Admin init ---------
 if (getApps().length === 0) initializeApp();
@@ -63,12 +70,11 @@ export {
 // ---------- Get Wallet Balance ----------
 export const getWallet = onRequest({ region: "europe-west1", cors: true }, async (req, res) => {
   try {
-    const userId = req.query?.userId as string | undefined;
-    
-    if (!userId) {
-      res.status(400).json({ error: "userId is required" });
-      return;
-    }
+    const requestedUserId = req.query?.userId as string | undefined;
+    const uid = await requireAuth(req, res, requestedUserId ?? undefined);
+    if (!uid) return;
+
+    const userId = uid;
 
     // Get or create wallet
     const walletRef = db.collection("wallets").doc(userId);
@@ -89,10 +95,14 @@ export const getWallet = onRequest({ region: "europe-west1", cors: true }, async
 });
 
 // ---------- Create Top-up Intent ----------
-export const topupIntent = onRequest({ region: "europe-west1" }, async (req, res) => {
+export const topupIntent = onRequest({ region: "europe-west1", cors: true }, async (req, res) => {
   try {
     if (requireJson(req, res)) return;
     const { userId, method, amount, currency = "XAF", msisdn = null } = req.body ?? {};
+
+    // Auth: ensure caller matches the userId in the request body
+    const uid = await requireAuth(req, res, userId);
+    if (!uid) return;
 
     // Validate input
     const errors = validateFields({ userId, method, amount, currency }, {
@@ -321,6 +331,8 @@ export const createExchangeHold = onRequest({ region: "europe-west1" }, async (r
     if (requireJson(req, res)) return;
 
     const { exchangeId, aId, bId, courierFee, currency = "XAF", idempotencyKey } = req.body ?? {};
+    const uid = await requireAuth(req, res);
+    if (!uid) return;
 
     // Validate required fields
     const errors = validateFields({ aId, bId, courierFee, currency }, {
@@ -342,6 +354,13 @@ export const createExchangeHold = onRequest({ region: "europe-west1" }, async (r
         code: "IDENTICAL_USERS"
       }]);
       return;
+    }
+
+    if (uid !== aId && uid !== bId) {
+      return sendError(
+        res,
+        new AppError("FORBIDDEN", "Only exchange participants can create holds", 403)
+      );
     }
 
     if (exchangeId && typeof exchangeId !== "string") {
@@ -424,6 +443,8 @@ export const exchangeCapture = onRequest({ region: "europe-west1" }, async (req,
     if (requireJson(req, res)) return;
 
     const { exchangeId, courierId, saleAmount = 0, sellerId, buyerId } = req.body ?? {};
+    const uid = await requireAuth(req, res);
+    if (!uid) return;
 
     // Validate required fields
     const errors = validateFields({ exchangeId, courierId }, {
@@ -470,6 +491,13 @@ export const exchangeCapture = onRequest({ region: "europe-west1" }, async (req,
         code: "REQUIRED_FOR_SALE"
       }]);
       return;
+    }
+
+    if (uid !== courierId) {
+      return sendError(
+        res,
+        new AppError("FORBIDDEN", "Only the assigned courier can capture this exchange", 403)
+      );
     }
 
     await withIdempotency(`capture:${exchangeId}`, async () => {
@@ -677,6 +705,8 @@ export const exchangeCancel = onRequest({ region: "europe-west1" }, async (req, 
   try {
     if (requireJson(req, res)) return;
     const { exchangeId } = req.body ?? {};
+    const uid = await requireAuth(req, res);
+    if (!uid) return;
 
     // Validate required field
     if (!exchangeId) {
@@ -695,6 +725,24 @@ export const exchangeCancel = onRequest({ region: "europe-west1" }, async (req, 
         code: "INVALID_TYPE"
       }]);
       return;
+    }
+
+    const exchangeSnap = await db.collection("exchanges").doc(exchangeId).get();
+    if (!exchangeSnap.exists) {
+      throw BusinessErrors.EXCHANGE_NOT_FOUND(exchangeId);
+    }
+
+    const exchangeData = exchangeSnap.data() as any;
+    const participants = new Set<string>([
+      String(exchangeData?.aId ?? ""),
+      String(exchangeData?.bId ?? ""),
+      String(exchangeData?.courierId ?? ""),
+    ]);
+    if (!participants.has(uid)) {
+      return sendError(
+        res,
+        new AppError("FORBIDDEN", "Only exchange participants can cancel this exchange", 403)
+      );
     }
 
     await withIdempotency(`cancel:${exchangeId}`, async () => {
@@ -737,18 +785,12 @@ async function getValidSubscription(userId: string) {
 }
 
 // Validate inventory creation (server-side enforcement)
-export const validateInventoryAccess = onRequest({ region: "europe-west1" }, async (req, res) => {
+export const validateInventoryAccess = onRequest({ region: "europe-west1", cors: true }, async (req, res) => {
   try {
-    const userId = req.query?.userId as string | undefined;
-    
-    if (!userId) {
-      sendValidationError(res, [{
-        field: "userId",
-        message: "userId is required",
-        code: "REQUIRED"
-      }]);
-      return;
-    }
+    const requestedUserId = req.query?.userId as string | undefined;
+    const uid = await requireAuth(req, res, requestedUserId ?? undefined);
+    if (!uid) return;
+    const userId = uid;
 
     const subscription = await getValidSubscription(userId);
     
@@ -807,19 +849,13 @@ export const validateInventoryAccess = onRequest({ region: "europe-west1" }, asy
   }
 });
 
-// Validate proposal creation (server-side enforcement) 
-export const validateProposalAccess = onRequest({ region: "europe-west1" }, async (req, res) => {
+// Validate proposal creation (server-side enforcement)
+export const validateProposalAccess = onRequest({ region: "europe-west1", cors: true }, async (req, res) => {
   try {
-    const userId = req.query?.userId as string | undefined;
-    
-    if (!userId) {
-      sendValidationError(res, [{
-        field: "userId", 
-        message: "userId is required",
-        code: "REQUIRED"
-      }]);
-      return;
-    }
+    const requestedUserId = req.query?.userId as string | undefined;
+    const uid = await requireAuth(req, res, requestedUserId ?? undefined);
+    if (!uid) return;
+    const userId = uid;
 
     const subscription = await getValidSubscription(userId);
     
@@ -854,18 +890,12 @@ export const validateProposalAccess = onRequest({ region: "europe-west1" }, asyn
 });
 
 // Validate analytics access (server-side enforcement)
-export const validateAnalyticsAccess = onRequest({ region: "europe-west1" }, async (req, res) => {
+export const validateAnalyticsAccess = onRequest({ region: "europe-west1", cors: true }, async (req, res) => {
   try {
-    const userId = req.query?.userId as string | undefined;
-    
-    if (!userId) {
-      sendValidationError(res, [{
-        field: "userId",
-        message: "userId is required", 
-        code: "REQUIRED"
-      }]);
-      return;
-    }
+    const requestedUserId = req.query?.userId as string | undefined;
+    const uid = await requireAuth(req, res, requestedUserId ?? undefined);
+    if (!uid) return;
+    const userId = uid;
 
     const subscription = await getValidSubscription(userId);
     
@@ -904,18 +934,12 @@ export const validateAnalyticsAccess = onRequest({ region: "europe-west1" }, asy
 });
 
 // Get comprehensive subscription status (server-side truth source)
-export const getSubscriptionStatus = onRequest({ region: "europe-west1" }, async (req, res) => {
+export const getSubscriptionStatus = onRequest({ region: "europe-west1", cors: true }, async (req, res) => {
   try {
-    const userId = req.query?.userId as string | undefined;
-    
-    if (!userId) {
-      sendValidationError(res, [{
-        field: "userId",
-        message: "userId is required",
-        code: "REQUIRED"
-      }]);
-      return;
-    }
+    const requestedUserId = req.query?.userId as string | undefined;
+    const uid = await requireAuth(req, res, requestedUserId ?? undefined);
+    if (!uid) return;
+    const userId = uid;
 
     const subscription = await getValidSubscription(userId);
     
@@ -959,17 +983,34 @@ export const getSubscriptionStatus = onRequest({ region: "europe-west1" }, async
 
 // ========== SANDBOX TESTING ==========
 
+// 🔒 Sandbox environment guard: blocks sandbox functions outside the emulator
+function isSandboxAllowed(): boolean {
+  return process.env.FUNCTIONS_EMULATOR === "true" || process.env.SANDBOX_ENABLED === "true";
+}
+
+// 🔒 Sandbox test-account patterns – entire @promoshake.net domain
+// B3 fix: allow any @promoshake.net address (all are test accounts)
+const SANDBOX_ACCOUNT_PATTERNS = [
+  /^[\w.+-]+@promoshake\.net$/i
+];
+
 /**
  * Sandbox Credit Function for Testing
  * Credits test wallets with fake money for development/testing purposes
- * 
- * Security: Only works for test accounts and development environment
+ *
+ * Security: Only works for test accounts and development/emulator environment
  */
-export const sandboxCredit = onRequest({ 
-  region: "europe-west1", 
-  cors: true 
+export const sandboxCredit = onRequest({
+  region: "europe-west1",
+  cors: true
 }, async (req, res) => {
   try {
+    // 🔒 Block in production unless explicitly enabled
+    if (!isSandboxAllowed()) {
+      res.status(403).json({ error: "Sandbox functions are disabled in production", code: "SANDBOX_DISABLED" });
+      return;
+    }
+
     if (requireJson(req, res)) return;
 
     const { userId, amount, description = "Sandbox test credit" } = req.body ?? {};
@@ -977,7 +1018,7 @@ export const sandboxCredit = onRequest({
     // Validate required fields
     const errors = validateFields({ userId, amount }, {
       userId: validators.required,
-      amount: (v, f) => validators.required(v, f) || (typeof v !== "number" || v <= 0 ? 
+      amount: (v, f) => validators.required(v, f) || (typeof v !== "number" || v <= 0 ?
         { field: f, message: `${f} must be a positive number`, code: 'INVALID_AMOUNT' } : null)
     });
 
@@ -985,15 +1026,8 @@ export const sandboxCredit = onRequest({
       return sendValidationError(res, errors);
     }
 
-    // Security: Only allow test accounts
-    const testAccountPatterns = [
-      /^.*@gmail\.com$/,  // Allow Gmail accounts for development
-      /^.*@promoshake\.net$/,
-      /^test.*@.*$/,
-      /^.*test.*@.*$/,
-      /^sandbox.*@.*$/,
-      /^dev.*@.*$/
-    ];
+    // Security: Only allow test accounts (strict patterns, no Gmail wildcard)
+    const testAccountPatterns = SANDBOX_ACCOUNT_PATTERNS;
 
     // Get user document from pharmacies or couriers collection
     let userDoc = await db.collection("pharmacies").doc(userId).get();
@@ -1012,16 +1046,16 @@ export const sandboxCredit = onRequest({
     }
 
     userData = userDoc.data();
-    const userEmail = userData?.email || "";
+    const userEmail = String(userData?.email ?? "").trim();
 
     // Check if email matches test patterns
     const isTestAccount = testAccountPatterns.some(pattern => pattern.test(userEmail));
-    
+
     if (!isTestAccount) {
-      res.status(403).json({ 
+      res.status(403).json({
         error: "Sandbox credit only allowed for test accounts",
         code: "NOT_TEST_ACCOUNT",
-        hint: "Use email patterns: *@promoshake.net, test*@*, *test*@*, sandbox*@*, dev*@*"
+        hint: "Use email patterns: test*@promoshake.net, sandbox*@promoshake.net, dev*@promoshake.net"
       });
       return;
     }
@@ -1036,13 +1070,15 @@ export const sandboxCredit = onRequest({
     }
 
     const currency = "XAF";
-    const amountCents = Math.round(amount * 100); // Convert to cents
+    // B5 fix: store in raw XAF units (no centimes conversion)
+    // to match webhooks, topupIntent, and exchange functions
+    const amountRaw = Math.round(amount);
 
     // Credit wallet with transaction
     await db.runTransaction(async (tx) => {
       const walletRef = db.collection("wallets").doc(userId);
       const walletDoc = await tx.get(walletRef);
-      
+
       let currentWallet;
       if (!walletDoc.exists) {
         // Create new wallet
@@ -1058,7 +1094,7 @@ export const sandboxCredit = onRequest({
       }
 
       // Update wallet balance
-      const newAvailable = (currentWallet.available || 0) + amountCents;
+      const newAvailable = (currentWallet.available || 0) + amountRaw;
       tx.update(walletRef, {
         available: newAvailable,
         updatedAt: FieldValue.serverTimestamp(),
@@ -1069,14 +1105,13 @@ export const sandboxCredit = onRequest({
       tx.set(ledgerRef, {
         userId,
         type: "sandbox_credit",
-        amount: amountCents,
+        amount: amountRaw,
         currency,
         description,
         createdAt: FieldValue.serverTimestamp(),
         metadata: {
           isSandbox: true,
           userEmail,
-          originalAmount: amount
         }
       });
     });
@@ -1108,13 +1143,19 @@ export const sandboxCredit = onRequest({
  * Sandbox Debit Function for Testing
  * Debits test wallets for development/testing purposes
  *
- * Security: Only works for test accounts and development environment
+ * Security: Only works for test accounts and development/emulator environment
  */
 export const sandboxDebit = onRequest({
   region: "europe-west1",
   cors: true
 }, async (req, res) => {
   try {
+    // 🔒 Block in production unless explicitly enabled
+    if (!isSandboxAllowed()) {
+      res.status(403).json({ error: "Sandbox functions are disabled in production", code: "SANDBOX_DISABLED" });
+      return;
+    }
+
     if (requireJson(req, res)) return;
 
     const { userId, amount, description = "Sandbox test debit" } = req.body ?? {};
@@ -1130,15 +1171,8 @@ export const sandboxDebit = onRequest({
       return sendValidationError(res, errors);
     }
 
-    // Security: Only allow test accounts (same patterns as sandboxCredit)
-    const testAccountPatterns = [
-      /^.*@gmail\.com$/,  // Allow Gmail accounts for development
-      /^.*@promoshake\.net$/,
-      /^test.*@.*$/,
-      /^.*test.*@.*$/,
-      /^sandbox.*@.*$/,
-      /^dev.*@.*$/
-    ];
+    // Security: Only allow test accounts (strict patterns, no Gmail wildcard)
+    const testAccountPatterns = SANDBOX_ACCOUNT_PATTERNS;
 
     // Get user document from pharmacies or couriers collection
     let userDoc = await db.collection("pharmacies").doc(userId).get();
@@ -1157,7 +1191,7 @@ export const sandboxDebit = onRequest({
     }
 
     userData = userDoc.data();
-    const userEmail = userData?.email || "";
+    const userEmail = String(userData?.email ?? "").trim();
 
     // Check if email matches test patterns
     const isTestAccount = testAccountPatterns.some(pattern => pattern.test(userEmail));
@@ -1166,13 +1200,14 @@ export const sandboxDebit = onRequest({
       res.status(403).json({
         error: "Sandbox debit only allowed for test accounts",
         code: "NOT_TEST_ACCOUNT",
-        hint: "Use email patterns: *@gmail.com, *@promoshake.net, test*@*, *test*@*, sandbox*@*, dev*@*"
+        hint: "Use email patterns: test*@promoshake.net, sandbox*@promoshake.net, dev*@promoshake.net"
       });
       return;
     }
 
     const currency = "XAF";
-    const amountCents = Math.round(amount * 100); // Convert to cents
+    // B5 fix: store in raw XAF units (no centimes conversion)
+    const amountRaw = Math.round(amount);
 
     // Debit wallet with transaction
     await db.runTransaction(async (tx) => {
@@ -1187,14 +1222,14 @@ export const sandboxDebit = onRequest({
       const currentAvailable = currentWallet?.available || 0;
 
       // Check if sufficient balance
-      if (currentAvailable < amountCents) {
+      if (currentAvailable < amountRaw) {
         throw BusinessErrors.INSUFFICIENT_FUNDS(
-          `Insufficient balance: ${currentAvailable / 100} XAF available, ${amount} XAF requested`
+          `Insufficient balance: ${currentAvailable} XAF available, ${amount} XAF requested`
         );
       }
 
       // Update wallet balance
-      const newAvailable = currentAvailable - amountCents;
+      const newAvailable = currentAvailable - amountRaw;
       tx.update(walletRef, {
         available: newAvailable,
         updatedAt: FieldValue.serverTimestamp(),
@@ -1205,14 +1240,13 @@ export const sandboxDebit = onRequest({
       tx.set(ledgerRef, {
         userId,
         type: "sandbox_debit",
-        amount: amountCents,
+        amount: amountRaw,
         currency,
         description,
         createdAt: FieldValue.serverTimestamp(),
         metadata: {
           isSandbox: true,
           userEmail,
-          originalAmount: amount
         }
       });
     });

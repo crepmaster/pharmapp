@@ -7,7 +7,7 @@ service cloud.firestore {
     
     // 🔒 SUBSCRIPTION SECURITY FUNCTIONS (UPDATED FOR AFRICAN MARKETS)
     function hasActiveSubscription(userId) {
-      let pharmacy = get(/databases/$(database)/documents/pharmacies/$(userId));
+      let pharmacy = get(/databases/$(db)/documents/pharmacies/$(userId));
       return pharmacy != null && 
              pharmacy.data.hasActiveSubscription == true &&
              (
@@ -22,7 +22,7 @@ service cloud.firestore {
     }
     
     function getSubscriptionPlan(userId) {
-      let pharmacy = get(/databases/$(database)/documents/pharmacies/$(userId));
+      let pharmacy = get(/databases/$(db)/documents/pharmacies/$(userId));
       return pharmacy != null ? pharmacy.data.subscriptionPlan : null;
     }
     
@@ -53,14 +53,14 @@ service cloud.firestore {
     // 🔒 CRITICAL: Subscription collections (SECURE - BACKEND ONLY)
     match /subscriptions/{subscriptionId} {
       allow read: if isAuthenticated() && 
-        (get(/databases/$(database)/documents/subscriptions/$(subscriptionId)).data.pharmacyId == request.auth.uid ||
+        (get(/databases/$(db)/documents/subscriptions/$(subscriptionId)).data.pharmacyId == request.auth.uid ||
          isSuperAdmin(request.auth.uid));
       allow write: if false; // Only backend functions can write subscription data
     }
     
     match /subscription_payments/{paymentId} {
       allow read: if isAuthenticated() && 
-        (get(/databases/$(database)/documents/subscription_payments/$(paymentId)).data.pharmacyId == request.auth.uid ||
+        (get(/databases/$(db)/documents/subscription_payments/$(paymentId)).data.pharmacyId == request.auth.uid ||
          isSuperAdmin(request.auth.uid));
       allow write: if false; // Only payment webhooks can write payment data
     }
@@ -84,8 +84,8 @@ service cloud.firestore {
     
     // Helper function to check if user is super admin
     function isSuperAdmin(userId) {
-      return exists(/databases/$(database)/documents/admins/$(userId)) &&
-             get(/databases/$(database)/documents/admins/$(userId)).data.role == 'super_admin';
+      return exists(/databases/$(db)/documents/admins/$(userId)) &&
+             get(/databases/$(db)/documents/admins/$(userId)).data.role == 'super_admin';
     }
 
     // Mobile app collections
@@ -168,26 +168,8 @@ service cloud.firestore {
              (!data.keys().hasAny(['operatingCity']) || data.operatingCity is string);
     }
     
-    // 🔒 SUBSCRIPTION SECURITY RULES
-    match /subscriptions/{id} {
-      allow read: if isAuthenticated() && (
-        resource.data.pharmacyId == request.auth.uid ||  // Pharmacy can read own subscription
-        isSuperAdmin(request.auth.uid)                   // Admin can read all
-      );
-      allow create: if isAuthenticated() && request.resource.data.pharmacyId == request.auth.uid;
-      allow update: if isSuperAdmin(request.auth.uid);   // Only admin can approve/suspend
-      allow delete: if false; // Subscriptions should not be deleted, only cancelled
-    }
-    
-    match /subscription_payments/{id} {
-      allow read: if isAuthenticated() && (
-        resource.data.pharmacyId == request.auth.uid ||  // Pharmacy can read own payments
-        isSuperAdmin(request.auth.uid)                   // Admin can read all
-      );
-      allow create: if isAuthenticated() && request.resource.data.pharmacyId == request.auth.uid;
-      allow update: if isSuperAdmin(request.auth.uid);   // Only admin can verify payments
-      allow delete: if false; // Payment records should not be deleted
-    }
+    // NOTE: subscriptions and subscription_payments rules are defined above (lines 54-76) as backend-only.
+    // Do NOT add duplicate rules here.
 
     match /pharmacy_inventory/{id} {
       allow read: if isAuthenticated(); // All authenticated users can read inventory (for browsing)
@@ -207,12 +189,12 @@ service cloud.firestore {
       allow create: if isAuthenticated() && hasActiveSubscription(request.auth.uid);
       // 🔒 CRITICAL: Updating proposals requires active subscription for both parties
       allow update: if isAuthenticated() && (
-        (resource.data.proposingPharmacyId == request.auth.uid && hasActiveSubscription(request.auth.uid)) || 
-        (resource.data.receivingPharmacyId == request.auth.uid && hasActiveSubscription(request.auth.uid))
+        (resource.data.fromPharmacyId == request.auth.uid && hasActiveSubscription(request.auth.uid)) || 
+        (resource.data.toPharmacyId == request.auth.uid && hasActiveSubscription(request.auth.uid))
       );
       // 🔒 CRITICAL: Deleting proposals requires active subscription
       allow delete: if isAuthenticated() && 
-                   resource.data.proposingPharmacyId == request.auth.uid &&
+                   resource.data.fromPharmacyId == request.auth.uid &&
                    hasActiveSubscription(request.auth.uid);
     }
 
@@ -226,6 +208,9 @@ service cloud.firestore {
       );
       allow create: if isAuthenticated() && isSuperAdmin(request.auth.uid); // Only admins create deliveries
       allow update: if isAuthenticated() && (
+        // B4 fix: Allow any authenticated courier to accept a pending delivery
+        // (sets courierId on an unassigned delivery)
+        (resource.data.status == 'pending' && resource.data.courierId == null) ||
         resource.data.courierId == request.auth.uid ||           // Courier can update status/location
         resource.data.fromPharmacyId == request.auth.uid ||      // Source pharmacy can update
         resource.data.toPharmacyId == request.auth.uid ||        // Destination pharmacy can update
@@ -244,9 +229,15 @@ service cloud.firestore {
     }
 
     match /medicines/{id} {
-      allow read: if isAuthenticated(); // All users can read medicine database
-      allow create: if isAuthenticated(); // Pharmacies can create custom medicines
-      allow update: if isAuthenticated(); // Allow updates to medicine info
+      allow read: if isAuthenticated();
+      // Only pharmacy-role users can create/update medicines
+      allow create, update: if isAuthenticated() &&
+        exists(/databases/$(db)/documents/pharmacies/$(request.auth.uid));
+    }
+
+    // ========== DEFAULT DENY ALL ==========
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

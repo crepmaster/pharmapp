@@ -772,19 +772,18 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
               content: Text('❌ Proposal Access Denied: ${accessResult.error ?? "Subscription required"}'),
               backgroundColor: Colors.red,
               duration: const Duration(seconds: 5),
-              action: SnackBarAction(
-                label: 'Upgrade',
-                textColor: Colors.white,
-                onPressed: () {
-                  // TODO: Navigate to subscription upgrade screen
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Subscription upgrade coming soon!'),
-                      backgroundColor: Colors.blue,
-                    ),
-                  );
-                },
-              ),
+                action: SnackBarAction(
+                  label: 'Upgrade',
+                  textColor: Colors.white,
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Please contact admin to activate or upgrade your subscription.'),
+                        backgroundColor: Colors.blue,
+                      ),
+                    );
+                  },
+                ),
             ),
           );
         }

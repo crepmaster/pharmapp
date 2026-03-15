@@ -39,6 +39,14 @@ class _SandboxTestingScreenState extends State<SandboxTestingScreen> {
     super.dispose();
   }
 
+  Future<Map<String, String>> _authHeaders() async {
+    final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+    return {
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
+  }
+
   Future<void> _loadWalletBalance() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -46,7 +54,7 @@ class _SandboxTestingScreenState extends State<SandboxTestingScreen> {
     try {
       final response = await http.get(
         Uri.parse('$functionsUrl/getWallet?userId=${user.uid}'),
-        headers: {'Content-Type': 'application/json'},
+        headers: await _authHeaders(),
       );
 
       if (response.statusCode == 200) {
@@ -80,7 +88,7 @@ class _SandboxTestingScreenState extends State<SandboxTestingScreen> {
     try {
       final response = await http.post(
         Uri.parse('$functionsUrl/sandboxCredit'),
-        headers: {'Content-Type': 'application/json'},
+        headers: await _authHeaders(),
         body: jsonEncode({
           'userId': user.uid,
           'amount': amount,
@@ -155,7 +163,7 @@ class _SandboxTestingScreenState extends State<SandboxTestingScreen> {
     try {
       final response = await http.post(
         Uri.parse('$functionsUrl/sandboxDebit'),
-        headers: {'Content-Type': 'application/json'},
+        headers: await _authHeaders(),
         body: jsonEncode({
           'userId': user.uid,
           'amount': amount,

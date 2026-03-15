@@ -192,8 +192,8 @@ class Subscription extends Equatable {
     return Subscription(
       id: id,
       pharmacyId: map['pharmacyId'] ?? '',
-      plan: _parsePlan(map['plan']),
-      status: _parseStatus(map['status']),
+      plan: parsePlan(map['plan']),
+      status: parseStatus(map['status']),
       amount: (map['amount'] ?? 0.0).toDouble(),
       startDate: (map['startDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
       endDate: (map['endDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
@@ -210,7 +210,7 @@ class Subscription extends Equatable {
   }
 
   /// Parse plan from string
-  static SubscriptionPlan _parsePlan(String? planString) {
+  static SubscriptionPlan parsePlan(String? planString) {
     switch (planString?.toLowerCase()) {
       case 'basic':
         return SubscriptionPlan.basic;
@@ -224,7 +224,7 @@ class Subscription extends Equatable {
   }
 
   /// Parse status from string
-  static SubscriptionStatus _parseStatus(String? statusString) {
+  static SubscriptionStatus parseStatus(String? statusString) {
     switch (statusString?.toLowerCase()) {
       case 'pendingpayment':
         return SubscriptionStatus.pendingPayment;
