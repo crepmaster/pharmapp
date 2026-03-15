@@ -209,3 +209,78 @@ Pass 1 was written **after** the code was already implemented. It is retained as
 - Any non-trivial change touching money flow, wallet balance, ledger entries, permissions, Firestore rules, city isolation, or pilot pass/fail semantics **must** complete a forward-looking Pass entry in this file **before** coding begins.
 - The pass must be filled with confirmed facts, ambiguities, options, and escalations **derived from investigation**, not from a pre-existing solution plan.
 - Only after the pass reaches an explicit **Go** may the developer derive a technical todo and begin patching.
+
+---
+
+## Pass 2 — Delivery acceptance field restriction + report coherence (2026-03-15)
+
+**Scope**: P1 — acceptance rules too permissive on fields; P2 — report coherence; P2 — runtime note not committed
+
+**This pass is forward-looking. No code has been written yet.**
+
+### Confirmed facts
+
+1. The acceptance branch in `firestore.rules:218-224` checks `status == 'pending'`, `courierId == null`, city match, and `request.resource.data.courierId == request.auth.uid`.
+2. It does NOT constrain `request.resource.data.status` — so a client can write `status: 'delivered'` in the same update that sets `courierId`.
+3. It does NOT restrict which other fields can be modified — a client could alter `city`, `courierFee`, `fromPharmacyId`, `toPharmacyId`, `items`, etc. in the acceptance write.
+4. The legitimate client (`delivery_service.dart:86-93`) writes exactly: `courierId`, `courierName`, `status: 'accepted'`, `assignedAt`, `acceptedAt`, `updatedAt`.
+5. The second branch (`resource.data.courierId == request.auth.uid`) allows the assigned courier to update any field — this is needed for location updates and status transitions during delivery, and is governed by the fact that `completeExchangeDelivery` (the financial operation) is a server-side callable, not a direct write.
+6. `pharmapp_unified/firestore.rules:216-222` has the identical structure.
+7. The pilot execution report marks "Pre-implementation gate" as `PASS`, which contradicts the gate compliance status section that says Pass 1 does not demonstrate the gate.
+8. The report's "Open Issues" still lists "Backend deployment required" and "Commit fixes", which are now done (commit `aec3b86`, deploy completed).
+9. `PILOT_RUNTIME_PREPARATION_V1.md` is untracked and not part of commit `aec3b86`.
+
+### Ambiguities
+
+1. **Should the acceptance branch enforce `request.resource.data.status == 'accepted'`?**
+   - The legitimate client writes `status: 'accepted'`.
+   - Without this constraint, a malicious client could write `status: 'delivered'` or `status: 'picked_up'` during acceptance.
+   - However: `completeExchangeDelivery` (the only path that moves money) requires `status` to be `picked_up` or `in_transit`, and it's a server-side callable — it reads the delivery document itself and validates status independently.
+   - So: the financial risk is that a malicious courier could skip the pickup/in_transit flow and go straight to calling `completeExchangeDelivery` after self-setting `status: 'picked_up'` via a second direct write (using the assigned courier branch).
+   - **Conclusion**: Enforcing `status == 'accepted'` on the acceptance branch closes one vector. But the assigned courier branch still allows arbitrary status writes. The real protection is that `completeExchangeDelivery` is server-side. Field-level restriction on the assigned courier branch is a separate hardening concern, not required for pilot.
+
+2. **Should the acceptance branch use `request.resource.data.diff(resource.data).affectedKeys()` to restrict modified fields?**
+   - Firestore rules support `request.resource.data.diff(resource.data).affectedKeys().hasOnly([...])` to whitelist writable fields.
+   - This would prevent altering `city`, `courierFee`, `fromPharmacyId`, `toPharmacyId`, `items`, `proposalId`.
+   - The acceptance write needs to modify: `courierId`, `courierName`, `status`, `assignedAt`, `acceptedAt`, `updatedAt`.
+   - **Conclusion**: Field whitelisting on the acceptance branch is feasible and would close the attack vector where a courier alters delivery metadata during acceptance. This is a security enforcement, not a business rule decision.
+
+3. **Should the assigned courier branch also restrict writable fields?**
+   - The assigned courier needs to update: `status`, location fields, timestamps, photo proof, delivery notes.
+   - Restricting this branch to a field whitelist would be more complex and could break legitimate operations (location updates, status transitions).
+   - The financial operations are protected by server-side callable.
+   - **Conclusion**: Restricting the assigned courier branch is out of scope for this pass. The acceptance branch is the priority because it's where a courier first gains update rights.
+
+### Options considered
+
+**P1 — Acceptance field restriction:**
+
+| Option | Description | Trade-off |
+|--------|-------------|-----------|
+| A. Add `status == 'accepted'` check only | Prevents status skip on acceptance | Doesn't prevent field tampering (city, fee, etc.) |
+| B. Add `status == 'accepted'` + field whitelist on acceptance branch | Full field restriction on acceptance | More complex rule, but acceptance is a well-defined write |
+| C. Add field whitelist on both acceptance AND assigned courier branches | Complete field-level security | Requires enumerating all legitimate courier update fields; risk of breaking location/status updates |
+
+**Recommended: B** — restrict acceptance to `status == 'accepted'` AND whitelist the exact fields. The acceptance write is well-defined (6 fields). The assigned courier branch remains permissive for now (server-side callable protects financial operations).
+
+**P2 — Report coherence:**
+
+No options needed. The report must be corrected to:
+- Change "Pre-implementation gate" from `PASS` to `NOT YET DEMONSTRATED (Pass 1 retrospective)`
+- Update "Open Issues" to reflect that deployment and commit are done
+- Add note about runtime preparation note
+
+**P2 — Runtime note not committed:**
+
+No options needed. Stage and commit `PILOT_RUNTIME_PREPARATION_V1.md`.
+
+### Escalations required
+
+- None. The P1 is a security enforcement fix (field restriction on Firestore rules), not a business rule decision. The fields written during acceptance are already defined by the legitimate client code. No money flow, fee calculation, or ledger logic is changed.
+
+### Go / No-Go
+
+- **Go** — the acceptance field restriction is security enforcement within developer authority
+- The field whitelist is derived from the legitimate client behavior, not from a new business rule
+- Report corrections are factual accuracy fixes
+- No new business rules introduced

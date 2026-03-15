@@ -217,11 +217,16 @@ service cloud.firestore {
       // Pharmacies CANNOT update deliveries (status changes go through Cloud Functions)
       allow update: if isAuthenticated() && (
         // Accept: courier in same city, delivery pending+unassigned, must assign to self
+        // Field whitelist prevents altering city, courierFee, pharmacyIds, items, etc.
         (resource.data.status == 'pending' &&
          resource.data.courierId == null &&
          exists(/databases/$(db)/documents/couriers/$(request.auth.uid)) &&
          resource.data.city == get(/databases/$(db)/documents/couriers/$(request.auth.uid)).data.operatingCity &&
-         request.resource.data.courierId == request.auth.uid) ||
+         request.resource.data.courierId == request.auth.uid &&
+         request.resource.data.status == 'accepted' &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+           ['courierId', 'courierName', 'status', 'assignedAt', 'acceptedAt', 'updatedAt']
+         )) ||
         // Assigned courier can update their own delivery
         resource.data.courierId == request.auth.uid ||
         // Admin override

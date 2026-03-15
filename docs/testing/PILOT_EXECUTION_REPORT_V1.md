@@ -140,9 +140,9 @@ Step 3: completeExchangeDelivery (single atomic phase):
 | Ledger entries | **PASS** | 4 entries: medicine payment + buyer fee + seller fee + courier payment |
 | Inventory transfer | **PASS** | `completeExchangeDelivery` — deducts seller, adds buyer |
 | Transaction read ordering | **PASS** | All reads (buyer wallet, courier wallet, target inventory) before first write |
-| Delivery acceptance (rules) | **PASS** | `firestore.rules:213-227` — city match + `courierId == auth.uid` + no pharmacy writes |
+| Delivery acceptance (rules) | **PASS** | `firestore.rules:218-230` — city match + `courierId == auth.uid` + `status == 'accepted'` + field whitelist + no pharmacy writes |
 | Buyer solvency for fee | **PASS** | `completeExchangeDelivery.ts:152-163` — checks `available >= halfBuyer` before debit |
-| Pre-implementation gate | **PASS** | `PILOT_PRE_IMPLEMENTATION_ANALYSIS_V1.md` — Pass 1 entry with facts/ambiguities/go-nogo |
+| Pre-implementation gate | **NOT YET DEMONSTRATED** | Pass 1 is retrospective (process gap). Pass 2 is the first forward-looking entry. Gate not yet proven by runtime execution. |
 
 ### Runtime evidence (NOT YET COLLECTED)
 
@@ -173,20 +173,21 @@ Step 3: completeExchangeDelivery (single atomic phase):
 
 ## Open Issues
 
-1. **Backend deployment required**:
-   ```bash
-   cd functions && npm run build && firebase deploy --only functions
-   ```
+1. **Backend deployment**: **DONE** (2026-03-15). Functions `createExchangeProposal`, `acceptExchangeProposal`, `completeExchangeDelivery` deployed to `europe-west1`. Firestore rules deployed.
 
-2. **Email pattern mismatch**: Test plan uses `@gmail.com` but sandbox only allows `@promoshake.net`.
+2. **Email pattern**: Test accounts must use `@promoshake.net` domain (sandbox restriction). Old test plan references to `@gmail.com` are obsolete.
 
-3. **Firestore rules — delivery visibility**: **FIXED**. Pending deliveries now restricted to couriers with matching `operatingCity`. Only couriers can accept unassigned deliveries.
+3. **Firestore rules — delivery visibility**: **FIXED**. Pending deliveries restricted to couriers with matching `operatingCity`. Acceptance branch now enforces `status == 'accepted'` + field whitelist.
 
 4. **Firestore rules — city isolation for inventory**: Server-side check is in Cloud Function only. Firestore rules allow any authenticated user to read any pharmacy's inventory directly. Production hardening needed (separate from pilot scope).
 
 5. **Delivery `city` field on existing data**: Only new deliveries (post-deployment) have the `city` field.
 
 6. **Dead code**: `createExchangeHold`, `exchangeCapture`, `exchangeCancel` in `index.ts` — HTTP endpoints with no UI integration. Cleanup backlog.
+
+7. **Remote function drift**: `devSubscription` and `cleanupTestUser` exist remotely but are not exported from local `index.ts`. Status unknown. Not needed for pilot. Cleanup backlog.
+
+8. **cancelExchangeProposal not deployed**: UI calls this callable for proposal rejection, but it does not exist as a deployed function. Not needed for the happy-path pilot.
 
 ---
 
@@ -200,9 +201,9 @@ Step 3: completeExchangeDelivery (single atomic phase):
 
 ## Recommended Next Steps
 
-1. **Deploy functions**: `cd functions && npm run build && firebase deploy --only functions`
-2. **Commit fixes**: Stage the changed files
-3. **Audit Firestore rules** for delivery collection (courier read access)
-4. **Manual runtime test**: Execute canonical scenario with `@promoshake.net` accounts
+1. ~~**Deploy functions**~~: **DONE** (commit `aec3b86`, deployed 2026-03-15)
+2. ~~**Commit fixes**~~: **DONE** (commit `aec3b86`)
+3. **Deploy updated Firestore rules**: Acceptance branch now includes field whitelist (post `aec3b86`)
+4. **Manual runtime test**: Execute canonical scenario with `@promoshake.net` accounts per `PILOT_RUNTIME_PREPARATION_V1.md`
 5. **Collect runtime evidence**: Screenshots + Firestore snapshots
 6. **Update this report**: Change verdict to PASS or FAIL based on runtime results
