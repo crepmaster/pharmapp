@@ -1,10 +1,10 @@
 # Pilot Execution Report - Exchange E2E v1
 
 **Date**: 2026-03-15
-**HEAD**: b1e897b (stabilized) + pilot fixes (v3)
+**HEAD**: 1ae7d56 (Pilot v6) — supersedes a840dce
 **Executor**: Claude (Developer role)
-**Review**: Codex (Architect role) — 2 P1 findings corrected, business rule arbitrated
-**Verdict**: **CONDITIONAL PASS** - code fixes applied, backend deployment + manual UI testing required
+**Review**: Codex (Architect role) — multiple review cycles, business rule arbitrated
+**Verdict**: **CONDITIONAL PASS** - code fixes applied and deployed, manual UI testing required
 
 ---
 

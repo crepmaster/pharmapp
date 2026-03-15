@@ -284,3 +284,64 @@ No options needed. Stage and commit `PILOT_RUNTIME_PREPARATION_V1.md`.
 - The field whitelist is derived from the legitimate client behavior, not from a new business rule
 - Report corrections are factual accuracy fixes
 - No new business rules introduced
+
+---
+
+## Pass 3 — Assigned courier field restriction (2026-03-15)
+
+**Scope**: P1 — assigned courier branch allows modification of `courierFee` and other financial fields; P2 — report/runtime note header coherence
+
+**This pass is forward-looking. No code has been written yet.**
+
+### Confirmed facts
+
+1. Once a courier accepts a delivery (via the whitelisted acceptance branch), the branch `resource.data.courierId == request.auth.uid` (line 231 root, line 228 unified) gives the assigned courier unrestricted update rights on the delivery document.
+2. `completeExchangeDelivery.ts:156` reads `delivery.courierFee` from the delivery document and uses it to compute `halfBuyer`, `halfSeller`, and the courier's full payment.
+3. `courierFee` is set server-side by `acceptExchangeProposal.ts:220` as `Math.round(totalPrice * 0.12)`. It should never change after delivery creation.
+4. Attack vector: courier accepts delivery → direct Firestore update sets `courierFee` to an arbitrary value (e.g., 1,000,000) → calls `completeExchangeDelivery` → receives inflated payment.
+5. The legitimate courier client (`delivery_service.dart`) writes to deliveries in these contexts:
+   - Status updates: `status`, `updatedAt`, `pickedUpAt`, `deliveredAt`, `failureReason`, `notes`, `proofImages`
+   - Issue reporting: `hasIssue`, `lastIssueReportedAt`
+   - Never writes: `courierFee`, `totalPrice`, `fromPharmacyId`, `toPharmacyId`, `city`, `proposalId`, `items`, `proposalType`, `currency`, `paymentStatus`
+6. `courier_location_service.dart` does not write to the deliveries collection.
+7. The execution report header still says `HEAD: b1e897b` and verdict line says "backend deployment + manual UI testing required". The runtime note says `Commit: aec3b86`.
+
+### Ambiguities
+
+1. **Should the assigned courier branch use a field whitelist or a field blacklist?**
+   - Whitelist (hasOnly): more restrictive, only allows known fields. Risk: if a future feature adds a legitimate courier write field, the rule must be updated.
+   - Blacklist (hasNone/hasAny negation): less restrictive, blocks only dangerous fields. Risk: new dangerous fields added in the future could be missed.
+   - **Conclusion**: Whitelist is the safer approach. The set of legitimate courier write fields is known and bounded. Future feature additions should update the rule — this is normal Firestore rules maintenance, not an excessive constraint.
+
+2. **What is the complete set of fields the courier may legitimately write?**
+   - From `delivery_service.dart` analysis: `status`, `updatedAt`, `pickedUpAt`, `deliveredAt`, `failureReason`, `notes`, `proofImages`, `hasIssue`, `lastIssueReportedAt`
+   - From `acceptDelivery`: `courierId`, `courierName`, `assignedAt`, `acceptedAt` — but these are already handled by the acceptance branch, not the assigned courier branch
+   - Location fields (if ever added for tracking): not currently written to deliveries
+   - **Conclusion**: 9 fields: `status`, `updatedAt`, `pickedUpAt`, `deliveredAt`, `failureReason`, `notes`, `proofImages`, `hasIssue`, `lastIssueReportedAt`. This is a data integrity determination from existing client code, not a business rule decision.
+
+3. **Does this change affect money flow logic?**
+   - No. The `completeExchangeDelivery` function continues to read `courierFee` from the delivery document. The change ensures that `courierFee` cannot be tampered with between delivery creation and completion.
+   - No new fee calculation, no new payment logic, no new ledger entries.
+   - **Conclusion**: This is a security enforcement that protects existing money flow, not a change to it.
+
+### Options considered
+
+| Option | Description | Trade-off |
+|--------|-------------|-----------|
+| A. Whitelist on assigned courier branch | `hasOnly([9 legitimate fields])` | Most restrictive. Future courier features need rule update. |
+| B. Blacklist financial fields | `hasNone(['courierFee', 'totalPrice', 'currency', ...])` | Less restrictive. New financial fields could be missed. |
+| C. Read courierFee from proposal instead of delivery | Server-side fix in `completeExchangeDelivery` | Eliminates the attack vector at source. But requires changing money flow logic (out of scope per gate rules). |
+| D. Do nothing, note as accepted risk | Document that server-side callable is the real gate | Leaves an exploitable attack vector open. |
+
+**Recommended: A** — whitelist the 9 legitimate fields. This is the same approach used for the acceptance branch, extended to the assigned courier branch. Option C would be architecturally better but changes money flow logic, which requires escalation.
+
+### Escalations required
+
+- None. The field whitelist is derived from the existing client code. No money flow logic is changed. No new business rule introduced. This is security enforcement within developer authority.
+
+### Go / No-Go
+
+- **Go** — field whitelist on assigned courier branch is security enforcement
+- The 9 allowed fields are derived from `delivery_service.dart` client code analysis
+- No change to fee calculation, payment logic, or ledger entries
+- Report/runtime note header corrections are factual accuracy
