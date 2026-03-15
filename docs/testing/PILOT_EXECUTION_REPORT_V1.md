@@ -1,7 +1,7 @@
 # Pilot Execution Report - Exchange E2E v1
 
 **Date**: 2026-03-15
-**HEAD**: 1ae7d56 (Pilot v6) — supersedes a840dce
+**HEAD**: updated at commit time (see git log)
 **Executor**: Claude (Developer role)
 **Review**: Codex (Architect role) — multiple review cycles, business rule arbitrated
 **Verdict**: **CONDITIONAL PASS** - code fixes applied and deployed, manual UI testing required
@@ -142,7 +142,7 @@ Step 3: completeExchangeDelivery (single atomic phase):
 | Transaction read ordering | **PASS** | All reads (buyer wallet, courier wallet, target inventory) before first write |
 | Delivery acceptance (rules) | **PASS** | `firestore.rules:218-230` — city match + `courierId == auth.uid` + `status == 'accepted'` + field whitelist + no pharmacy writes |
 | Buyer solvency for fee | **PASS** | `completeExchangeDelivery.ts:152-163` — checks `available >= halfBuyer` before debit |
-| Pre-implementation gate | **NOT YET DEMONSTRATED** | Pass 1 is retrospective (process gap). Pass 2 is the first forward-looking entry. Gate not yet proven by runtime execution. |
+| Pre-implementation gate | **DEMONSTRATED (Pass 2+3)** | Pass 1 retrospective (process gap). Pass 2 and Pass 3 are forward-looking, written before code. Gate mechanism demonstrated but not yet validated by runtime execution. |
 
 ### Runtime evidence (NOT YET COLLECTED)
 
@@ -201,9 +201,9 @@ Step 3: completeExchangeDelivery (single atomic phase):
 
 ## Recommended Next Steps
 
-1. ~~**Deploy functions**~~: **DONE** (commit `aec3b86`, deployed 2026-03-15)
-2. ~~**Commit fixes**~~: **DONE** (commit `aec3b86`)
-3. **Deploy updated Firestore rules**: Acceptance branch now includes field whitelist (post `aec3b86`)
+1. ~~**Deploy functions**~~: **DONE** (2026-03-15)
+2. ~~**Commit fixes**~~: **DONE** (Pilot v4→v6)
+3. ~~**Deploy Firestore rules**~~: **DONE** (2026-03-15, includes acceptance + assigned courier field whitelists)
 4. **Manual runtime test**: Execute canonical scenario with `@promoshake.net` accounts per `PILOT_RUNTIME_PREPARATION_V1.md`
 5. **Collect runtime evidence**: Screenshots + Firestore snapshots
 6. **Update this report**: Change verdict to PASS or FAIL based on runtime results

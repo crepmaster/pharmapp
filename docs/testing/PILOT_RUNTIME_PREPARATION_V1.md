@@ -1,7 +1,7 @@
 # Pilot Runtime Preparation - Exchange E2E v1
 
 **Date**: 2026-03-15
-**Commit**: 1ae7d56 (Pilot v6)
+**Commit**: updated at commit time (see git log)
 **Firebase Project**: mediexchange
 **Deployed**: Cloud Functions (3) + Firestore rules
 **Target App**: pharmapp_unified (web)
