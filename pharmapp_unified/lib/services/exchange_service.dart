@@ -27,7 +27,7 @@ class ExchangeService {
         body: jsonEncode({
           'aId': pharmacyAId,
           'bId': pharmacyBId,
-          'courierFee': courierFeeXAF * 100, // Convert to centimes
+          'courierFee': courierFeeXAF, // B5 fix: raw XAF, no centimes conversion
           'currency': 'XAF',
         }),
       );

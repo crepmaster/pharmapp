@@ -135,13 +135,11 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
         const buyerWalletRef = db
           .collection("wallets")
           .doc(delivery.fromPharmacyId); // Creator pharmacy paid
-        const courierWalletRef = db.collection("wallets").doc(userId); // Courier receives fee
+        // Courier fee handled by createExchangeHold/exchangeCapture, not here
 
-        // Calculate courier fee (50/50 split from exchangeCapture workflow)
-        // For now, use 10% of transaction as delivery fee
+        // Transfer medicine price from buyer to seller.
+        // Courier fee is handled separately by createExchangeHold/exchangeCapture.
         const totalAmount = proposal.reservations.walletReserved;
-        const courierFee = Math.round(totalAmount * 0.1); // 10% delivery fee
-        const sellerAmount = totalAmount - courierFee;
 
         // Move buyer's deducted balance → gone (payment captured)
         transaction.update(buyerWalletRef, {
@@ -149,24 +147,16 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
           updatedAt: FieldValue.serverTimestamp(),
         });
 
-        // Credit seller's wallet
+        // Credit seller's wallet with full medicine price
         transaction.update(sellerWalletRef, {
-          available: FieldValue.increment(sellerAmount),
-          updatedAt: FieldValue.serverTimestamp(),
-        });
-
-        // Credit courier's wallet
-        transaction.update(courierWalletRef, {
-          available: FieldValue.increment(courierFee),
+          available: FieldValue.increment(totalAmount),
           updatedAt: FieldValue.serverTimestamp(),
         });
 
         logger.info(
-          `completeExchangeDelivery: Payment finalized - Seller: ${sellerAmount}, Courier: ${courierFee} ${proposal.details?.currency || "XAF"}`,
+          `completeExchangeDelivery: Payment finalized - Seller receives: ${totalAmount} ${proposal.details?.currency || "XAF"}`,
           {
             totalAmount,
-            sellerAmount,
-            courierFee,
             sellerId: delivery.toPharmacyId,
             buyerId: delivery.fromPharmacyId,
             courierId: userId,
@@ -183,8 +173,8 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
           toPharmacyId: delivery.toPharmacyId,
           courierId: userId,
           totalAmount,
-          sellerAmount,
-          courierFee,
+          sellerAmount: totalAmount,
+          courierFee: 0,
           currency: proposal.details?.currency || "XAF",
           createdAt: FieldValue.serverTimestamp(),
         });

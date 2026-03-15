@@ -9,17 +9,32 @@ class DeliveryService {
   static final FirebaseFunctions _functions =
       FirebaseFunctions.instanceFor(region: 'europe-west1');
 
-  /// Get all available deliveries (not yet assigned to any courier)
+  /// Get all available deliveries filtered by courier's operating city
   static Stream<List<Delivery>> getAvailableDeliveries() {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) return Stream.value([]);
+
+    // First get courier's operating city, then filter deliveries
     return _firestore
-        .collection('deliveries')
-        .where('status', isEqualTo: 'pending')
+        .collection('users')
+        .doc(currentUser.uid)
         .snapshots()
-        .map((snapshot) {
-      final deliveries =
-          snapshot.docs.map((doc) => Delivery.fromFirestore(doc)).toList();
-      deliveries.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      return deliveries;
+        .asyncExpand((userDoc) {
+      final city = userDoc.data()?['city'] as String? ?? '';
+      if (city.isEmpty) {
+        return Stream.value(<Delivery>[]);
+      }
+      return _firestore
+          .collection('deliveries')
+          .where('status', isEqualTo: 'pending')
+          .where('city', isEqualTo: city)
+          .snapshots()
+          .map((snapshot) {
+        final deliveries =
+            snapshot.docs.map((doc) => Delivery.fromFirestore(doc)).toList();
+        deliveries.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        return deliveries;
+      });
     });
   }
 

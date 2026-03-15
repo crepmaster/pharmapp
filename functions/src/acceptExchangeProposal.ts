@@ -202,6 +202,9 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
           },
         ],
 
+        // City for courier filtering (same city for both pharmacies)
+        city: fromPharmacy?.city || toPharmacy?.city || "",
+
         // Delivery status
         status: "pending", // pending → assigned → picked_up → in_transit → delivered
         courierId: null, // Assigned when courier accepts

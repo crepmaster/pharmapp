@@ -115,6 +115,21 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
 
       const pharmacyData = pharmacyDoc.data();
 
+      // 🔒 CITY ISOLATION: Both pharmacies must be in the same city
+      const targetPharmacyDoc = await db.collection("pharmacies").doc(toPharmacyId).get();
+      if (!targetPharmacyDoc.exists) {
+        throw new HttpsError("not-found", "Target pharmacy not found");
+      }
+      const fromCity = pharmacyData?.city || "";
+      const toCity = targetPharmacyDoc.data()?.city || "";
+      if (!fromCity || !toCity || fromCity !== toCity) {
+        logger.warn(`createExchangeProposal: City mismatch - ${fromCity} vs ${toCity}`);
+        throw new HttpsError(
+          "failed-precondition",
+          "Exchange proposals can only be created between pharmacies in the same city"
+        );
+      }
+
       // Support both flat fields (subscriptionStatus) and nested (subscription.status)
       const subStatus = pharmacyData?.subscriptionStatus ?? pharmacyData?.subscription?.status;
       const subEndDate = pharmacyData?.subscriptionEndDate ?? pharmacyData?.subscription?.endDate;
