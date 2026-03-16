@@ -155,8 +155,8 @@ class ExchangeStatusScreen extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 12),
-                        _buildDetailRow('From', proposal.fromPharmacyId),
-                        _buildDetailRow('To', proposal.toPharmacyId),
+                        _buildPharmacyNameRow('From', proposal.fromPharmacyId),
+                        _buildPharmacyNameRow('To', proposal.toPharmacyId),
                         _buildDetailRow('Quantity', '${proposal.details.requestedQuantity}'),
                         _buildDetailRow('Offered Price', 
                             '${proposal.details.offeredPrice} ${proposal.details.currency}/unit'),
@@ -295,6 +295,26 @@ class ExchangeStatusScreen extends StatelessWidget {
           );
         },
       ),
+    );
+  }
+
+  Widget _buildPharmacyNameRow(String label, String pharmacyId) {
+    return FutureBuilder<DocumentSnapshot>(
+      future: FirebaseFirestore.instance.collection('pharmacies').doc(pharmacyId).get(),
+      builder: (context, snapshot) {
+        String name = pharmacyId;
+        if (snapshot.hasData && snapshot.data!.exists) {
+          final data = snapshot.data!.data() as Map<String, dynamic>?;
+          if (data != null) {
+            name = data['pharmacyName'] as String? ??
+                data['name'] as String? ??
+                data['displayName'] as String? ??
+                pharmacyId;
+            if (name.isEmpty) name = pharmacyId;
+          }
+        }
+        return _buildDetailRow(label, name);
+      },
     );
   }
 

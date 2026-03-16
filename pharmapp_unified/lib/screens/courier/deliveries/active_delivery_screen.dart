@@ -287,7 +287,7 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
                   ),
                 ),
                 Text(
-                  '\$${widget.delivery.deliveryFee.toStringAsFixed(2)}',
+                  widget.delivery.formattedCourierFee,
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,

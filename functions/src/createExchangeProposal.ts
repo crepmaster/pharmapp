@@ -275,6 +275,7 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
             `createExchangeProposal: Reserved ${details.totalPrice} ${details.currency} from wallet`,
             { userId, availableBalance, newAvailable: availableBalance - details.totalPrice! }
           );
+
         }
 
         // 🔒 FIX #2: EXCHANGE PROPOSAL - Atomic inventory quantity check + reservation
@@ -362,6 +363,22 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
         };
 
         transaction.set(proposalRef, proposalData);
+
+        // Ledger: record the wallet hold event (after proposalRef is available)
+        if (details.type === "purchase" && details.totalPrice) {
+          const holdLedgerRef = db.collection("ledger").doc();
+          transaction.set(holdLedgerRef, {
+            type: "proposal_wallet_hold_created",
+            proposalId: proposalRef.id,
+            userId,
+            amount: details.totalPrice,
+            currency: details.currency || "XAF",
+            from: "available",
+            to: "held",
+            description: "Wallet balance reserved for purchase proposal",
+            createdAt: FieldValue.serverTimestamp(),
+          });
+        }
 
         logger.info(
           `createExchangeProposal: Successfully created proposal ${proposalRef.id} (ATOMIC)`,

@@ -231,7 +231,7 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
       }
       
       // Factor 2: Delivery fee (20% weight)
-      score += (delivery.deliveryFee / 50.0).clamp(0.0, 1.0) * 0.2;
+      score += (delivery.courierFee / 50.0).clamp(0.0, 1.0) * 0.2;
       
       // Factor 3: Route efficiency - shorter pickup to delivery distance (20% weight)
       if (delivery.pickup.hasGPSLocation && delivery.delivery.hasGPSLocation) {
@@ -332,7 +332,7 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      '\$${delivery.deliveryFee.toStringAsFixed(2)}',
+                      delivery.formattedCourierFee,
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -503,7 +503,7 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
                     ),
                   ),
                   Text(
-                    'Total: \$${delivery.totalValue.toStringAsFixed(2)}',
+                    'Total: ${delivery.formattedTotalPrice}',
                     style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,

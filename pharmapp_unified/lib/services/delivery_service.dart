@@ -232,7 +232,7 @@ class DeliveryService {
       final totalEarnings = deliveries.docs.fold<double>(
         0.0,
         (total, doc) =>
-            total + (doc.data()['deliveryFee']?.toDouble() ?? 0.0),
+            total + (doc.data()['courierFee']?.toDouble() ?? doc.data()['deliveryFee']?.toDouble() ?? 0.0),
       );
 
       final successRate = totalDeliveries > 0
@@ -320,8 +320,9 @@ class DeliveryService {
         },
       ],
       'status': 'pending',
-      'deliveryFee': 15.0,
-      'totalValue': 75.0,
+      'courierFee': 15.0,
+      'totalPrice': 75.0,
+      'currency': 'XAF',
       'createdAt': DateTime.now().toIso8601String(),
       'proofImages': [],
     };

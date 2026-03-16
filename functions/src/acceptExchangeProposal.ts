@@ -163,11 +163,33 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
             amount: proposal.reservations.walletReserved,
           }
         );
+
+        // Ledger: record the wallet hold commitment event
+        const commitLedgerRef = db.collection("ledger").doc();
+        transaction.set(commitLedgerRef, {
+          type: "proposal_wallet_hold_committed",
+          proposalId: proposalId,
+          userId: proposal.fromPharmacyId,
+          amount: proposal.reservations.walletReserved,
+          currency: proposal.details?.currency || "XAF",
+          from: "held",
+          to: "deducted",
+          description: "Wallet hold committed after proposal accepted",
+          createdAt: FieldValue.serverTimestamp(),
+        });
       }
 
       // ===== PHASE 5: CREATE DELIVERY ORDER =====
 
       const deliveryRef = db.collection("deliveries").doc(); // Auto-generate delivery ID
+
+      // For purchase: delivery.from = pickup (seller), delivery.to = dropoff (buyer)
+      // For exchange: from/to follow proposal order (unchanged in this pass — see step 4B)
+      const isPurchase = proposal.details?.type === "purchase";
+      const pickupPharmacy = isPurchase ? toPharmacy : fromPharmacy;
+      const pickupId = isPurchase ? proposal.toPharmacyId : proposal.fromPharmacyId;
+      const dropoffPharmacy = isPurchase ? fromPharmacy : toPharmacy;
+      const dropoffId = isPurchase ? proposal.fromPharmacyId : proposal.toPharmacyId;
 
       const deliveryData = {
         // Delivery identifiers
@@ -175,20 +197,20 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
         proposalId: proposalId,
         exchangeId: null, // Will be linked by exchangeCapture function
 
-        // Pharmacy information
-        fromPharmacyId: proposal.fromPharmacyId,
-        fromPharmacyName: fromPharmacy?.pharmacyName || "Unknown Pharmacy",
-        fromPharmacyAddress: fromPharmacy?.address || "",
-        fromPharmacyCity: fromPharmacy?.city || "",
-        fromPharmacyLocation: fromPharmacy?.location || null,
-        fromPharmacyPhone: fromPharmacy?.phoneNumber || "",
+        // Pharmacy information (logistic roles: from = pickup, to = dropoff)
+        fromPharmacyId: pickupId,
+        fromPharmacyName: pickupPharmacy?.pharmacyName || pickupPharmacy?.name || pickupPharmacy?.displayName || "Unknown Pharmacy",
+        fromPharmacyAddress: pickupPharmacy?.address || "",
+        fromPharmacyCity: pickupPharmacy?.city || "",
+        fromPharmacyLocation: pickupPharmacy?.location || null,
+        fromPharmacyPhone: pickupPharmacy?.phoneNumber || "",
 
-        toPharmacyId: proposal.toPharmacyId,
-        toPharmacyName: toPharmacy?.pharmacyName || "Unknown Pharmacy",
-        toPharmacyAddress: toPharmacy?.address || "",
-        toPharmacyCity: toPharmacy?.city || "",
-        toPharmacyLocation: toPharmacy?.location || null,
-        toPharmacyPhone: toPharmacy?.phoneNumber || "",
+        toPharmacyId: dropoffId,
+        toPharmacyName: dropoffPharmacy?.pharmacyName || dropoffPharmacy?.name || dropoffPharmacy?.displayName || "Unknown Pharmacy",
+        toPharmacyAddress: dropoffPharmacy?.address || "",
+        toPharmacyCity: dropoffPharmacy?.city || "",
+        toPharmacyLocation: dropoffPharmacy?.location || null,
+        toPharmacyPhone: dropoffPharmacy?.phoneNumber || "",
 
         // Medicine/item details
         items: [
@@ -278,8 +300,8 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
         status: "accepted",
         delivery: {
           id: deliveryRef.id,
-          fromPharmacy: fromPharmacy?.pharmacyName || "Unknown",
-          toPharmacy: toPharmacy?.pharmacyName || "Unknown",
+          fromPharmacy: fromPharmacy?.pharmacyName || fromPharmacy?.name || fromPharmacy?.displayName || "Unknown",
+          toPharmacy: toPharmacy?.pharmacyName || toPharmacy?.name || toPharmacy?.displayName || "Unknown",
           status: "pending",
         },
       };

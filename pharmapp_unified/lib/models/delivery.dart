@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
 
 /// Delivery status enum
 enum DeliveryStatus {
@@ -123,8 +124,9 @@ class Delivery extends Equatable {
   final DeliveryLocation delivery;
   final List<DeliveryItem> items;
   final DeliveryStatus status;
-  final double deliveryFee;
-  final double totalValue;
+  final double courierFee;
+  final double totalPrice;
+  final String currency;
   final DateTime createdAt;
   final DateTime? acceptedAt;
   final DateTime? pickedUpAt;
@@ -141,8 +143,9 @@ class Delivery extends Equatable {
     required this.delivery,
     required this.items,
     required this.status,
-    required this.deliveryFee,
-    required this.totalValue,
+    required this.courierFee,
+    required this.totalPrice,
+    this.currency = 'XAF',
     required this.createdAt,
     this.acceptedAt,
     this.pickedUpAt,
@@ -182,6 +185,19 @@ class Delivery extends Equatable {
     }
   }
 
+  /// Formats a monetary amount with thousands separator and currency.
+  /// Example: formatAmount(2400, 'XAF') → '2,400 XAF'
+  static String formatAmount(double amount, String currency) {
+    final formatter = NumberFormat('#,##0', 'en_US');
+    return '${formatter.format(amount.round())} $currency';
+  }
+
+  /// Convenience: format this delivery's courier fee
+  String get formattedCourierFee => formatAmount(courierFee, currency);
+
+  /// Convenience: format this delivery's total price
+  String get formattedTotalPrice => formatAmount(totalPrice, currency);
+
   Duration? get deliveryDuration {
     if (acceptedAt != null && deliveredAt != null) {
       return deliveredAt!.difference(acceptedAt!);
@@ -197,8 +213,9 @@ class Delivery extends Equatable {
     DeliveryLocation? delivery,
     List<DeliveryItem>? items,
     DeliveryStatus? status,
-    double? deliveryFee,
-    double? totalValue,
+    double? courierFee,
+    double? totalPrice,
+    String? currency,
     DateTime? createdAt,
     DateTime? acceptedAt,
     DateTime? pickedUpAt,
@@ -215,8 +232,9 @@ class Delivery extends Equatable {
       delivery: delivery ?? this.delivery,
       items: items ?? this.items,
       status: status ?? this.status,
-      deliveryFee: deliveryFee ?? this.deliveryFee,
-      totalValue: totalValue ?? this.totalValue,
+      courierFee: courierFee ?? this.courierFee,
+      totalPrice: totalPrice ?? this.totalPrice,
+      currency: currency ?? this.currency,
       createdAt: createdAt ?? this.createdAt,
       acceptedAt: acceptedAt ?? this.acceptedAt,
       pickedUpAt: pickedUpAt ?? this.pickedUpAt,
@@ -229,8 +247,8 @@ class Delivery extends Equatable {
 
   @override
   List<Object?> get props => [
-    id, exchangeId, courierId, pickup, delivery, items, status, deliveryFee,
-    totalValue, createdAt, acceptedAt, pickedUpAt, deliveredAt, notes,
+    id, exchangeId, courierId, pickup, delivery, items, status, courierFee,
+    totalPrice, currency, createdAt, acceptedAt, pickedUpAt, deliveredAt, notes,
     failureReason, proofImages
   ];
 
@@ -274,8 +292,9 @@ class Delivery extends Equatable {
       'delivery': delivery.toMap(),
       'items': items.map((item) => item.toMap()).toList(),
       'status': statusToBackend(status),
-      'deliveryFee': deliveryFee,
-      'totalValue': totalValue,
+      'courierFee': courierFee,
+      'totalPrice': totalPrice,
+      'currency': currency,
       'createdAt': createdAt.toIso8601String(),
       'acceptedAt': acceptedAt?.toIso8601String(),
       'pickedUpAt': pickedUpAt?.toIso8601String(),
@@ -300,8 +319,9 @@ class Delivery extends Equatable {
           ?.map((item) => DeliveryItem.fromMap(item))
           .toList() ?? [],
       status: statusFromBackend(map['status'] ?? 'pending'),
-      deliveryFee: map['deliveryFee']?.toDouble() ?? 0.0,
-      totalValue: map['totalValue']?.toDouble() ?? 0.0,
+      courierFee: map['courierFee']?.toDouble() ?? map['deliveryFee']?.toDouble() ?? 0.0,
+      totalPrice: map['totalPrice']?.toDouble() ?? map['totalValue']?.toDouble() ?? 0.0,
+      currency: map['currency'] as String? ?? 'XAF',
       createdAt: _parseDateTime(map['createdAt']) ?? DateTime.now(),
       acceptedAt: _parseDateTime(map['acceptedAt']) ?? _parseDateTime(map['assignedAt']),
       pickedUpAt: _parseDateTime(map['pickedUpAt']),

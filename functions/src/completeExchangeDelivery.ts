@@ -126,22 +126,40 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
 
       const proposal = proposalSnapshot.data();
 
+      // ===== FINANCE/STOCK ROLES — always from proposal (source of truth) =====
+      // proposal.fromPharmacyId = buyer (the one who created the proposal)
+      // proposal.toPharmacyId = seller (the inventory owner)
+      // delivery.fromPharmacyId/toPharmacyId = logistic roles (pickup/dropoff), NOT finance
+      const buyerId = proposal?.fromPharmacyId || delivery.fromPharmacyId;
+      const sellerId = proposal?.toPharmacyId || delivery.toPharmacyId;
+
       // ===== PHASE 1b: READ ALL DOCUMENTS NEEDED (Firestore requires reads before writes) =====
 
-      const buyerWalletRef = db.collection("wallets").doc(delivery.fromPharmacyId);
-      const sellerWalletRef = db.collection("wallets").doc(delivery.toPharmacyId);
+      const buyerWalletRef = db.collection("wallets").doc(buyerId);
+      const sellerWalletRef = db.collection("wallets").doc(sellerId);
       const courierWalletRef = db.collection("wallets").doc(userId);
 
-      // Target inventory for Phase 3
-      const targetInventoryItemId = `${delivery.toPharmacyId}_${delivery.items?.[0]?.medicineId || "unknown"}`;
-      const targetInventoryRef = db.collection("pharmacy_inventory").doc(targetInventoryItemId);
+      // Source inventory (seller's item) for Phase 3 — needed to decrement and copy metadata
+      const sourceInventoryId = proposal?.inventoryItemId;
+      const sourceInventoryRef = sourceInventoryId
+        ? db.collection("pharmacy_inventory").doc(sourceInventoryId)
+        : null;
 
-      // Read all wallets + target inventory upfront (Firestore: all reads before first write)
-      const [buyerWalletSnap, courierWalletSnap, targetInventorySnapshot] = await Promise.all([
+      // Target inventory for Phase 3 — buyer receives the medicine (one document per reception, no fusion)
+      const targetInventoryRef = db.collection("pharmacy_inventory").doc(); // Auto-generate ID
+
+      // Read all wallets + source inventory upfront (Firestore: all reads before first write)
+      const readsToPerform: Promise<FirebaseFirestore.DocumentSnapshot>[] = [
         transaction.get(buyerWalletRef),
         transaction.get(courierWalletRef),
-        transaction.get(targetInventoryRef),
-      ]);
+      ];
+      if (sourceInventoryRef) {
+        readsToPerform.push(transaction.get(sourceInventoryRef));
+      }
+      const readResults = await Promise.all(readsToPerform);
+      const buyerWalletSnap = readResults[0];
+      const courierWalletSnap = readResults[1];
+      const sourceInventorySnapshot = readResults.length > 2 ? readResults[2] : null;
 
       // ===== PHASE 2: FINALIZE PAYMENT + COURIER FEE =====
       //
@@ -168,7 +186,7 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
           const buyerAvailable = buyerWalletSnap.data()?.available || 0;
           if (buyerAvailable < halfBuyer) {
             logger.warn(
-              `completeExchangeDelivery: Buyer ${delivery.fromPharmacyId} has insufficient balance for courier fee share`,
+              `completeExchangeDelivery: Buyer ${buyerId} has insufficient balance for courier fee share`,
               { required: halfBuyer, available: buyerAvailable }
             );
             throw new HttpsError(
@@ -224,8 +242,8 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
             courierFee,
             halfBuyer,
             halfSeller,
-            sellerId: delivery.toPharmacyId,
-            buyerId: delivery.fromPharmacyId,
+            sellerId,
+            buyerId,
             courierId: userId,
             currency,
           }
@@ -237,8 +255,8 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
           type: "exchange_delivery_payment",
           deliveryId: deliveryId,
           proposalId: proposal?.proposalId || delivery.proposalId,
-          fromPharmacyId: delivery.fromPharmacyId,
-          toPharmacyId: delivery.toPharmacyId,
+          buyerId,
+          sellerId,
           courierId: userId,
           totalAmount,
           sellerAmount: sellerNetCredit,
@@ -252,7 +270,7 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
           const buyerFeeLedger = db.collection("ledger").doc();
           transaction.set(buyerFeeLedger, {
             type: "courier_fee",
-            userId: delivery.fromPharmacyId,
+            userId: buyerId,
             amount: halfBuyer,
             currency,
             from: "wallet",
@@ -266,7 +284,7 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
           const sellerFeeLedger = db.collection("ledger").doc();
           transaction.set(sellerFeeLedger, {
             type: "courier_fee",
-            userId: delivery.toPharmacyId,
+            userId: sellerId,
             amount: halfSeller,
             currency,
             from: "sale_proceeds",
@@ -294,13 +312,44 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
 
       // ===== PHASE 3: UPDATE INVENTORY COUNTS =====
 
-      // For exchange proposals: Release reserved inventory from creator, add to target
+      const receivedQuantity = proposal?.details?.quantity || 0;
+      const sourceData = sourceInventorySnapshot?.data();
+
+      // --- 3A: DECREMENT SELLER STOCK ---
+
+      if (proposal?.details?.type === "purchase" && sourceInventoryRef) {
+        // Verify seller has sufficient stock
+        const sellerAvailable = sourceData?.availableQuantity || 0;
+        if (sellerAvailable < receivedQuantity) {
+          throw new HttpsError(
+            "failed-precondition",
+            `Seller has insufficient stock. Required: ${receivedQuantity}, Available: ${sellerAvailable}`
+          );
+        }
+
+        // Decrement seller's availableQuantity only (totalQuantity is not canonical)
+        transaction.update(sourceInventoryRef, {
+          availableQuantity: FieldValue.increment(-receivedQuantity),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+
+        logger.info(
+          `completeExchangeDelivery: Decremented ${receivedQuantity} units from seller inventory`,
+          {
+            inventoryId: sourceInventoryId,
+            sellerId,
+            previousAvailable: sellerAvailable,
+            quantity: receivedQuantity,
+          }
+        );
+      }
+
+      // For exchange proposals: Release reserved inventory from creator
       if (proposal?.details?.type === "exchange" && proposal?.reservations?.inventoryReserved) {
         const creatorInventoryRef = db
           .collection("pharmacy_inventory")
           .doc(proposal.details.exchangeInventoryItemId);
 
-        // Deduct reserved quantity from creator's inventory (already reserved, now gone)
         transaction.update(creatorInventoryRef, {
           reservedQuantity: FieldValue.increment(
             -proposal.reservations.inventoryReserved
@@ -320,43 +369,41 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
         );
       }
 
-      // Add received medicine to target pharmacy's inventory
-      // (targetInventoryRef and targetInventorySnapshot read in Phase 1b)
-      const receivedQuantity = proposal?.details?.quantity || 0;
+      // --- 3B: CREATE BUYER INVENTORY ITEM (one document per reception, no fusion) ---
 
-      if (targetInventorySnapshot.exists) {
-        // Update existing inventory item
-        transaction.update(targetInventoryRef, {
-          availableQuantity: FieldValue.increment(receivedQuantity),
-          totalQuantity: FieldValue.increment(receivedQuantity),
-          updatedAt: FieldValue.serverTimestamp(),
-        });
-      } else {
-        // Create new inventory item for target pharmacy
-        const inventoryItem = delivery.items?.[0];
-        transaction.set(targetInventoryRef, {
-          pharmacyId: delivery.toPharmacyId,
-          medicineId: inventoryItem?.medicineId || "",
-          medicineName: inventoryItem?.medicineName || "Unknown Medicine",
-          dosage: inventoryItem?.dosage || "",
-          form: inventoryItem?.form || "",
-          packaging: inventoryItem?.packaging || "",
-          availableQuantity: receivedQuantity,
-          totalQuantity: receivedQuantity,
-          reservedQuantity: 0,
-          expirationDate: null, // TODO: Get from original inventory if available
-          batchNumber: null,
-          isAvailableForExchange: true,
-          createdAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp(),
-        });
-      }
+      const inventoryItem = delivery.items?.[0];
+
+      // Reprise des métadonnées batch depuis l'inventaire source si disponibles
+      const sourceBatch = sourceData?.batch || {};
+      const batchData = {
+        lotNumber: sourceBatch.lotNumber || "RECEIVED",
+        expirationDate: sourceBatch.expirationDate || null,
+      };
+
+      transaction.set(targetInventoryRef, {
+        pharmacyId: buyerId,
+        medicineId: inventoryItem?.medicineId || "",
+        medicineName: inventoryItem?.medicineName || "Unknown Medicine",
+        dosage: inventoryItem?.dosage || "",
+        form: inventoryItem?.form || "",
+        packaging: inventoryItem?.packaging || sourceData?.packaging || "units",
+        availableQuantity: receivedQuantity,
+        batch: batchData,
+        availabilitySettings: {
+          availableForExchange: false, // Private by default — buyer must explicitly publish
+          minExchangeQuantity: 1,
+          maxExchangeQuantity: receivedQuantity,
+        },
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
 
       logger.info(
-        `completeExchangeDelivery: Added ${receivedQuantity} units to target pharmacy inventory`,
+        `completeExchangeDelivery: Created buyer inventory item`,
         {
-          targetPharmacyId: delivery.toPharmacyId,
-          medicineId: delivery.items?.[0]?.medicineId,
+          targetPharmacyId: buyerId,
+          targetInventoryId: targetInventoryRef.id,
+          medicineId: inventoryItem?.medicineId,
           quantity: receivedQuantity,
         }
       );
@@ -396,8 +443,8 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
         {
           proposalId: delivery.proposalId,
           proposalType: proposal?.details?.type,
-          fromPharmacyId: delivery.fromPharmacyId,
-          toPharmacyId: delivery.toPharmacyId,
+          buyerId,
+          sellerId,
           courierId: userId,
           paymentFinalized: proposal?.details?.type === "purchase",
           inventoryUpdated: true,

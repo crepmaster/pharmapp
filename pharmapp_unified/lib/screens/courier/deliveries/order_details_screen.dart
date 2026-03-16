@@ -94,7 +94,7 @@ class OrderDetailsScreen extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '\$${delivery.deliveryFee.toStringAsFixed(2)}',
+                  delivery.formattedCourierFee,
                   style: const TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
@@ -115,7 +115,7 @@ class OrderDetailsScreen extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '\$${delivery.totalValue.toStringAsFixed(2)}',
+                  delivery.formattedTotalPrice,
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
@@ -405,7 +405,7 @@ class OrderDetailsScreen extends StatelessWidget {
           
           if (item.pricePerUnit != null)
             Text(
-              '\$${item.totalPrice.toStringAsFixed(2)}',
+              Delivery.formatAmount(item.totalPrice, delivery.currency),
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
