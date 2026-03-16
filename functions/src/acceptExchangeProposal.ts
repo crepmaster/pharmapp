@@ -183,13 +183,15 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
 
       const deliveryRef = db.collection("deliveries").doc(); // Auto-generate delivery ID
 
-      // For purchase: delivery.from = pickup (seller), delivery.to = dropoff (buyer)
-      // For exchange: from/to follow proposal order (unchanged in this pass — see step 4B)
-      const isPurchase = proposal.details?.type === "purchase";
-      const pickupPharmacy = isPurchase ? toPharmacy : fromPharmacy;
-      const pickupId = isPurchase ? proposal.toPharmacyId : proposal.fromPharmacyId;
-      const dropoffPharmacy = isPurchase ? fromPharmacy : toPharmacy;
-      const dropoffId = isPurchase ? proposal.fromPharmacyId : proposal.toPharmacyId;
+      // delivery.from = pickup (owner/seller), delivery.to = dropoff (proposer/buyer)
+      // Same for both purchase and exchange:
+      //   - pickup is always at the inventory owner (proposal.toPharmacyId)
+      //   - dropoff is always at the proposer (proposal.fromPharmacyId)
+      // For exchange, the return movement A->B is a back-office stock transfer, not a courier trip
+      const pickupPharmacy = toPharmacy;
+      const pickupId = proposal.toPharmacyId;
+      const dropoffPharmacy = fromPharmacy;
+      const dropoffId = proposal.fromPharmacyId;
 
       const deliveryData = {
         // Delivery identifiers

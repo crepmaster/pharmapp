@@ -139,16 +139,25 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
       const sellerWalletRef = db.collection("wallets").doc(sellerId);
       const courierWalletRef = db.collection("wallets").doc(userId);
 
-      // Source inventory (seller's item) for Phase 3 — needed to decrement and copy metadata
+      // Source inventory (owner's item Y) for Phase 3 — needed to decrement and copy metadata
       const sourceInventoryId = proposal?.inventoryItemId;
       const sourceInventoryRef = sourceInventoryId
         ? db.collection("pharmacy_inventory").doc(sourceInventoryId)
         : null;
 
-      // Target inventory for Phase 3 — buyer receives the medicine (one document per reception, no fusion)
-      const targetInventoryRef = db.collection("pharmacy_inventory").doc(); // Auto-generate ID
+      // Exchange: proposer's offered item X — needed for back-office stock transfer
+      const exchangeInventoryId = proposal?.details?.exchangeInventoryItemId;
+      const exchangeInventoryRef = (proposal?.details?.type === "exchange" && exchangeInventoryId)
+        ? db.collection("pharmacy_inventory").doc(exchangeInventoryId)
+        : null;
 
-      // Read all wallets + source inventory upfront (Firestore: all reads before first write)
+      // Target inventory refs for Phase 3 — auto-generate IDs (one document per reception)
+      const targetInventoryRef = db.collection("pharmacy_inventory").doc();
+      const targetInventoryRef2 = (proposal?.details?.type === "exchange")
+        ? db.collection("pharmacy_inventory").doc()
+        : null;
+
+      // Read all wallets + source inventories upfront (Firestore: all reads before first write)
       const readsToPerform: Promise<FirebaseFirestore.DocumentSnapshot>[] = [
         transaction.get(buyerWalletRef),
         transaction.get(courierWalletRef),
@@ -156,10 +165,15 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
       if (sourceInventoryRef) {
         readsToPerform.push(transaction.get(sourceInventoryRef));
       }
+      if (exchangeInventoryRef) {
+        readsToPerform.push(transaction.get(exchangeInventoryRef));
+      }
       const readResults = await Promise.all(readsToPerform);
       const buyerWalletSnap = readResults[0];
       const courierWalletSnap = readResults[1];
-      const sourceInventorySnapshot = readResults.length > 2 ? readResults[2] : null;
+      let readIdx = 2;
+      const sourceInventorySnapshot = sourceInventoryRef ? readResults[readIdx++] : null;
+      const exchangeInventorySnapshot = exchangeInventoryRef ? readResults[readIdx++] : null;
 
       // ===== PHASE 2: FINALIZE PAYMENT + COURIER FEE =====
       //
@@ -344,29 +358,96 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
         );
       }
 
-      // For exchange proposals: Release reserved inventory from creator
-      if (proposal?.details?.type === "exchange" && proposal?.reservations?.inventoryReserved) {
-        const creatorInventoryRef = db
-          .collection("pharmacy_inventory")
-          .doc(proposal.details.exchangeInventoryItemId);
+      // For exchange proposals: bilateral stock settlement
+      // This is a pilot compromise: one visible courier trip B->A,
+      // the return movement A->B is a back-office stock transfer at completion.
+      if (proposal?.details?.type === "exchange") {
+        // Guard: both inventories must exist for an exchange to complete
+        if (!sourceInventorySnapshot?.exists) {
+          throw new HttpsError(
+            "failed-precondition",
+            `Owner inventory item not found: ${sourceInventoryId}. Exchange cannot complete.`
+          );
+        }
+        if (!exchangeInventorySnapshot?.exists) {
+          throw new HttpsError(
+            "failed-precondition",
+            `Proposer exchange inventory item not found: ${exchangeInventoryId}. Exchange cannot complete.`
+          );
+        }
 
-        transaction.update(creatorInventoryRef, {
-          reservedQuantity: FieldValue.increment(
-            -proposal.reservations.inventoryReserved
-          ),
-          totalQuantity: FieldValue.increment(
-            -proposal.reservations.inventoryReserved
-          ),
-          updatedAt: FieldValue.serverTimestamp(),
-        });
+        const exchangeQuantity = proposal?.reservations?.inventoryReserved || proposal?.details?.exchangeQuantity || 0;
+        const exchangeData = exchangeInventorySnapshot.data();
 
-        logger.info(
-          `completeExchangeDelivery: Deducted ${proposal.reservations.inventoryReserved} units from creator inventory`,
-          {
-            inventoryId: proposal.details.exchangeInventoryItemId,
-            quantity: proposal.reservations.inventoryReserved,
+        // 3A-exchange-1: Finalize proposer A's offered item X
+        // availableQuantity was already decremented at reservation time, only clear reservedQuantity
+        if (exchangeInventoryRef && exchangeQuantity > 0) {
+          transaction.update(exchangeInventoryRef, {
+            reservedQuantity: FieldValue.increment(-exchangeQuantity),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+
+          logger.info(
+            `completeExchangeDelivery: Released ${exchangeQuantity} reserved units from proposer inventory`,
+            { inventoryId: exchangeInventoryId, quantity: exchangeQuantity }
+          );
+        }
+
+        // 3A-exchange-2: Decrement owner B's item Y (availableQuantity only)
+        if (sourceInventoryRef && sourceData) {
+          const ownerAvailable = sourceData.availableQuantity || 0;
+          if (ownerAvailable < receivedQuantity) {
+            throw new HttpsError(
+              "failed-precondition",
+              `Owner has insufficient stock for exchange. Required: ${receivedQuantity}, Available: ${ownerAvailable}`
+            );
           }
-        );
+
+          transaction.update(sourceInventoryRef, {
+            availableQuantity: FieldValue.increment(-receivedQuantity),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+
+          logger.info(
+            `completeExchangeDelivery: Decremented ${receivedQuantity} units from owner inventory`,
+            { inventoryId: sourceInventoryId, sellerId, quantity: receivedQuantity }
+          );
+        }
+
+        // 3B-exchange: Create item X at owner B (back-office transfer)
+        if (targetInventoryRef2 && exchangeData) {
+          const exchangeBatch = exchangeData.batch || {};
+          transaction.set(targetInventoryRef2, {
+            pharmacyId: sellerId,
+            medicineId: exchangeData.medicineId || "",
+            medicineName: exchangeData.medicineName || "Unknown Medicine",
+            dosage: exchangeData.dosage || "",
+            form: exchangeData.form || "",
+            packaging: exchangeData.packaging || "units",
+            availableQuantity: exchangeQuantity,
+            batch: {
+              lotNumber: exchangeBatch.lotNumber || "EXCHANGED",
+              expirationDate: exchangeBatch.expirationDate || null,
+            },
+            availabilitySettings: {
+              availableForExchange: false,
+              minExchangeQuantity: 1,
+              maxExchangeQuantity: exchangeQuantity,
+            },
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+
+          logger.info(
+            `completeExchangeDelivery: Created exchange item at owner pharmacy (back-office transfer)`,
+            {
+              targetPharmacyId: sellerId,
+              targetInventoryId: targetInventoryRef2.id,
+              medicineId: exchangeData.medicineId,
+              quantity: exchangeQuantity,
+            }
+          );
+        }
       }
 
       // --- 3B: CREATE BUYER INVENTORY ITEM (one document per reception, no fusion) ---
