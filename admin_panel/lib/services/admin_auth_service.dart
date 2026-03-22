@@ -20,44 +20,34 @@ class AdminAuthService {
     required String email,
     required String password,
   }) async {
-    // Admin login attempt
     try {
-      // Checking admin document in Firestore
-      // First verify this email is an admin
-      final adminDoc = await _firestore
-          .collection(_adminsCollection)
-          .where('email', isEqualTo: email)
-          .where('isActive', isEqualTo: true)
-          .get();
-      // Admin doc query completed
-
-      if (adminDoc.docs.isEmpty) {
-        
-        throw Exception('Access denied. Admin account not found.');
-      }
-
-      // Admin document found, proceeding with Firebase Auth
-      // Authenticate with Firebase Auth
+      // Step 1: Authenticate with Firebase Auth FIRST.
+      // This gives us a valid auth token before any Firestore reads.
       final credential = await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
-      // Firebase Auth successful
 
-      if (credential.user != null) {
-        // Updating last login time
-        // Update last login time
-        await _updateLastLogin(credential.user!.uid);
-        
-        // Getting admin user data
-        // Get admin user data
-        final adminUser = await getAdminUser(credential.user!.uid);
-        
-        return adminUser;
+      if (credential.user == null) return null;
+
+      final uid = credential.user!.uid;
+
+      // Step 2: Read admins/{uid} — now authenticated, rules allow own-doc read.
+      final adminDoc = await _firestore
+          .collection(_adminsCollection)
+          .doc(uid)
+          .get();
+
+      if (!adminDoc.exists || adminDoc.data()?['isActive'] != true) {
+        // Not an admin or inactive — sign out and reject.
+        await _auth.signOut();
+        throw Exception('Access denied. Admin account not found or inactive.');
       }
 
-      // Firebase Auth returned null user
-      return null;
+      // Step 3: Update last login and return admin user.
+      await _updateLastLogin(uid);
+      final adminUser = await getAdminUser(uid);
+      return adminUser;
     } on FirebaseAuthException catch (e) {
       // Firebase Auth Exception occurred
       String message = 'Authentication failed';
