@@ -140,7 +140,6 @@ class MasterDataProvider {
 class MasterDataSnapshot {
   final MasterDataSource source;
   final String primaryCountryCode;
-  final String primaryCurrencyCode;
 
   /// Keyed by ISO 3166-1 alpha-2 country code.
   final Map<String, MasterDataCountry> countries;
@@ -157,7 +156,6 @@ class MasterDataSnapshot {
   const MasterDataSnapshot({
     required this.source,
     required this.primaryCountryCode,
-    required this.primaryCurrencyCode,
     required this.countries,
     required this.citiesByCountry,
     required this.currencies,

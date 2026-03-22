@@ -22,45 +22,6 @@ class CurrenciesTab extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Primary currency
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Primary Currency',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    value: config.primaryCurrencyCode.isNotEmpty
-                        ? config.primaryCurrencyCode
-                        : null,
-                    decoration: const InputDecoration(
-                      labelText: 'Select Primary Currency',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: currencies
-                        .where((c) => c.enabled)
-                        .map((c) => DropdownMenuItem(
-                              value: c.code,
-                              child: Text('${c.name} (${c.code})'),
-                            ))
-                        .toList(),
-                    onChanged: (value) async {
-                      if (value != null) {
-                        final ok =
-                            await SystemConfigService.setPrimaryCurrency(value);
-                        if (ok) onChanged();
-                      }
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-
           // Currency list
           Card(
             child: Padding(
@@ -98,7 +59,6 @@ class CurrenciesTab extends StatelessWidget {
   }
 
   Widget _buildCurrencyTile(BuildContext context, CurrencyOption currency) {
-    final isPrimary = currency.code == config.primaryCurrencyCode;
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
@@ -111,21 +71,7 @@ class CurrenciesTab extends StatelessWidget {
             style: const TextStyle(color: Colors.white, fontSize: 10),
           ),
         ),
-        title: Row(
-          children: [
-            Text(currency.name),
-            if (isPrimary) ...[
-              const SizedBox(width: 8),
-              Chip(
-                label:
-                    const Text('Primary', style: TextStyle(fontSize: 10)),
-                backgroundColor: Colors.blue.shade100,
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                visualDensity: VisualDensity.compact,
-              ),
-            ],
-          ],
-        ),
+        title: Text(currency.name),
         subtitle: Text(
           '${currency.symbol} · decimals=${currency.decimals}'
           ' · fx=${currency.fxBaseRate}',

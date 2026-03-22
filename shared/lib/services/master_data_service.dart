@@ -133,7 +133,6 @@ class MasterDataService {
     return MasterDataSnapshot(
       source: MasterDataSource.remote,
       primaryCountryCode: data['primaryCountryCode'] as String? ?? '',
-      primaryCurrencyCode: data['primaryCurrencyCode'] as String? ?? '',
       countries: countries,
       citiesByCountry: citiesByCountry,
       currencies: currencies,
@@ -259,7 +258,6 @@ class MasterDataService {
     return MasterDataSnapshot(
       source: MasterDataSource.fallback,
       primaryCountryCode: 'CM',
-      primaryCurrencyCode: 'XAF',
       countries: countries,
       citiesByCountry: citiesByCountry,
       currencies: currencies,

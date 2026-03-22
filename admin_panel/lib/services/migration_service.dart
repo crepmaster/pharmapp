@@ -201,7 +201,6 @@ class MigrationService {
         'schemaVersion': 1,
         'status': 'active',
         'primaryCountryCode': primaryCountryCode,
-        'primaryCurrencyCode': legacyPrimary,
         'countries': countries,
         'citiesByCountry': citiesByCountry,
         'currencies': currencies,

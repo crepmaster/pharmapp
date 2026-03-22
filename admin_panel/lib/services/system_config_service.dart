@@ -64,7 +64,6 @@ class SystemConfigService {
         'schemaVersion': 1,
         'status': 'active',
         'primaryCountryCode': '',
-        'primaryCurrencyCode': '',
         'countries': <String, dynamic>{},
         'citiesByCountry': <String, dynamic>{},
         'currencies': <String, dynamic>{},
@@ -190,10 +189,12 @@ class SystemConfigService {
     }
   }
 
-  static Future<bool> setPrimaryCurrency(String code) async {
+  /// One-shot cleanup: remove the legacy `primaryCurrencyCode` field from
+  /// `system_config/main`. Currency is now per-country via `defaultCurrencyCode`.
+  static Future<bool> removeLegacyPrimaryCurrencyCode() async {
     try {
       await _configRef.update({
-        'primaryCurrencyCode': code,
+        'primaryCurrencyCode': FieldValue.delete(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
       return true;

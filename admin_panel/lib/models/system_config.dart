@@ -44,7 +44,6 @@ class SystemConfigV1 {
   final int schemaVersion;
   final String status;
   final String primaryCountryCode;
-  final String primaryCurrencyCode;
   final Map<String, CountryOption> countries;
   final Map<String, Map<String, CityOption>> citiesByCountry;
   final Map<String, CurrencyOption> currencies;
@@ -57,7 +56,6 @@ class SystemConfigV1 {
     required this.schemaVersion,
     required this.status,
     required this.primaryCountryCode,
-    required this.primaryCurrencyCode,
     required this.countries,
     required this.citiesByCountry,
     required this.currencies,
@@ -113,7 +111,6 @@ class SystemConfigV1 {
       schemaVersion: data['schemaVersion'] ?? 0,
       status: data['status'] ?? 'unknown',
       primaryCountryCode: data['primaryCountryCode'] ?? '',
-      primaryCurrencyCode: data['primaryCurrencyCode'] ?? '',
       countries: countries,
       citiesByCountry: citiesByCountry,
       currencies: currencies,
@@ -129,7 +126,6 @@ class SystemConfigV1 {
       'schemaVersion': schemaVersion,
       'status': status,
       'primaryCountryCode': primaryCountryCode,
-      'primaryCurrencyCode': primaryCurrencyCode,
       'countries': countries.map((k, v) => MapEntry(k, v.toMap())),
       'citiesByCountry': citiesByCountry.map(
         (countryCode, cities) => MapEntry(
