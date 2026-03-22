@@ -3,6 +3,17 @@
     "dev": "nowastemed",
     "prod": "mediexchange"
   },
-  "targets": {},
+  "targets": {
+    "mediexchange": {
+      "hosting": {
+        "admin": [
+          "mediexchange-76872"
+        ],
+        "app": [
+          "app-mediexchange"
+        ]
+      }
+    }
+  },
   "etags": {}
 }
