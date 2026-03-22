@@ -38,7 +38,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **DO NOT waste time modifying obsolete `pharmacy_app` or `courier_app` directories!**
 
-## 🚀 **CURRENT PROJECT STATUS - 2026-03-22 (V2C VALIDÉ — COURIER MANAGEMENT BY COUNTRY)**
+## 🚀 **CURRENT PROJECT STATUS - 2026-03-23 (BLOC 2 SPRINT 2A VALIDÉ — MEDICINE REQUESTS BACKEND)**
+
+### ✅ **Admin chantier freezé** — V1 + V2 (A→D) complétés et déployés
+
+### ✅ **Bloc 1 — Inventory Visibility MVP — VALIDÉ**
+
+- Toggle Published/Private sur cartes inventaire
+- Rules `pharmacy_inventory` durcies (Private non lisible par autres pharmacies)
+- Snapshot inventaire dans `exchange_proposals`
+- Proposals UI découplée des lectures live
+
+### ✅ **Bloc 2 Sprint 2A — Medicine Requests Backend — VALIDÉ (23 mars 2026)**
+
+**5 callables** : `createMedicineRequest`, `cancelMedicineRequest`, `submitMedicineRequestOffer`, `withdrawMedicineRequestOffer`, `acceptMedicineRequestOffer`
+
+**Helper transactionnel** : `acceptRequestOfferIntoCanonicalProposal` — bridge atomique vers `exchange_proposals` + `deliveries`
+
+**Sécurité** : writes backend-only, scope géographique revalidé à l'acceptation, trial expiry vérifié
+
+**Prochain** : Sprint 2B = UI Requests (3 tabs + CTA + dialogs)
 
 ### ✅ **Contrat V1 `CONTRACT_ADMIN_MASTER_DATA_AND_TREASURY_V1.md` — COMPLÉTÉ**
 

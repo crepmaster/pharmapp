@@ -3,6 +3,7 @@ import '../../../models/pharmacy_inventory.dart';
 import '../../../services/inventory_service.dart';
 import 'add_medicine_screen.dart';
 import '../exchanges/create_proposal_screen.dart';
+import '../requests/medicine_requests_screen.dart';
 
 class InventoryBrowserScreen extends StatefulWidget {
   const InventoryBrowserScreen({super.key});
@@ -60,6 +61,16 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen>
               icon: const Icon(Icons.add),
               onPressed: _navigateToAddMedicine,
             ),
+          IconButton(
+            icon: const Icon(Icons.assignment),
+            tooltip: 'Medicine Requests',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const MedicineRequestsScreen(),
+              ),
+            ),
+          ),
         ],
         bottom: TabBar(
           controller: _tabController,
@@ -273,6 +284,17 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen>
                 const Text(
                   'Other pharmacies in your city will appear here',
                   style: TextStyle(color: Colors.grey),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const MedicineRequestsScreen(),
+                    ),
+                  ),
+                  icon: const Icon(Icons.assignment),
+                  label: const Text('Request Medicine'),
                 ),
               ],
             ),
