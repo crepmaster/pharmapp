@@ -16,6 +16,7 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen>
   late TabController _tabController;
   String selectedCategory = 'All';
   String searchQuery = '';
+  final Set<String> _togglingItems = {};
 
   final List<String> categories = [
     'All',
@@ -357,32 +358,7 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen>
                       ),
                     ),
                     const SizedBox(height: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: isPublished
-                            ? Colors.green.shade50
-                            : Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: isPublished
-                              ? Colors.green.shade300
-                              : Colors.grey.shade300,
-                          width: 1,
-                        ),
-                      ),
-                      child: Text(
-                        isPublished ? 'Published' : 'Private',
-                        style: TextStyle(
-                          color: isPublished
-                              ? Colors.green.shade700
-                              : Colors.grey.shade600,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
+                    _buildVisibilityToggle(item, isPublished),
                   ],
                 ),
               ],
@@ -565,6 +541,78 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen>
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildVisibilityToggle(
+      PharmacyInventoryItem item, bool isPublished) {
+    final isToggling = _togglingItems.contains(item.id);
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: isToggling
+          ? null
+          : () async {
+              setState(() => _togglingItems.add(item.id));
+              try {
+                await InventoryService.toggleAvailability(
+                  inventoryId: item.id,
+                  available: !isPublished,
+                );
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to update: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              } finally {
+                if (mounted) {
+                  setState(() => _togglingItems.remove(item.id));
+                }
+              }
+            },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: isPublished ? Colors.green.shade50 : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isPublished ? Colors.green.shade300 : Colors.grey.shade300,
+            width: 1,
+          ),
+        ),
+        child: isToggling
+            ? const SizedBox(
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(strokeWidth: 1.5),
+              )
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    isPublished ? Icons.visibility : Icons.visibility_off,
+                    size: 12,
+                    color: isPublished
+                        ? Colors.green.shade700
+                        : Colors.grey.shade600,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    isPublished ? 'Published' : 'Private',
+                    style: TextStyle(
+                      color: isPublished
+                          ? Colors.green.shade700
+                          : Colors.grey.shade600,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
       ),
     );
   }

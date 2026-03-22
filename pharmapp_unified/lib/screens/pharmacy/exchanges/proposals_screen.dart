@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../../../data/essential_medicines.dart';
 import '../../../models/exchange_proposal.dart';
 import '../../../models/pharmacy_inventory.dart';
 import 'exchange_status_screen.dart';
@@ -193,10 +194,10 @@ class _ProposalsScreenState extends State<ProposalsScreen>
   }
 
   Widget _buildReceivedProposalCard(ExchangeProposal proposal) {
-    return FutureBuilder<PharmacyInventoryItem?>(
-      future: _getInventoryItem(proposal.inventoryItemId),
+    return FutureBuilder<_MedicineDisplayInfo>(
+      future: _getMedicineInfo(proposal),
       builder: (context, snapshot) {
-        final inventoryItem = snapshot.data;
+        final medicineInfo = snapshot.data;
         
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
@@ -237,16 +238,16 @@ class _ProposalsScreenState extends State<ProposalsScreen>
                 
                 const SizedBox(height: 12),
                 
-                if (inventoryItem != null) ...[
+                if (medicineInfo != null) ...[
                   Text(
-                    inventoryItem.medicine?.name ?? 'Unknown Medicine',
+                    medicineInfo.name,
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   Text(
-                    '${inventoryItem.medicine?.genericName ?? 'Unknown'} • ${inventoryItem.medicine?.strength ?? ''}',
+                    '${medicineInfo.genericName ?? 'Unknown'} • ${medicineInfo.strength ?? ''}',
                     style: TextStyle(color: Colors.grey[600]),
                   ),
                 ] else
@@ -348,10 +349,10 @@ class _ProposalsScreenState extends State<ProposalsScreen>
   }
 
   Widget _buildSentProposalCard(ExchangeProposal proposal) {
-    return FutureBuilder<PharmacyInventoryItem?>(
-      future: _getInventoryItem(proposal.inventoryItemId),
+    return FutureBuilder<_MedicineDisplayInfo>(
+      future: _getMedicineInfo(proposal),
       builder: (context, snapshot) {
-        final inventoryItem = snapshot.data;
+        final medicineInfo = snapshot.data;
         
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
@@ -404,16 +405,16 @@ class _ProposalsScreenState extends State<ProposalsScreen>
                   
                   const SizedBox(height: 12),
                   
-                  if (inventoryItem != null) ...[
+                  if (medicineInfo != null) ...[
                     Text(
-                      inventoryItem.medicine?.name ?? 'Unknown Medicine',
+                      medicineInfo.name,
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                     Text(
-                      '${inventoryItem.medicine?.genericName ?? 'Unknown'} • ${inventoryItem.medicine?.strength ?? ''}',
+                      '${medicineInfo.genericName ?? 'Unknown'} • ${medicineInfo.strength ?? ''}',
                       style: TextStyle(color: Colors.grey[600]),
                     ),
                   ] else
@@ -455,10 +456,10 @@ class _ProposalsScreenState extends State<ProposalsScreen>
   Widget _buildActiveExchangeCard(ExchangeProposal proposal) {
     final isMyExchange = proposal.fromPharmacyId == currentUserId;
     
-    return FutureBuilder<PharmacyInventoryItem?>(
-      future: _getInventoryItem(proposal.inventoryItemId),
+    return FutureBuilder<_MedicineDisplayInfo>(
+      future: _getMedicineInfo(proposal),
       builder: (context, snapshot) {
-        final inventoryItem = snapshot.data;
+        final medicineInfo = snapshot.data;
         
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
@@ -509,9 +510,9 @@ class _ProposalsScreenState extends State<ProposalsScreen>
                   
                   const SizedBox(height: 12),
                   
-                  if (inventoryItem != null) ...[
+                  if (medicineInfo != null) ...[
                     Text(
-                      inventoryItem.medicine?.name ?? 'Unknown Medicine',
+                      medicineInfo.name,
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -583,20 +584,63 @@ class _ProposalsScreenState extends State<ProposalsScreen>
     );
   }
 
-  Future<PharmacyInventoryItem?> _getInventoryItem(String inventoryItemId) async {
+  /// Resolve medicine display info from proposal snapshot or live inventory.
+  /// V2 Inventory Visibility: prioritizes the snapshot written at proposal
+  /// creation time, so proposals remain readable even if the source item
+  /// becomes Private. Falls back to live read for legacy proposals without
+  /// a snapshot.
+  Future<_MedicineDisplayInfo> _getMedicineInfo(ExchangeProposal proposal) async {
+    // 1. Try snapshot display fields from proposal (V2+)
+    final snap = proposal.inventorySnapshot;
+    if (snap != null && snap['medicineName'] != null) {
+      return _MedicineDisplayInfo(
+        name: snap['medicineName'] as String? ?? 'Unknown Medicine',
+        genericName: snap['genericName'] as String?,
+        strength: snap['strength'] as String?,
+      );
+    }
+
+    // 2. Try resolving via medicineId + local catalogue (same as PharmacyInventoryItem.medicine getter)
+    final medicineId = snap?['medicineId'] as String?;
+    if (medicineId != null && medicineId.isNotEmpty) {
+      try {
+        final medicines = EssentialMedicines.allMedicines;
+        for (final med in medicines) {
+          if (med.id == medicineId) {
+            return _MedicineDisplayInfo(
+              name: med.name,
+              genericName: med.genericName,
+              strength: med.strength,
+            );
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 3. Fallback: live read (legacy proposals without snapshot)
     try {
       final doc = await FirebaseFirestore.instance
           .collection('pharmacy_inventory')
-          .doc(inventoryItemId)
+          .doc(proposal.inventoryItemId)
           .get();
-      
       if (doc.exists) {
-        return PharmacyInventoryItem.fromFirestore(doc);
+        final item = PharmacyInventoryItem.fromFirestore(doc);
+        return _MedicineDisplayInfo(
+          name: item.medicine?.name ?? 'Unknown Medicine',
+          genericName: item.medicine?.genericName,
+          strength: item.medicine?.strength,
+        );
       }
     } catch (e) {
       debugPrint('Error loading inventory item: $e');
     }
-    return null;
+
+    // 4. Last resort
+    return const _MedicineDisplayInfo(
+      name: 'Unknown Medicine',
+      genericName: null,
+      strength: null,
+    );
   }
 
   Color _getStatusColor(ProposalStatus status) {
@@ -734,4 +778,17 @@ class _ProposalsScreenState extends State<ProposalsScreen>
       }
     }
   }
+}
+
+/// Lightweight display-only medicine info resolved from snapshot or live read.
+class _MedicineDisplayInfo {
+  final String name;
+  final String? genericName;
+  final String? strength;
+
+  const _MedicineDisplayInfo({
+    required this.name,
+    this.genericName,
+    this.strength,
+  });
 }

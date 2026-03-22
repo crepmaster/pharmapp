@@ -219,13 +219,19 @@ service cloud.firestore {
     // Do NOT add duplicate rules here.
 
     match /pharmacy_inventory/{id} {
-      allow read: if isAuthenticated(); // All authenticated users can read inventory (for browsing)
+      // V2 Inventory Visibility: owner reads all own items;
+      // other users read only Published items (availableForExchange == true).
+      // Super admin can read all.
+      allow read: if isAuthenticated() &&
+        (resource.data.pharmacyId == request.auth.uid ||
+         resource.data.availabilitySettings.availableForExchange == true ||
+         isSuperAdmin(request.auth.uid));
       // 🔒 CRITICAL: Inventory creation requires active subscription
-      allow create: if isAuthenticated() && 
+      allow create: if isAuthenticated() &&
                    request.resource.data.pharmacyId == request.auth.uid &&
                    hasActiveSubscription(request.auth.uid);
       // 🔒 CRITICAL: Only subscription holders can update/delete inventory
-      allow update, delete: if isAuthenticated() && 
+      allow update, delete: if isAuthenticated() &&
                            resource.data.pharmacyId == request.auth.uid &&
                            hasActiveSubscription(request.auth.uid);
     }

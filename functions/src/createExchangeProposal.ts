@@ -227,6 +227,14 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
           );
         }
 
+        // Validate target inventory is published (availableForExchange)
+        if (inventoryData?.availabilitySettings?.availableForExchange === false) {
+          throw new HttpsError(
+            "failed-precondition",
+            "Target inventory item is not available for exchange"
+          );
+        }
+
         // Validate target inventory not expired
         const targetExpirationDate = inventoryData?.batch?.expirationDate?.toDate?.();
         if (targetExpirationDate && targetExpirationDate < new Date()) {
@@ -362,6 +370,20 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
           reservations: {
             walletReserved: details.type === "purchase" ? details.totalPrice : null,
             inventoryReserved: details.type === "exchange" ? details.exchangeQuantity : null,
+          },
+          // V2 Inventory Visibility: snapshot target inventory at proposal time
+          // so proposals_screen can render without live reads on pharmacy_inventory.
+          inventorySnapshot: {
+            medicineId: inventoryData?.medicineId || null,
+            medicineName: inventoryData?.medicine?.name || inventoryData?.medicineName || null,
+            genericName: inventoryData?.medicine?.genericName || null,
+            strength: inventoryData?.medicine?.strength || null,
+            form: inventoryData?.medicine?.form || null,
+            category: inventoryData?.medicine?.category || null,
+            packaging: inventoryData?.packaging || null,
+            lotNumber: inventoryData?.batch?.lotNumber || inventoryData?.batchNumber || null,
+            expirationDate: inventoryData?.batch?.expirationDate || null,
+            availableQuantityAtOffer: inventoryData?.availableQuantity || 0,
           },
         };
 

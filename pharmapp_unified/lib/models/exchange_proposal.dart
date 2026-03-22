@@ -35,6 +35,9 @@ class ExchangeProposal extends Equatable {
   final DateTime createdAt;
   final DateTime updatedAt;
   final DateTime? expiresAt; // Proposal expires after X hours
+  /// V2 Inventory Visibility: snapshot of target inventory at proposal time.
+  /// Allows proposals UI to render without live reads on pharmacy_inventory.
+  final Map<String, dynamic>? inventorySnapshot;
 
   const ExchangeProposal({
     required this.id,
@@ -49,6 +52,7 @@ class ExchangeProposal extends Equatable {
     required this.createdAt,
     required this.updatedAt,
     this.expiresAt,
+    this.inventorySnapshot,
   });
 
   @override
@@ -65,6 +69,7 @@ class ExchangeProposal extends Equatable {
         createdAt,
         updatedAt,
         expiresAt,
+        inventorySnapshot,
       ];
 
   // Make offer on available medicine
@@ -118,6 +123,7 @@ class ExchangeProposal extends Equatable {
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       expiresAt: (data['expiresAt'] as Timestamp?)?.toDate(),
+      inventorySnapshot: data['inventorySnapshot'] as Map<String, dynamic>?,
     );
   }
 
