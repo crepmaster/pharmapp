@@ -121,6 +121,12 @@ service cloud.firestore {
              get(/databases/$(db)/documents/admins/$(userId)).data.permissions.hasAny(['view_financials']);
     }
 
+    // V2D: Check if admin's countryScopes includes a specific country code.
+    // Uses hasAny([code]) which checks if the array contains the value.
+    function adminHasCountryScope(userId, countryCode) {
+      return get(/databases/$(db)/documents/admins/$(userId)).data.countryScopes.hasAny([countryCode]);
+    }
+
     // User profiles (base user records)
     match /users/{userId} {
       allow read: if isOwner(userId) || isSuperAdmin(request.auth.uid);
@@ -318,12 +324,13 @@ service cloud.firestore {
     // Platform treasuries — accumulate subscription and other platform revenue.
     // Contract: CONTRACT_ADMIN_MASTER_DATA_AND_TREASURY_V1 §6.2 and §11.
     // Document ID convention: {countryCode}_{currencyCode} (e.g. "CM_XAF").
-    // Read: super_admin + finance admins (view_financials permission — §11.1).
-    // Write: backend-only via Cloud Functions (sandboxSubscriptionSuccess, future payout functions).
-    //        Client writes are denied to prevent balance tampering.
+    // Read: super_admin global; finance admins scoped by countryCode (V2D).
+    // Write: backend-only via Cloud Functions.
     match /platform_treasuries/{treasuryId} {
       allow read: if isAuthenticated() &&
-        (isSuperAdmin(request.auth.uid) || isAdminFinancial(request.auth.uid));
+        (isSuperAdmin(request.auth.uid) ||
+         (isAdminFinancial(request.auth.uid) &&
+          adminHasCountryScope(request.auth.uid, resource.data.countryCode)));
       allow write: if false; // Backend-only — Cloud Functions use Admin SDK
     }
 
@@ -331,23 +338,28 @@ service cloud.firestore {
     // Contract: CONTRACT_ADMIN_MASTER_DATA_AND_TREASURY_V1 §6.3.
     // Read: owning admin (own accounts only) or super_admin.
     // Create/Update: owning admin only (immutable fields enforced by service layer).
+    //   V2D: non-super_admin must have countryScope for the account's countryCode.
     // Delete: super_admin only.
-    // verificationStatus promotion is out of scope for Sprint 3B (backend function, Lot 4).
     match /admin_payout_accounts/{accountId} {
       allow read: if isAuthenticated() &&
         (resource.data.adminUserId == request.auth.uid ||
          isSuperAdmin(request.auth.uid));
       // Only active admins can create their own payout accounts.
-      // isActiveAdmin() ensures the caller exists in admins/ and is not deactivated.
+      // V2D: non-super_admin must have countryScope for the account's countryCode.
       allow create: if isAuthenticated() &&
         isActiveAdmin(request.auth.uid) &&
         request.resource.data.adminUserId == request.auth.uid &&
         request.resource.data.verificationStatus == 'unverified' &&
-        request.resource.data.accountType == 'mobile_money';
+        request.resource.data.accountType == 'mobile_money' &&
+        (isSuperAdmin(request.auth.uid) ||
+         adminHasCountryScope(request.auth.uid, request.resource.data.countryCode));
       // Only the owning active admin can update; immutable fields are protected.
+      // V2D: non-super_admin must have countryScope for the account's countryCode.
       allow update: if isAuthenticated() &&
         isActiveAdmin(request.auth.uid) &&
         resource.data.adminUserId == request.auth.uid &&
+        (isSuperAdmin(request.auth.uid) ||
+         adminHasCountryScope(request.auth.uid, resource.data.countryCode)) &&
         // Immutable fields must not change.
         request.resource.data.adminUserId == resource.data.adminUserId &&
         request.resource.data.countryCode == resource.data.countryCode &&
@@ -363,13 +375,15 @@ service cloud.firestore {
     // Platform payout requests — tracks payout requests from treasury to admin accounts.
     // Contract: CONTRACT_ADMIN_MASTER_DATA_AND_TREASURY_V1 §6 (Sprint 4B).
     // Document ID: auto-generated.
-    // Read: owning admin (own requests) or finance/super_admin.
+    // Read: owning admin (own requests) or super_admin global or
+    //        finance admin scoped by countryCode (V2D).
     // Write: backend-only via Cloud Functions (requestPlatformPayout, resolvePlatformPayout).
     match /platform_payout_requests/{requestId} {
       allow read: if isAuthenticated() &&
         (resource.data.adminUserId == request.auth.uid ||
          isSuperAdmin(request.auth.uid) ||
-         isAdminFinancial(request.auth.uid));
+         (isAdminFinancial(request.auth.uid) &&
+          adminHasCountryScope(request.auth.uid, resource.data.countryCode)));
       allow write: if false; // Backend-only — Cloud Functions use Admin SDK
     }
 

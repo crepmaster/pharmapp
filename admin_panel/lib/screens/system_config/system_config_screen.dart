@@ -206,7 +206,11 @@ class _SystemConfigScreenState extends State<SystemConfigScreen>
         CitiesTab(config: _config!, onChanged: _loadConfig),
         CurrenciesTab(config: _config!, onChanged: _loadConfig),
         MobileMoneyTab(config: _config!, onChanged: _loadConfig),
-        RevenueTreasuryTab(config: _config!, adminUserId: adminUserId),
+        RevenueTreasuryTab(
+          config: _config!,
+          adminUserId: adminUserId,
+          isSuperAdmin: true,
+        ),
       ],
     );
   }

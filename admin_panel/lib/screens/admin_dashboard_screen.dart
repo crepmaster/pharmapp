@@ -5,6 +5,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../blocs/admin_auth_bloc.dart';
 import '../models/admin_user.dart';
 import 'pharmacy_management_screen.dart';
+import 'courier_management_screen.dart';
+import 'city_management_screen.dart';
 import 'subscription_management_screen.dart';
 import 'financial_reports_screen.dart';
 import 'system_config/system_config_screen.dart';
@@ -201,6 +203,29 @@ class _AdminDashboardBody extends StatelessWidget {
           isSuperAdmin: adminUser.isSuperAdmin,
         ),
       ));
+
+      // V2B: scoped admins with actual country scopes get a dedicated Cities
+      // surface. super_admin manages cities via System Config instead.
+      // An admin without countryScopes is misconfigured and sees nothing (V2A rule).
+      if (!adminUser.isSuperAdmin && adminUser.countryScopes.isNotEmpty) {
+        entries.add(_NavEntry(
+          icon: Icons.location_city,
+          label: 'Cities',
+          screen: CityManagementScreen(
+            allowedCountryCodes: adminUser.countryScopes,
+          ),
+        ));
+      }
+
+      // V2C: Couriers management — same gate as pharmacies.
+      entries.add(_NavEntry(
+        icon: Icons.delivery_dining,
+        label: 'Couriers',
+        screen: CourierManagementScreen(
+          countryScopes: adminUser.countryScopes,
+          isSuperAdmin: adminUser.isSuperAdmin,
+        ),
+      ));
     }
 
     // Subscriptions, Reports, System Config — super_admin or matching permission.
@@ -214,12 +239,19 @@ class _AdminDashboardBody extends StatelessWidget {
       ));
     }
 
+    // V2D: Finance surface — super_admin gets global, scoped admins see
+    // only their countries. Non-super_admin without scopes sees nothing.
     if (adminUser.canViewFinancials) {
-      entries.add(const _NavEntry(
-        icon: Icons.analytics,
-        label: 'Reports',
-        screen: FinancialReportsScreen(),
-      ));
+      if (adminUser.isSuperAdmin || adminUser.countryScopes.isNotEmpty) {
+        entries.add(_NavEntry(
+          icon: Icons.analytics,
+          label: 'Finance',
+          screen: FinancialReportsScreen(
+            countryScopes: adminUser.countryScopes,
+            isSuperAdmin: adminUser.isSuperAdmin,
+          ),
+        ));
+      }
     }
 
     if (adminUser.isSuperAdmin) {

@@ -33,8 +33,10 @@ export { sandboxSubscriptionSuccess } from "./sandboxSubscriptionSuccess.js";
 export { requestPlatformPayout } from "./requestPlatformPayout.js";
 export { resolvePlatformPayout } from "./resolvePlatformPayout.js";
 
-// ======================= Admin Operations (V2A) =======================
+// ======================= Admin Operations (V2A+V2B+V2C) =======================
 export { setPharmacyActive } from "./setPharmacyActive.js";
+export { upsertCity } from "./upsertCity.js";
+export { setCourierActive } from "./setCourierActive.js";
 
 // --------- Admin init ---------
 if (getApps().length === 0) initializeApp();

@@ -128,10 +128,10 @@ class AdminAuthService {
     List<String>? customPermissions,
     List<String> countryScopes = const [],
   }) async {
-    // Guard: admin role requires non-empty countryScopes.
-    if (role == 'admin' && countryScopes.isEmpty) {
+    // Guard: non-super_admin roles require non-empty countryScopes (V2A + V2D).
+    if (role != 'super_admin' && countryScopes.isEmpty) {
       throw Exception(
-          'admin role requires at least one country in countryScopes.');
+          '$role role requires at least one country in countryScopes.');
     }
     try {
       // Create Firebase Auth user first
@@ -187,19 +187,19 @@ class AdminAuthService {
     List<String>? permissions,
     List<String>? countryScopes,
   }) async {
-    // Guard: if setting role to admin, countryScopes must be non-empty.
-    if (role == 'admin') {
+    // Guard: non-super_admin roles require non-empty countryScopes (V2A + V2D).
+    if (role != null && role != 'super_admin') {
       if (countryScopes != null && countryScopes.isEmpty) {
         throw Exception(
-            'admin role requires at least one country in countryScopes.');
+            '$role role requires at least one country in countryScopes.');
       }
       if (countryScopes == null) {
-        // Role changed to admin but no scopes provided — check existing doc.
+        // Role changed to non-super_admin but no scopes provided — check existing doc.
         final doc = await _firestore.collection(_adminsCollection).doc(uid).get();
         final existing = List<String>.from(doc.data()?['countryScopes'] ?? []);
         if (existing.isEmpty) {
           throw Exception(
-              'Cannot set role to admin: existing countryScopes is empty. '
+              'Cannot set role to $role: existing countryScopes is empty. '
               'Provide countryScopes with at least one country.');
         }
       }

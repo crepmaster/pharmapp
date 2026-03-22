@@ -91,6 +91,8 @@ export const resolvePlatformPayout = onCall<ResolvePayoutData>(
         );
       }
 
+      // V2D: scope check will be applied after reading the request (need countryCode).
+
       // 1b. Payout request — must exist and be in "requested" status.
       const requestRef = db
         .collection("platform_payout_requests")
@@ -124,6 +126,24 @@ export const resolvePlatformPayout = onCall<ResolvePayoutData>(
       const countryCode = requestData.countryCode as string;
       const currencyCode = requestData.currencyCode as string;
       const adminUserId = requestData.adminUserId as string;
+
+      // V2D: scope check for non-super_admin.
+      if (role !== "super_admin") {
+        const countryScopes =
+          (adminData.countryScopes as string[] | undefined) || [];
+        if (countryScopes.length === 0) {
+          throw new HttpsError(
+            "failed-precondition",
+            "Admin has no country scope configured. Contact super admin."
+          );
+        }
+        if (!countryScopes.includes(countryCode)) {
+          throw new HttpsError(
+            "permission-denied",
+            `Payout request for '${countryCode}' is outside your country scope.`
+          );
+        }
+      }
 
       // ================================================================
       // PHASE 2: ALL WRITES

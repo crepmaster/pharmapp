@@ -28,10 +28,19 @@ class RevenueTreasuryTab extends StatelessWidget {
   /// Only payout accounts owned by this admin are shown and managed.
   final String adminUserId;
 
+  /// V2D: ISO country codes this admin is scoped to.
+  /// Empty = global if [isSuperAdmin], otherwise non-operational.
+  final List<String> countryScopes;
+
+  /// V2D: true if this admin is super_admin (global access).
+  final bool isSuperAdmin;
+
   const RevenueTreasuryTab({
     super.key,
     required this.config,
     required this.adminUserId,
+    this.countryScopes = const [],
+    this.isSuperAdmin = true,
   });
 
   @override
@@ -43,13 +52,28 @@ class RevenueTreasuryTab extends StatelessWidget {
         children: [
           _RevenuePoliciesSection(config: config),
           const SizedBox(height: 16),
-          const _TreasuriesSection(),
+          _TreasuriesSection(
+            countryScopes: countryScopes,
+            isSuperAdmin: isSuperAdmin,
+          ),
           const SizedBox(height: 16),
-          _PayoutAccountsSection(config: config, adminUserId: adminUserId),
+          _PayoutAccountsSection(
+            config: config,
+            adminUserId: adminUserId,
+            countryScopes: countryScopes,
+            isSuperAdmin: isSuperAdmin,
+          ),
           const SizedBox(height: 16),
-          _PayoutRequestsSection(adminUserId: adminUserId),
-          const SizedBox(height: 16),
-          const _PlatformLedgerSection(),
+          _PayoutRequestsSection(
+            adminUserId: adminUserId,
+            countryScopes: countryScopes,
+            isSuperAdmin: isSuperAdmin,
+          ),
+          // Platform Ledger — super_admin only (V2D decision).
+          if (isSuperAdmin) ...[
+            const SizedBox(height: 16),
+            const _PlatformLedgerSection(),
+          ],
           const SizedBox(height: 24),
         ],
       ),
@@ -149,7 +173,13 @@ class _RevenuePoliciesSection extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _TreasuriesSection extends StatelessWidget {
-  const _TreasuriesSection();
+  final List<String> countryScopes;
+  final bool isSuperAdmin;
+
+  const _TreasuriesSection({
+    this.countryScopes = const [],
+    this.isSuperAdmin = true,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -214,7 +244,13 @@ class _TreasuriesSection extends StatelessWidget {
                     ],
                   );
                 }
-                final treasuries = snapshot.data ?? [];
+                var treasuries = snapshot.data ?? [];
+                // V2D: scope filter for non-super_admin.
+                if (!isSuperAdmin && countryScopes.isNotEmpty) {
+                  treasuries = treasuries
+                      .where((t) => countryScopes.contains(t.countryCode))
+                      .toList();
+                }
                 if (treasuries.isEmpty) {
                   return const Center(
                     child: Padding(
@@ -335,10 +371,14 @@ class _TreasuriesSection extends StatelessWidget {
 class _PayoutAccountsSection extends StatelessWidget {
   final SystemConfigV1 config;
   final String adminUserId;
+  final List<String> countryScopes;
+  final bool isSuperAdmin;
 
   const _PayoutAccountsSection({
     required this.config,
     required this.adminUserId,
+    this.countryScopes = const [],
+    this.isSuperAdmin = true,
   });
 
   @override
@@ -383,7 +423,13 @@ class _PayoutAccountsSection extends StatelessWidget {
                     style: const TextStyle(color: Colors.red),
                   );
                 }
-                final accounts = snapshot.data ?? [];
+                var accounts = snapshot.data ?? [];
+                // V2D: scope filter for non-super_admin.
+                if (!isSuperAdmin && countryScopes.isNotEmpty) {
+                  accounts = accounts
+                      .where((a) => countryScopes.contains(a.countryCode))
+                      .toList();
+                }
                 if (accounts.isEmpty) {
                   return Center(
                     child: Padding(
@@ -557,6 +603,8 @@ class _PayoutAccountsSection extends StatelessWidget {
       builder: (_) => _CreatePayoutAccountDialog(
         config: config,
         adminUserId: adminUserId,
+        countryScopes: countryScopes,
+        isSuperAdmin: isSuperAdmin,
       ),
     );
   }
@@ -579,10 +627,14 @@ enum _AccountAction { edit, toggleActive, setDefault }
 class _CreatePayoutAccountDialog extends StatefulWidget {
   final SystemConfigV1 config;
   final String adminUserId;
+  final List<String> countryScopes;
+  final bool isSuperAdmin;
 
   const _CreatePayoutAccountDialog({
     required this.config,
     required this.adminUserId,
+    this.countryScopes = const [],
+    this.isSuperAdmin = true,
   });
 
   @override
@@ -677,10 +729,16 @@ class _CreatePayoutAccountDialogState
 
   @override
   Widget build(BuildContext context) {
-    final enabledCountries = widget.config.countries.entries
+    var enabledCountries = widget.config.countries.entries
         .where((e) => e.value.enabled)
         .toList()
       ..sort((a, b) => a.value.sortOrder.compareTo(b.value.sortOrder));
+    // V2D: scope filter for non-super_admin.
+    if (!widget.isSuperAdmin && widget.countryScopes.isNotEmpty) {
+      enabledCountries = enabledCountries
+          .where((e) => widget.countryScopes.contains(e.key))
+          .toList();
+    }
 
     return AlertDialog(
       title: const Text('Add Payout Account'),
@@ -990,8 +1048,14 @@ class _EditPayoutAccountDialogState
 
 class _PayoutRequestsSection extends StatelessWidget {
   final String adminUserId;
+  final List<String> countryScopes;
+  final bool isSuperAdmin;
 
-  const _PayoutRequestsSection({required this.adminUserId});
+  const _PayoutRequestsSection({
+    required this.adminUserId,
+    this.countryScopes = const [],
+    this.isSuperAdmin = true,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1035,7 +1099,13 @@ class _PayoutRequestsSection extends StatelessWidget {
                     style: const TextStyle(color: Colors.red),
                   );
                 }
-                final requests = snapshot.data ?? [];
+                var requests = snapshot.data ?? [];
+                // V2D: scope filter for non-super_admin.
+                if (!isSuperAdmin && countryScopes.isNotEmpty) {
+                  requests = requests
+                      .where((r) => countryScopes.contains(r.countryCode))
+                      .toList();
+                }
                 if (requests.isEmpty) {
                   return Center(
                     child: Padding(
@@ -1308,9 +1378,16 @@ class _PayoutRequestsSection extends StatelessWidget {
           .collection('platform_treasuries')
           .orderBy(FieldPath.documentId)
           .get();
-      treasuries = snapshot.docs
+      var allTreasuries = snapshot.docs
           .map((doc) => PlatformTreasury.fromFirestore(doc))
           .toList();
+      // V2D: scope filter for non-super_admin.
+      if (!isSuperAdmin && countryScopes.isNotEmpty) {
+        allTreasuries = allTreasuries
+            .where((t) => countryScopes.contains(t.countryCode))
+            .toList();
+      }
+      treasuries = allTreasuries;
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(

@@ -23,9 +23,9 @@ void main() async {
     stdout.write('Enter admin role (super_admin/admin/finance): ');
     final role = stdin.readLineSync() ?? 'admin';
 
-    // Country scopes — required for admin role
+    // Country scopes — required for non-super_admin roles (V2A + V2D)
     List<String> countryScopes = [];
-    if (role == 'admin') {
+    if (role != 'super_admin') {
       stdout.write('Enter country scopes (comma-separated ISO codes, e.g. CM,KE): ');
       final scopesInput = stdin.readLineSync() ?? '';
       countryScopes = scopesInput

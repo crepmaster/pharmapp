@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 import '../models/system_config.dart';
 import '../models/country_option.dart';
@@ -127,33 +128,39 @@ class SystemConfigService {
   }
 
   // ---------------------------------------------------------------------------
-  // CITIES
+  // CITIES — V2B: all writes go through backend callable `upsertCity`.
+  // No hard delete — use enabled=false to deactivate.
   // ---------------------------------------------------------------------------
 
-  static Future<bool> upsertCity(
+  /// Create or update a city via backend callable.
+  /// Returns a user-facing error message on failure, or `null` on success.
+  static Future<String?> upsertCityViaCallable(
       String countryCode, String cityCode, CityOption city) async {
     try {
-      await _configRef.update({
-        'citiesByCountry.$countryCode.$cityCode': city.toMap(),
-        'updatedAt': FieldValue.serverTimestamp(),
+      final callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
+          .httpsCallable('upsertCity');
+      await callable.call<Map<String, dynamic>>({
+        'countryCode': countryCode,
+        'cityCode': cityCode,
+        'name': city.name,
+        'region': city.region,
+        'enabled': city.enabled,
+        'isMajorCity': city.isMajorCity,
+        'deliveryFee': city.deliveryFee,
+        'currencyCode': city.currencyCode,
+        'latitude': city.latitude,
+        'longitude': city.longitude,
+        'validationRadiusKm': city.validationRadiusKm,
+        'sortOrder': city.sortOrder,
       });
-      return true;
+      return null; // success
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'An error occurred while saving the city.';
     } catch (e) {
-      return false;
+      return 'Unexpected error: $e';
     }
   }
 
-  static Future<bool> removeCity(String countryCode, String cityCode) async {
-    try {
-      await _configRef.update({
-        'citiesByCountry.$countryCode.$cityCode': FieldValue.delete(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
 
   // ---------------------------------------------------------------------------
   // CURRENCIES

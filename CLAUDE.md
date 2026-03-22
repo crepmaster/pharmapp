@@ -38,7 +38,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **DO NOT waste time modifying obsolete `pharmacy_app` or `courier_app` directories!**
 
-## 🚀 **CURRENT PROJECT STATUS - 2026-03-22 (V2A VALIDÉ — RBAC + SCOPE PAYS)**
+## 🚀 **CURRENT PROJECT STATUS - 2026-03-22 (V2C VALIDÉ — COURIER MANAGEMENT BY COUNTRY)**
 
 ### ✅ **Contrat V1 `CONTRACT_ADMIN_MASTER_DATA_AND_TREASURY_V1.md` — COMPLÉTÉ**
 
@@ -60,14 +60,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `functions/src/setPharmacyActive.ts` — callable avec validation scope pays ✅
 - `firestore.indexes.json` — index `pharmacies: countryCode + createdAt` ✅
 
-**Déploiement cumulé requis (V1 + V2A) :**
+### ✅ **V2B — City management via callables — VALIDÉ (22 mars 2026)**
+
+**Ce qui a été livré :**
+- `functions/src/upsertCity.ts` — callable create/update/disable avec guards admin + scope pays + defaultCityCode coherence ✅
+- `admin_panel/lib/services/system_config_service.dart` — `upsertCityViaCallable()`, direct writes supprimés ✅
+- `admin_panel/lib/screens/system_config/cities_tab.dart` — `allowedCountryCodes` filter, callable, erreurs backend ✅
+- `admin_panel/lib/screens/city_management_screen.dart` — écran standalone pour admins scoped ✅
+- Pas de hard delete — soft delete via `enabled: false` ✅
+
+### ✅ **V2C — Courier management by country — VALIDÉ (22 mars 2026)**
+
+**Ce qui a été livré :**
+- `functions/src/setCourierActive.ts` — callable toggle isActive avec guards admin + scope pays ✅
+- `admin_panel/lib/models/courier_user.dart` — modèle admin (fullName, vehicleType, licensePlate, phone/phoneNumber fallback) ✅
+- `admin_panel/lib/services/courier_management_service.dart` — stream global/scoped + callable ✅
+- `admin_panel/lib/screens/courier_management_screen.dart` — écran admin avec recherche, filtre, toggle, détails ✅
+- `admin_panel/lib/screens/admin_dashboard_screen.dart` — nav "Couriers" pour admins canManagePharmacies ✅
+- `firestore.indexes.json` — index `couriers: countryCode + createdAt` ✅
+
+**Déploiement cumulé requis (V1 + V2A + V2B + V2C) :**
 1. `firebase deploy --only firestore:indexes`
 2. `firebase deploy --only firestore:rules`
 3. `firebase deploy --only functions`
 
-**Prochains sprints V2 :**
-- **V2B** : gestion des villes par admin scoped via callables
-- **V2C** : gestion des couriers par pays
+**Prochain sprint V2 :**
 - **V2D** : finance par pays (optionnel)
 
 ---

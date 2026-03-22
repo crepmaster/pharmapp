@@ -89,6 +89,26 @@ export const requestPlatformPayout = onCall<RequestPayoutData>(
         );
       }
 
+      // V2D: scope check for non-super_admin.
+      const countryScopes =
+        (adminData.countryScopes as string[] | undefined) || [];
+      if (role !== "super_admin") {
+        if (countryScopes.length === 0) {
+          throw new HttpsError(
+            "failed-precondition",
+            "Admin has no country scope configured. Contact super admin."
+          );
+        }
+        // Derive countryCode from treasuryId (format: CC_CUR).
+        const treasuryCountry = treasuryId.split("_")[0];
+        if (!countryScopes.includes(treasuryCountry)) {
+          throw new HttpsError(
+            "permission-denied",
+            `Treasury '${treasuryId}' is outside your country scope.`
+          );
+        }
+      }
+
       // 1b. Treasury document — verify exists, active, sufficient balance.
       const treasuryRef = db
         .collection("platform_treasuries")

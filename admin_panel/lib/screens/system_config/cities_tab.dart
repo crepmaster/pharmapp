@@ -4,11 +4,22 @@ import '../../models/city_option.dart';
 import '../../models/system_config.dart';
 import '../../services/system_config_service.dart';
 
+/// Cities management tab. Used both inside System Config (super_admin, all
+/// countries) and as a standalone screen for scoped admins (filtered countries).
 class CitiesTab extends StatefulWidget {
   final SystemConfigV1 config;
   final VoidCallback onChanged;
 
-  const CitiesTab({super.key, required this.config, required this.onChanged});
+  /// If non-empty, only these country codes are shown and editable.
+  /// Empty or null = all countries (super_admin mode).
+  final List<String> allowedCountryCodes;
+
+  const CitiesTab({
+    super.key,
+    required this.config,
+    required this.onChanged,
+    this.allowedCountryCodes = const [],
+  });
 
   @override
   State<CitiesTab> createState() => _CitiesTabState();
@@ -17,13 +28,23 @@ class CitiesTab extends StatefulWidget {
 class _CitiesTabState extends State<CitiesTab> {
   String? _selectedCountryCode;
 
+  List<MapEntry<String, dynamic>> get _visibleCountries {
+    var countries = widget.config.countries.entries.toList();
+    if (widget.allowedCountryCodes.isNotEmpty) {
+      countries = countries
+          .where((e) => widget.allowedCountryCodes.contains(e.key))
+          .toList();
+    }
+    countries.sort((a, b) => a.value.sortOrder.compareTo(b.value.sortOrder));
+    return countries;
+  }
+
   @override
   void initState() {
     super.initState();
-    final countries = widget.config.countries.values.toList()
-      ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    final countries = _visibleCountries;
     if (countries.isNotEmpty) {
-      _selectedCountryCode = countries.first.code;
+      _selectedCountryCode = countries.first.key;
     }
   }
 
@@ -37,8 +58,7 @@ class _CitiesTabState extends State<CitiesTab> {
 
   @override
   Widget build(BuildContext context) {
-    final countries = widget.config.countries.values.toList()
-      ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    final countries = _visibleCountries;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -56,9 +76,9 @@ class _CitiesTabState extends State<CitiesTab> {
                   border: OutlineInputBorder(),
                 ),
                 items: countries
-                    .map((c) => DropdownMenuItem(
-                          value: c.code,
-                          child: Text('${c.name} (${c.code})'),
+                    .map((e) => DropdownMenuItem(
+                          value: e.key,
+                          child: Text('${e.value.name} (${e.key})'),
                         ))
                     .toList(),
                 onChanged: (value) {
@@ -123,6 +143,15 @@ class _CitiesTabState extends State<CitiesTab> {
         title: Row(
           children: [
             Text(city.name),
+            if (!city.enabled) ...[
+              const SizedBox(width: 8),
+              Chip(
+                label: const Text('Disabled', style: TextStyle(fontSize: 10)),
+                backgroundColor: Colors.red.shade100,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
             if (city.isMajorCity) ...[
               const SizedBox(width: 8),
               Chip(
@@ -148,17 +177,25 @@ class _CitiesTabState extends State<CitiesTab> {
             ),
             Switch(
               value: city.enabled,
-              onChanged: (value) async {
-                final updated = city.copyWith(enabled: value);
-                final ok = await SystemConfigService.upsertCity(
-                    _selectedCountryCode!, city.code, updated);
-                if (ok) widget.onChanged();
-              },
+              onChanged: (value) => _toggleCity(city, value),
             ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _toggleCity(CityOption city, bool enabled) async {
+    final updated = city.copyWith(enabled: enabled);
+    final error = await SystemConfigService.upsertCityViaCallable(
+        _selectedCountryCode!, city.code, updated);
+    if (error != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error), backgroundColor: Colors.red),
+      );
+    } else {
+      widget.onChanged();
+    }
   }
 
   void _showAddCityDialog(BuildContext context) {
@@ -176,6 +213,7 @@ class _CitiesTabState extends State<CitiesTab> {
     final latCtl = TextEditingController(text: '0.0');
     final lngCtl = TextEditingController(text: '0.0');
     var isMajorCity = false;
+    var isSaving = false;
 
     showDialog(
       context: context,
@@ -254,32 +292,55 @@ class _CitiesTabState extends State<CitiesTab> {
           ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(ctx),
+                onPressed: isSaving ? null : () => Navigator.pop(ctx),
                 child: const Text('Cancel')),
             ElevatedButton(
-              onPressed: () async {
-                final code = codeCtl.text.trim().toLowerCase();
-                if (code.isEmpty || nameCtl.text.trim().isEmpty) return;
-                final city = CityOption(
-                  code: code,
-                  name: nameCtl.text.trim(),
-                  region: regionCtl.text.trim(),
-                  enabled: true,
-                  isMajorCity: isMajorCity,
-                  deliveryFee: double.tryParse(feeCtl.text.trim()) ?? 0,
-                  currencyCode: defaultCurrency,
-                  latitude: double.tryParse(latCtl.text.trim()) ?? 0,
-                  longitude: double.tryParse(lngCtl.text.trim()) ?? 0,
-                  validationRadiusKm:
-                      double.tryParse(radiusCtl.text.trim()) ?? 20,
-                  sortOrder: (existingCount + 1) * 10,
-                );
-                final ok =
-                    await SystemConfigService.upsertCity(countryCode, code, city);
-                if (ctx.mounted) Navigator.pop(ctx);
-                if (ok) widget.onChanged();
-              },
-              child: const Text('Add'),
+              onPressed: isSaving
+                  ? null
+                  : () async {
+                      final code = codeCtl.text.trim().toLowerCase();
+                      if (code.isEmpty || nameCtl.text.trim().isEmpty) return;
+                      setDialogState(() => isSaving = true);
+                      final city = CityOption(
+                        code: code,
+                        name: nameCtl.text.trim(),
+                        region: regionCtl.text.trim(),
+                        enabled: true,
+                        isMajorCity: isMajorCity,
+                        deliveryFee:
+                            double.tryParse(feeCtl.text.trim()) ?? 0,
+                        currencyCode: defaultCurrency,
+                        latitude:
+                            double.tryParse(latCtl.text.trim()) ?? 0,
+                        longitude:
+                            double.tryParse(lngCtl.text.trim()) ?? 0,
+                        validationRadiusKm:
+                            double.tryParse(radiusCtl.text.trim()) ?? 20,
+                        sortOrder: (existingCount + 1) * 10,
+                      );
+                      final error =
+                          await SystemConfigService.upsertCityViaCallable(
+                              countryCode, code, city);
+                      if (ctx.mounted) Navigator.pop(ctx);
+                      if (error != null) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(this.context).showSnackBar(
+                            SnackBar(
+                                content: Text(error),
+                                backgroundColor: Colors.red),
+                          );
+                        }
+                      } else {
+                        widget.onChanged();
+                      }
+                    },
+              child: isSaving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Add'),
             ),
           ],
         ),
@@ -296,88 +357,116 @@ class _CitiesTabState extends State<CitiesTab> {
         text: city.validationRadiusKm.toStringAsFixed(1));
     final latCtl = TextEditingController(text: city.latitude.toString());
     final lngCtl = TextEditingController(text: city.longitude.toString());
+    var isSaving = false;
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Edit ${city.name}'),
-        content: SizedBox(
-          width: 400,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameCtl,
-                  decoration: const InputDecoration(
-                      labelText: 'City Name', border: OutlineInputBorder()),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: regionCtl,
-                  decoration: const InputDecoration(
-                      labelText: 'Region', border: OutlineInputBorder()),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: feeCtl,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                      labelText: 'Delivery Fee',
-                      border: OutlineInputBorder()),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: radiusCtl,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                      labelText: 'Validation Radius (km)',
-                      border: OutlineInputBorder()),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: latCtl,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                      labelText: 'Latitude', border: OutlineInputBorder()),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: lngCtl,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                      labelText: 'Longitude', border: OutlineInputBorder()),
-                ),
-              ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text('Edit ${city.name}'),
+          content: SizedBox(
+            width: 400,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameCtl,
+                    decoration: const InputDecoration(
+                        labelText: 'City Name',
+                        border: OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: regionCtl,
+                    decoration: const InputDecoration(
+                        labelText: 'Region',
+                        border: OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: feeCtl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                        labelText: 'Delivery Fee',
+                        border: OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: radiusCtl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                        labelText: 'Validation Radius (km)',
+                        border: OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: latCtl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                        labelText: 'Latitude',
+                        border: OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: lngCtl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                        labelText: 'Longitude',
+                        border: OutlineInputBorder()),
+                  ),
+                ],
+              ),
             ),
           ),
+          actions: [
+            TextButton(
+                onPressed: isSaving ? null : () => Navigator.pop(ctx),
+                child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: isSaving
+                  ? null
+                  : () async {
+                      setDialogState(() => isSaving = true);
+                      final updated = city.copyWith(
+                        name: nameCtl.text.trim(),
+                        region: regionCtl.text.trim(),
+                        deliveryFee: double.tryParse(feeCtl.text.trim()) ??
+                            city.deliveryFee,
+                        validationRadiusKm:
+                            double.tryParse(radiusCtl.text.trim()) ??
+                                city.validationRadiusKm,
+                        latitude: double.tryParse(latCtl.text.trim()) ??
+                            city.latitude,
+                        longitude: double.tryParse(lngCtl.text.trim()) ??
+                            city.longitude,
+                      );
+                      final error =
+                          await SystemConfigService.upsertCityViaCallable(
+                              _selectedCountryCode!, city.code, updated);
+                      if (ctx.mounted) Navigator.pop(ctx);
+                      if (error != null) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(this.context).showSnackBar(
+                            SnackBar(
+                                content: Text(error),
+                                backgroundColor: Colors.red),
+                          );
+                        }
+                      } else {
+                        widget.onChanged();
+                      }
+                    },
+              child: isSaving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Save'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () async {
-              final updated = city.copyWith(
-                name: nameCtl.text.trim(),
-                region: regionCtl.text.trim(),
-                deliveryFee:
-                    double.tryParse(feeCtl.text.trim()) ?? city.deliveryFee,
-                validationRadiusKm: double.tryParse(radiusCtl.text.trim()) ??
-                    city.validationRadiusKm,
-                latitude:
-                    double.tryParse(latCtl.text.trim()) ?? city.latitude,
-                longitude:
-                    double.tryParse(lngCtl.text.trim()) ?? city.longitude,
-              );
-              final ok = await SystemConfigService.upsertCity(
-                  _selectedCountryCode!, city.code, updated);
-              if (ctx.mounted) Navigator.pop(ctx);
-              if (ok) widget.onChanged();
-            },
-            child: const Text('Save'),
-          ),
-        ],
       ),
     );
   }
