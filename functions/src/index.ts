@@ -33,6 +33,13 @@ export { sandboxSubscriptionSuccess } from "./sandboxSubscriptionSuccess.js";
 export { requestPlatformPayout } from "./requestPlatformPayout.js";
 export { resolvePlatformPayout } from "./resolvePlatformPayout.js";
 
+// ======================= Medicine Requests (Bloc 2 — Sprint 2A) =======================
+export { createMedicineRequest } from "./createMedicineRequest.js";
+export { cancelMedicineRequest } from "./cancelMedicineRequest.js";
+export { submitMedicineRequestOffer } from "./submitMedicineRequestOffer.js";
+export { withdrawMedicineRequestOffer } from "./withdrawMedicineRequestOffer.js";
+export { acceptMedicineRequestOffer } from "./acceptMedicineRequestOffer.js";
+
 // ======================= Admin Operations (V2A+V2B+V2C) =======================
 export { setPharmacyActive } from "./setPharmacyActive.js";
 export { upsertCity } from "./upsertCity.js";

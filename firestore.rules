@@ -393,6 +393,33 @@ service cloud.firestore {
       allow write: if false; // Backend-only — Cloud Functions use Admin SDK
     }
 
+    // Medicine requests — inter-pharmacy sourcing requests (Sprint 2A).
+    // Read: owner always; open requests readable by any authenticated user
+    //        (city filtering done client-side for cost efficiency).
+    // Write: backend-only via callables (createMedicineRequest, cancelMedicineRequest,
+    //        acceptMedicineRequestOffer). Client writes denied to prevent forged
+    //        requests, status manipulation, or cross-city bypass.
+    match /medicine_requests/{requestId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.requesterPharmacyId == request.auth.uid ||
+         resource.data.status == 'open' ||
+         isSuperAdmin(request.auth.uid));
+      allow write: if false; // Backend-only — Cloud Functions use Admin SDK
+    }
+
+    // Medicine request offers — responses to sourcing requests (Sprint 2A).
+    // Read: requester + seller only.
+    // Write: backend-only via callables (submitMedicineRequestOffer,
+    //        withdrawMedicineRequestOffer, acceptMedicineRequestOffer).
+    //        Client writes denied to prevent forged offers or status manipulation.
+    match /medicine_request_offers/{offerId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.requesterPharmacyId == request.auth.uid ||
+         resource.data.sellerPharmacyId == request.auth.uid ||
+         isSuperAdmin(request.auth.uid));
+      allow write: if false; // Backend-only — Cloud Functions use Admin SDK
+    }
+
     // Backups of system_config before migrations — super_admin only.
     match /system_config_backups/{docId} {
       allow read, write: if isAuthenticated() && isSuperAdmin(request.auth.uid);
