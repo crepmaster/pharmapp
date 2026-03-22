@@ -21,6 +21,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
+import { citySlug } from "./cityUtils.js";
 
 const db = getFirestore();
 
@@ -204,6 +205,7 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
         fromPharmacyName: pickupPharmacy?.pharmacyName || pickupPharmacy?.name || pickupPharmacy?.displayName || "Unknown Pharmacy",
         fromPharmacyAddress: pickupPharmacy?.address || "",
         fromPharmacyCity: pickupPharmacy?.city || "",
+        fromPharmacyCityCode: pickupPharmacy?.cityCode || citySlug(pickupPharmacy?.city || ""),
         fromPharmacyLocation: pickupPharmacy?.location || null,
         fromPharmacyPhone: pickupPharmacy?.phoneNumber || "",
 
@@ -211,6 +213,7 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
         toPharmacyName: dropoffPharmacy?.pharmacyName || dropoffPharmacy?.name || dropoffPharmacy?.displayName || "Unknown Pharmacy",
         toPharmacyAddress: dropoffPharmacy?.address || "",
         toPharmacyCity: dropoffPharmacy?.city || "",
+        toPharmacyCityCode: dropoffPharmacy?.cityCode || citySlug(dropoffPharmacy?.city || ""),
         toPharmacyLocation: dropoffPharmacy?.location || null,
         toPharmacyPhone: dropoffPharmacy?.phoneNumber || "",
 
@@ -226,8 +229,11 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
           },
         ],
 
-        // City for courier filtering (same city for both pharmacies)
+        // City for courier filtering (same city for both pharmacies).
+        // Write both canonical cityCode and legacy city to support the transition period.
         city: fromPharmacy?.city || toPharmacy?.city || "",
+        cityCode: fromPharmacy?.cityCode || toPharmacy?.cityCode ||
+          citySlug(fromPharmacy?.city || toPharmacy?.city || ""),
 
         // Delivery status
         status: "pending", // pending → assigned → picked_up → in_transit → delivered

@@ -1,137 +1,249 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../models/system_config.dart';
 
+import '../models/system_config.dart';
+import '../models/country_option.dart';
+import '../models/city_option.dart';
+import '../models/currency_option.dart';
+import '../models/provider_option.dart';
+
+/// Service for reading and writing `system_config/main` (V1 schema).
+///
+/// Every write method performs an atomic Firestore `update()` on the
+/// specific field(s) it owns — never a full-document `set()`.
+///
+/// Read is pure — no implicit document creation (no write-on-read).
 class SystemConfigService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static const String _configCollection = 'system_config';
+  static const String _configDocId = 'main';
   static const String _plansCollection = 'dynamic_subscription_plans';
 
-  /// Get current system configuration
-  static Future<SystemConfig?> getSystemConfig() async {
+  static DocumentReference get _configRef =>
+      _firestore.collection(_configCollection).doc(_configDocId);
+
+  // ---------------------------------------------------------------------------
+  // READ
+  // ---------------------------------------------------------------------------
+
+  /// Load the current V1 config. Returns `null` if the document does not exist
+  /// or is not parseable. **No implicit creation.**
+  static Future<SystemConfigV1?> loadConfig() async {
     try {
-      final doc = await _firestore
-          .collection(_configCollection)
-          .doc('main')
-          .get();
-
-      if (doc.exists) {
-        return SystemConfig.fromFirestore(doc);
-      }
-
-      // Create default config if none exists
-      return await _createDefaultConfig();
+      final doc = await _configRef.get();
+      if (!doc.exists) return null;
+      return SystemConfigV1.fromFirestore(doc);
     } catch (e) {
-      // Debug statement removed for production security
       return null;
     }
   }
 
-  /// Update system configuration
-  static Future<bool> updateSystemConfig(SystemConfig config) async {
+  /// Stream the config for real-time UI updates.
+  static Stream<SystemConfigV1?> configStream() {
+    return _configRef.snapshots().map((doc) {
+      if (!doc.exists) return null;
+      return SystemConfigV1.fromFirestore(doc);
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // BOOTSTRAP
+  // ---------------------------------------------------------------------------
+
+  /// Creates a minimal V1 document only if `system_config/main` does not exist.
+  ///
+  /// Uses `set()` intentionally — the document does not exist yet so `update()`
+  /// would fail. This is the only method allowed to use `set()` on this ref.
+  /// Returns `true` if the document was created, `false` if it already existed
+  /// or an error occurred.
+  static Future<bool> initializeEmptyConfig(String adminUid) async {
     try {
-      await _firestore
-          .collection(_configCollection)
-          .doc('main')
-          .set(config.toFirestore());
+      final doc = await _configRef.get();
+      if (doc.exists) return false;
+      await _configRef.set({
+        'schemaVersion': 1,
+        'status': 'active',
+        'primaryCountryCode': '',
+        'primaryCurrencyCode': '',
+        'countries': <String, dynamic>{},
+        'citiesByCountry': <String, dynamic>{},
+        'currencies': <String, dynamic>{},
+        'mobileMoneyProviders': <String, dynamic>{},
+        'revenuePolicies': {
+          'subscriptions': {
+            'enabled': false,
+            'mode': 'full_amount_to_platform',
+          },
+          'purchases': {'enabled': false, 'commissionBps': 0},
+          'exchanges': {'enabled': false, 'commissionBps': 0},
+          'courierFees': {'enabled': false, 'platformShareBps': 0},
+        },
+        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedByAdminId': adminUid,
+      });
       return true;
     } catch (e) {
-      // Debug statement removed for production security
       return false;
     }
   }
 
-  /// Create default African-focused configuration
-  static Future<SystemConfig> _createDefaultConfig() async {
-    final defaultConfig = SystemConfig(
-      id: 'main',
-      primaryCurrency: 'XAF', // Start with Central African CFA Franc
-      supportedCurrencies: CurrencyConfig.getAfricanDefaults(),
-      supportedCities: [
-        // Cameroon cities
-        'Yaoundé', 'Douala', 'Bamenda', 'Bafoussam',
-        // Kenya cities
-        'Nairobi', 'Mombasa', 'Kisumu', 'Nakuru',
-        // Nigeria cities
-        'Lagos', 'Abuja', 'Kano', 'Port Harcourt',
-        // Ghana cities
-        'Accra', 'Kumasi', 'Tamale', 'Sekondi-Takoradi',
-      ],
-      deliveryRatesByCity: {
-        // Cameroon (XAF)
-        'Yaoundé': 1000.0, 'Douala': 1200.0, 'Bamenda': 800.0, 'Bafoussam': 800.0,
-        // Kenya (KES)
-        'Nairobi': 200.0, 'Mombasa': 250.0, 'Kisumu': 180.0, 'Nakuru': 180.0,
-        // Nigeria (NGN)
-        'Lagos': 500.0, 'Abuja': 400.0, 'Kano': 350.0, 'Port Harcourt': 400.0,
-        // Ghana (GHS)
-        'Accra': 15.0, 'Kumasi': 12.0, 'Tamale': 10.0, 'Sekondi-Takoradi': 12.0,
-      },
-      lastUpdated: DateTime.now(),
-      updatedByAdminId: 'system',
-    );
+  // ---------------------------------------------------------------------------
+  // COUNTRIES
+  // ---------------------------------------------------------------------------
 
-    await _firestore
-        .collection(_configCollection)
-        .doc('main')
-        .set(defaultConfig.toFirestore());
-
-    return defaultConfig;
-  }
-
-  /// Add new supported city
-  static Future<bool> addCity(String cityName, double deliveryRate) async {
+  static Future<bool> upsertCountry(String code, CountryOption country) async {
     try {
-      final config = await getSystemConfig();
-      if (config == null) return false;
-
-      final updatedCities = [...config.supportedCities, cityName];
-      final updatedRates = {...config.deliveryRatesByCity, cityName: deliveryRate};
-
-      final updatedConfig = config.copyWith(
-        supportedCities: updatedCities,
-        deliveryRatesByCity: updatedRates,
-      );
-
-      return await updateSystemConfig(updatedConfig);
+      await _configRef.update({
+        'countries.$code': country.toMap(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return true;
     } catch (e) {
-      // Debug statement removed for production security
       return false;
     }
   }
 
-  /// Update currency exchange rates
-  static Future<bool> updateCurrencyRates(Map<String, double> newRates) async {
+  static Future<bool> toggleCountry(String code, bool enabled) async {
     try {
-      final config = await getSystemConfig();
-      if (config == null) return false;
-
-      final updatedCurrencies = Map<String, CurrencyConfig>.from(config.supportedCurrencies);
-      
-      for (final entry in newRates.entries) {
-        if (updatedCurrencies.containsKey(entry.key)) {
-          final currency = updatedCurrencies[entry.key]!;
-          updatedCurrencies[entry.key] = CurrencyConfig(
-            code: currency.code,
-            symbol: currency.symbol,
-            name: currency.name,
-            exchangeRate: entry.value,
-            isActive: currency.isActive,
-          );
-        }
-      }
-
-      final updatedConfig = config.copyWith(
-        supportedCurrencies: updatedCurrencies,
-      );
-
-      return await updateSystemConfig(updatedConfig);
+      await _configRef.update({
+        'countries.$code.enabled': enabled,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return true;
     } catch (e) {
-      // Debug statement removed for production security
       return false;
     }
   }
 
-  /// Get all dynamic subscription plans
+  static Future<bool> setPrimaryCountry(String code) async {
+    try {
+      await _configRef.update({
+        'primaryCountryCode': code,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // CITIES
+  // ---------------------------------------------------------------------------
+
+  static Future<bool> upsertCity(
+      String countryCode, String cityCode, CityOption city) async {
+    try {
+      await _configRef.update({
+        'citiesByCountry.$countryCode.$cityCode': city.toMap(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static Future<bool> removeCity(String countryCode, String cityCode) async {
+    try {
+      await _configRef.update({
+        'citiesByCountry.$countryCode.$cityCode': FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // CURRENCIES
+  // ---------------------------------------------------------------------------
+
+  static Future<bool> upsertCurrency(String code, CurrencyOption currency) async {
+    try {
+      await _configRef.update({
+        'currencies.$code': currency.toMap(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static Future<bool> toggleCurrency(String code, bool enabled) async {
+    try {
+      await _configRef.update({
+        'currencies.$code.enabled': enabled,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static Future<bool> setPrimaryCurrency(String code) async {
+    try {
+      await _configRef.update({
+        'primaryCurrencyCode': code,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // MOBILE MONEY PROVIDERS
+  // ---------------------------------------------------------------------------
+
+  static Future<bool> upsertProvider(String id, ProviderOption provider) async {
+    try {
+      await _configRef.update({
+        'mobileMoneyProviders.$id': provider.toMap(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static Future<bool> toggleProvider(String id, bool enabled) async {
+    try {
+      await _configRef.update({
+        'mobileMoneyProviders.$id.enabled': enabled,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // REVENUE POLICIES
+  // ---------------------------------------------------------------------------
+
+  static Future<bool> updateRevenuePolicies(
+      Map<String, RevenuePolicy> policies) async {
+    try {
+      await _configRef.update({
+        'revenuePolicies': policies.map((k, v) => MapEntry(k, v.toMap())),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // SUBSCRIPTION PLANS (separate collection: dynamic_subscription_plans)
+  // ---------------------------------------------------------------------------
+
   static Stream<List<DynamicSubscriptionPlan>> getSubscriptionPlans() {
     return _firestore
         .collection(_plansCollection)
@@ -141,24 +253,33 @@ class SystemConfigService {
       return snapshot.docs
           .map((doc) => DynamicSubscriptionPlan.fromFirestore(doc))
           .toList()
-        ..sort((a, b) => a.pricesByCurrency.values.first.compareTo(b.pricesByCurrency.values.first));
+        ..sort((a, b) => a.pricesByCurrency.values.first
+            .compareTo(b.pricesByCurrency.values.first));
     });
   }
 
-  /// Create new subscription plan
+  static Stream<List<DynamicSubscriptionPlan>> getAllSubscriptionPlans() {
+    return _firestore
+        .collection(_plansCollection)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => DynamicSubscriptionPlan.fromFirestore(doc))
+          .toList()
+        ..sort((a, b) => a.pricesByCurrency.values.first
+            .compareTo(b.pricesByCurrency.values.first));
+    });
+  }
+
   static Future<bool> createSubscriptionPlan(DynamicSubscriptionPlan plan) async {
     try {
-      await _firestore
-          .collection(_plansCollection)
-          .add(plan.toFirestore());
+      await _firestore.collection(_plansCollection).add(plan.toFirestore());
       return true;
     } catch (e) {
-      // Debug statement removed for production security
       return false;
     }
   }
 
-  /// Update subscription plan
   static Future<bool> updateSubscriptionPlan(DynamicSubscriptionPlan plan) async {
     try {
       await _firestore
@@ -167,27 +288,42 @@ class SystemConfigService {
           .update(plan.toFirestore());
       return true;
     } catch (e) {
-      // Debug statement removed for production security
       return false;
     }
   }
 
-  /// Create default African subscription plans
-  static Future<void> createDefaultPlans() async {
-    final config = await getSystemConfig();
-    if (config == null) return;
+  static Future<bool> deleteSubscriptionPlan(String planId) async {
+    try {
+      await _firestore.collection(_plansCollection).doc(planId).delete();
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
 
+  static Future<bool> toggleSubscriptionPlan(String planId, bool isActive) async {
+    try {
+      await _firestore.collection(_plansCollection).doc(planId).update({
+        'isActive': isActive,
+      });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static Future<void> createDefaultPlans() async {
     final plans = [
       DynamicSubscriptionPlan(
         id: '',
         name: 'Essential',
         description: 'Perfect for small pharmacies getting started',
         pricesByCurrency: {
-          'XAF': 6000.0,  // 6,000 FCFA (~$10)
-          'KES': 1500.0,  // 1,500 KSh (~$10)
-          'NGN': 8000.0,  // 8,000 ₦ (~$10)
-          'GHS': 120.0,   // 120 GH₵ (~$10)
-          'USD': 10.0,    // $10
+          'XAF': 6000.0,
+          'KES': 1500.0,
+          'NGN': 8000.0,
+          'GHS': 120.0,
+          'USD': 10.0,
         },
         inventoryLimit: 100,
         features: [
@@ -206,13 +342,13 @@ class SystemConfigService {
         name: 'Professional',
         description: 'Advanced features for growing pharmacy networks',
         pricesByCurrency: {
-          'XAF': 15000.0, // 15,000 FCFA (~$25)
-          'KES': 3750.0,  // 3,750 KSh (~$25)
-          'NGN': 20000.0, // 20,000 ₦ (~$25)
-          'GHS': 300.0,   // 300 GH₵ (~$25)
-          'USD': 25.0,    // $25
+          'XAF': 15000.0,
+          'KES': 3750.0,
+          'NGN': 20000.0,
+          'GHS': 300.0,
+          'USD': 25.0,
         },
-        inventoryLimit: -1, // Unlimited
+        inventoryLimit: -1,
         features: [
           'Unlimited medicine listings',
           'Advanced analytics dashboard',
@@ -230,13 +366,13 @@ class SystemConfigService {
         name: 'Enterprise',
         description: 'Complete solution for large pharmacy chains',
         pricesByCurrency: {
-          'XAF': 30000.0, // 30,000 FCFA (~$50)
-          'KES': 7500.0,  // 7,500 KSh (~$50)
-          'NGN': 40000.0, // 40,000 ₦ (~$50)
-          'GHS': 600.0,   // 600 GH₵ (~$50)
-          'USD': 50.0,    // $50
+          'XAF': 30000.0,
+          'KES': 7500.0,
+          'NGN': 40000.0,
+          'GHS': 600.0,
+          'USD': 50.0,
         },
-        inventoryLimit: -1, // Unlimited
+        inventoryLimit: -1,
         features: [
           'Multi-location management',
           'API access for integrations',
@@ -256,7 +392,10 @@ class SystemConfigService {
     }
   }
 
-  /// Get pharmacies by city for admin management
+  // ---------------------------------------------------------------------------
+  // PHARMACIES BY CITY (admin view)
+  // ---------------------------------------------------------------------------
+
   static Stream<Map<String, List<Map<String, dynamic>>>> getPharmaciesByCity() {
     return _firestore
         .collection('pharmacies')
@@ -266,12 +405,13 @@ class SystemConfigService {
 
       for (final doc in snapshot.docs) {
         final data = doc.data();
-        final city = data['locationData']?['address']?['city'] ?? 'Unknown City';
-        
+        final city =
+            data['locationData']?['address']?['city'] ?? 'Unknown City';
+
         if (!pharmaciesByCity.containsKey(city)) {
           pharmaciesByCity[city] = [];
         }
-        
+
         pharmaciesByCity[city]!.add({
           'id': doc.id,
           'pharmacyName': data['pharmacyName'] ?? 'Unknown',

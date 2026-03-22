@@ -3,10 +3,11 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../blocs/admin_auth_bloc.dart';
+import '../models/admin_user.dart';
 import 'pharmacy_management_screen.dart';
 import 'subscription_management_screen.dart';
 import 'financial_reports_screen.dart';
-import 'system_config_screen.dart';
+import 'system_config/system_config_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -17,14 +18,6 @@ class AdminDashboardScreen extends StatefulWidget {
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   int _selectedIndex = 0;
-  
-  final List<Widget> _screens = [
-    const DashboardHomeScreen(),
-    const PharmacyManagementScreen(),
-    const SubscriptionManagementScreen(),
-    const FinancialReportsScreen(),
-    const SystemConfigScreen(),
-  ];
 
   @override
   Widget build(BuildContext context) {
@@ -135,59 +128,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             backgroundColor: Colors.white,
             elevation: 2,
           ),
-          body: Row(
-            children: [
-              // Sidebar navigation
-              NavigationRail(
-                selectedIndex: _selectedIndex,
-                onDestinationSelected: (index) {
-                  setState(() {
-                    _selectedIndex = index;
-                  });
-                },
-                labelType: NavigationRailLabelType.all,
-                backgroundColor: Colors.grey.shade50,
-                destinations: [
-                  const NavigationRailDestination(
-                    icon: Icon(Icons.dashboard),
-                    selectedIcon: Icon(Icons.dashboard),
-                    label: Text('Dashboard'),
-                  ),
-                  NavigationRailDestination(
-                    icon: const Icon(Icons.local_pharmacy),
-                    selectedIcon: const Icon(Icons.local_pharmacy),
-                    label: const Text('Pharmacies'),
-                    disabled: !adminUser.canManagePharmacies,
-                  ),
-                  NavigationRailDestination(
-                    icon: const Icon(Icons.subscriptions),
-                    selectedIcon: const Icon(Icons.subscriptions),
-                    label: const Text('Subscriptions'),
-                    disabled: !adminUser.canManageSubscriptions,
-                  ),
-                  NavigationRailDestination(
-                    icon: const Icon(Icons.analytics),
-                    selectedIcon: const Icon(Icons.analytics),
-                    label: const Text('Reports'),
-                    disabled: !adminUser.canViewFinancials,
-                  ),
-                  NavigationRailDestination(
-                    icon: const Icon(Icons.settings),
-                    selectedIcon: const Icon(Icons.settings),
-                    label: const Text('System Config'),
-                    disabled: !adminUser.isSuperAdmin,
-                  ),
-                ],
-              ),
-              
-              // Vertical divider
-              const VerticalDivider(thickness: 1, width: 1),
-              
-              // Main content
-              Expanded(
-                child: _screens[_selectedIndex],
-              ),
-            ],
+          body: _AdminDashboardBody(
+            adminUser: adminUser,
+            selectedIndex: _selectedIndex,
+            onDestinationSelected: (index) =>
+                setState(() => _selectedIndex = index),
           ),
         );
       },
@@ -195,8 +140,121 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 }
 
+/// Builds the navigation rail and screen list dynamically based on admin role
+/// and permissions. Scoped admins see only permitted surfaces.
+class _AdminDashboardBody extends StatelessWidget {
+  final AdminUser adminUser;
+  final int selectedIndex;
+  final ValueChanged<int> onDestinationSelected;
+
+  const _AdminDashboardBody({
+    required this.adminUser,
+    required this.selectedIndex,
+    required this.onDestinationSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = _buildEntries();
+    final clampedIndex =
+        selectedIndex < entries.length ? selectedIndex : 0;
+
+    return Row(
+      children: [
+        NavigationRail(
+          selectedIndex: clampedIndex,
+          onDestinationSelected: onDestinationSelected,
+          labelType: NavigationRailLabelType.all,
+          backgroundColor: Colors.grey.shade50,
+          destinations: entries
+              .map((e) => NavigationRailDestination(
+                    icon: Icon(e.icon),
+                    selectedIcon: Icon(e.icon),
+                    label: Text(e.label),
+                  ))
+              .toList(),
+        ),
+        const VerticalDivider(thickness: 1, width: 1),
+        Expanded(child: entries[clampedIndex].screen),
+      ],
+    );
+  }
+
+  List<_NavEntry> _buildEntries() {
+    final entries = <_NavEntry>[
+      _NavEntry(
+        icon: Icons.dashboard,
+        label: 'Dashboard',
+        screen: DashboardHomeScreen(
+          countryScopes: adminUser.countryScopes,
+          isSuperAdmin: adminUser.isSuperAdmin,
+        ),
+      ),
+    ];
+
+    if (adminUser.canManagePharmacies) {
+      entries.add(_NavEntry(
+        icon: Icons.local_pharmacy,
+        label: 'Pharmacies',
+        screen: PharmacyManagementScreen(
+          countryScopes: adminUser.countryScopes,
+          isSuperAdmin: adminUser.isSuperAdmin,
+        ),
+      ));
+    }
+
+    // Subscriptions, Reports, System Config — super_admin or matching permission.
+    // Scoped admins with manage_subscriptions could see subscriptions in the future;
+    // for V2A, we keep the existing permission gates.
+    if (adminUser.canManageSubscriptions) {
+      entries.add(const _NavEntry(
+        icon: Icons.subscriptions,
+        label: 'Subscriptions',
+        screen: SubscriptionManagementScreen(),
+      ));
+    }
+
+    if (adminUser.canViewFinancials) {
+      entries.add(const _NavEntry(
+        icon: Icons.analytics,
+        label: 'Reports',
+        screen: FinancialReportsScreen(),
+      ));
+    }
+
+    if (adminUser.isSuperAdmin) {
+      entries.add(const _NavEntry(
+        icon: Icons.settings,
+        label: 'System Config',
+        screen: SystemConfigScreen(),
+      ));
+    }
+
+    return entries;
+  }
+}
+
+class _NavEntry {
+  final IconData icon;
+  final String label;
+  final Widget screen;
+
+  const _NavEntry({
+    required this.icon,
+    required this.label,
+    required this.screen,
+  });
+}
+
 class DashboardHomeScreen extends StatefulWidget {
-  const DashboardHomeScreen({super.key});
+  final List<String> countryScopes;
+  final bool isSuperAdmin;
+
+  const DashboardHomeScreen({
+    super.key,
+    this.countryScopes = const [],
+    this.isSuperAdmin = false,
+  });
 
   @override
   State<DashboardHomeScreen> createState() => _DashboardHomeScreenState();
@@ -220,9 +278,20 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
     try {
       final firestore = FirebaseFirestore.instance;
       
-      // Get total pharmacies
-      // Fetching pharmacies data
-      final pharmaciesSnapshot = await firestore.collection('pharmacies').get();
+      // Get pharmacies — scoped unless super_admin.
+      Query<Map<String, dynamic>> query =
+          firestore.collection('pharmacies');
+      if (!widget.isSuperAdmin && widget.countryScopes.isNotEmpty) {
+        query = query.where('countryCode',
+            whereIn: widget.countryScopes);
+      } else if (!widget.isSuperAdmin && widget.countryScopes.isEmpty) {
+        // Misconfigured admin — show zero stats.
+        if (mounted) {
+          setState(() => isLoading = false);
+        }
+        return;
+      }
+      final pharmaciesSnapshot = await query.get();
       final pharmacies = pharmaciesSnapshot.docs;
       // Pharmacies data retrieved
       

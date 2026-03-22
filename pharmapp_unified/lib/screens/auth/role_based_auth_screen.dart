@@ -56,11 +56,11 @@ class _RoleBasedAuthScreenState extends State<RoleBasedAuthScreen> {
             title: 'Step 1: Select Your Location',
             subtitle: 'Choose your country and city',
             allowSkip: false,
-            registrationScreenBuilder: (selectedCountry, selectedCity) {
+            registrationScreenBuilder: (countryCode, cityCode) {
               return UnifiedRegistrationScreen(
                 userType: widget.userType,
-                selectedCountry: selectedCountry,
-                selectedCity: selectedCity,
+                countryCode: countryCode,
+                cityCode: cityCode,
               );
             },
           ),

@@ -101,15 +101,10 @@ class LocationService {
     return from.distanceTo(to);
   }
 
-  /// Calculate delivery fee based on distance (example pricing)
-  static double calculateDeliveryFee(double distanceKm) {
-    // Example African pricing model
-    if (distanceKm <= 2.0) return 500; // CFA Francs or equivalent
-    if (distanceKm <= 5.0) return 750;
-    if (distanceKm <= 10.0) return 1000;
-    if (distanceKm <= 20.0) return 1500;
-    return 2000; // Long distance
-  }
+  // NOTE: calculateDeliveryFee(distanceKm) removed — dead code (never called).
+  // In the production flow, courierFee is written by the exchangeCapture Firebase Function.
+  // Client-side display of the estimated city fee is done via
+  // MasterDataSnapshot.getCityDeliveryFee(countryCode, cityCode) — see CreateProposalScreen.
 
   /// Create address from manual input (for formal address areas)
   static PharmacyAddress createFormalAddress({

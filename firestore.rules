@@ -39,10 +39,28 @@ service cloud.firestore {
       return hasActiveSubscription(userId);
     }
 
+    // Sprint 2D: canonical-first city match for delivery access rules.
+    // Compares delivery city against the courier's city using cityCode when both
+    // documents carry it; falls back to the legacy city/operatingCity display name
+    // for pre-migration documents.  Call sites must call exists() separately.
+    function deliveryCityMatchesCourier(deliveryData) {
+      let courier = get(/databases/$(db)/documents/couriers/$(request.auth.uid)).data;
+      return (deliveryData.cityCode != null && courier.cityCode != null &&
+              deliveryData.cityCode == courier.cityCode)
+          || (deliveryData.cityCode == null &&
+              (deliveryData.city == courier.operatingCity ||
+               deliveryData.city == courier.city));
+    }
+
     // Backend-only collections (write restricted to cloud functions)
     match /webhook_logs/{id} { allow write: if false; allow read: if isAdmin(); }
     match /payments/{id}     { allow write: if false; allow read: if isAdmin(); }
-    match /ledger/{id}       { allow write: if false; allow read: if isAdmin(); }
+    match /ledger/{id} {
+      allow write: if false;
+      allow read: if isAdmin() ||
+        (isAuthenticated() &&
+         (isSuperAdmin(request.auth.uid) || isAdminFinancial(request.auth.uid)));
+    }
     match /wallets/{userId}  { 
       allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
       allow write: if false; // Backend-only writes
@@ -86,6 +104,21 @@ service cloud.firestore {
     function isSuperAdmin(userId) {
       return exists(/databases/$(db)/documents/admins/$(userId)) &&
              get(/databases/$(db)/documents/admins/$(userId)).data.role == 'super_admin';
+    }
+
+    // Helper: user exists in admins/ collection and isActive == true.
+    // Does NOT check role — use with role/permission helpers below.
+    function isActiveAdmin(userId) {
+      return exists(/databases/$(db)/documents/admins/$(userId)) &&
+             get(/databases/$(db)/documents/admins/$(userId)).data.isActive == true;
+    }
+
+    // Helper function to check if user has view_financials permission.
+    // Mirrors AdminUser.canViewFinancials (permissions.contains('view_financials') || super_admin).
+    // Contract: CONTRACT_ADMIN_MASTER_DATA_AND_TREASURY_V1 §11.1.
+    function isAdminFinancial(userId) {
+      return isActiveAdmin(userId) &&
+             get(/databases/$(db)/documents/admins/$(userId)).data.permissions.hasAny(['view_financials']);
     }
 
     // User profiles (base user records)
@@ -211,7 +244,7 @@ service cloud.firestore {
         // Only couriers can browse pending deliveries, and only in their operating city
         (resource.data.status == 'pending' &&
          exists(/databases/$(db)/documents/couriers/$(request.auth.uid)) &&
-         resource.data.city == get(/databases/$(db)/documents/couriers/$(request.auth.uid)).data.operatingCity) ||
+         deliveryCityMatchesCourier(resource.data)) ||
         resource.data.courierId == request.auth.uid ||           // Courier can read assigned deliveries
         resource.data.fromPharmacyId == request.auth.uid ||      // Source pharmacy can read
         resource.data.toPharmacyId == request.auth.uid ||        // Destination pharmacy can read
@@ -229,7 +262,7 @@ service cloud.firestore {
         (resource.data.status == 'pending' &&
          resource.data.courierId == null &&
          exists(/databases/$(db)/documents/couriers/$(request.auth.uid)) &&
-         resource.data.city == get(/databases/$(db)/documents/couriers/$(request.auth.uid)).data.operatingCity &&
+         deliveryCityMatchesCourier(resource.data) &&
          request.resource.data.courierId == request.auth.uid &&
          request.resource.data.status == 'accepted' &&
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(
@@ -262,6 +295,87 @@ service cloud.firestore {
       // Only pharmacy-role users can create/update medicines
       allow create, update: if isAuthenticated() &&
         exists(/databases/$(db)/documents/pharmacies/$(request.auth.uid));
+    }
+
+    // Dynamic subscription plans (runtime-readable, super_admin writable)
+    // Note: subscription_config rule (L68) covers the legacy collection name;
+    // this rule covers the actual collection used by admin_panel code.
+    match /dynamic_subscription_plans/{planId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isSuperAdmin(request.auth.uid);
+    }
+
+    // System configuration V1 — runtime source of truth for countries,
+    // cities, currencies, mobile money providers, revenue policies.
+    // Contract: CONTRACT_ADMIN_MASTER_DATA_AND_TREASURY_V1 §11.
+    // Read is public: the registration flow reads system_config/main before
+    // the user has authenticated (Sprint 2A decision).
+    match /system_config/{docId} {
+      allow read: if true;
+      allow write: if isAuthenticated() && isSuperAdmin(request.auth.uid);
+    }
+
+    // Platform treasuries — accumulate subscription and other platform revenue.
+    // Contract: CONTRACT_ADMIN_MASTER_DATA_AND_TREASURY_V1 §6.2 and §11.
+    // Document ID convention: {countryCode}_{currencyCode} (e.g. "CM_XAF").
+    // Read: super_admin + finance admins (view_financials permission — §11.1).
+    // Write: backend-only via Cloud Functions (sandboxSubscriptionSuccess, future payout functions).
+    //        Client writes are denied to prevent balance tampering.
+    match /platform_treasuries/{treasuryId} {
+      allow read: if isAuthenticated() &&
+        (isSuperAdmin(request.auth.uid) || isAdminFinancial(request.auth.uid));
+      allow write: if false; // Backend-only — Cloud Functions use Admin SDK
+    }
+
+    // Admin payout accounts — mobile money accounts used by admins to receive payouts.
+    // Contract: CONTRACT_ADMIN_MASTER_DATA_AND_TREASURY_V1 §6.3.
+    // Read: owning admin (own accounts only) or super_admin.
+    // Create/Update: owning admin only (immutable fields enforced by service layer).
+    // Delete: super_admin only.
+    // verificationStatus promotion is out of scope for Sprint 3B (backend function, Lot 4).
+    match /admin_payout_accounts/{accountId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.adminUserId == request.auth.uid ||
+         isSuperAdmin(request.auth.uid));
+      // Only active admins can create their own payout accounts.
+      // isActiveAdmin() ensures the caller exists in admins/ and is not deactivated.
+      allow create: if isAuthenticated() &&
+        isActiveAdmin(request.auth.uid) &&
+        request.resource.data.adminUserId == request.auth.uid &&
+        request.resource.data.verificationStatus == 'unverified' &&
+        request.resource.data.accountType == 'mobile_money';
+      // Only the owning active admin can update; immutable fields are protected.
+      allow update: if isAuthenticated() &&
+        isActiveAdmin(request.auth.uid) &&
+        resource.data.adminUserId == request.auth.uid &&
+        // Immutable fields must not change.
+        request.resource.data.adminUserId == resource.data.adminUserId &&
+        request.resource.data.countryCode == resource.data.countryCode &&
+        request.resource.data.currencyCode == resource.data.currencyCode &&
+        request.resource.data.providerId == resource.data.providerId &&
+        request.resource.data.accountType == resource.data.accountType &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        // verificationStatus cannot be promoted client-side (Lot 4 backend callable).
+        request.resource.data.verificationStatus == resource.data.verificationStatus;
+      allow delete: if isAuthenticated() && isSuperAdmin(request.auth.uid);
+    }
+
+    // Platform payout requests — tracks payout requests from treasury to admin accounts.
+    // Contract: CONTRACT_ADMIN_MASTER_DATA_AND_TREASURY_V1 §6 (Sprint 4B).
+    // Document ID: auto-generated.
+    // Read: owning admin (own requests) or finance/super_admin.
+    // Write: backend-only via Cloud Functions (requestPlatformPayout, resolvePlatformPayout).
+    match /platform_payout_requests/{requestId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.adminUserId == request.auth.uid ||
+         isSuperAdmin(request.auth.uid) ||
+         isAdminFinancial(request.auth.uid));
+      allow write: if false; // Backend-only — Cloud Functions use Admin SDK
+    }
+
+    // Backups of system_config before migrations — super_admin only.
+    match /system_config_backups/{docId} {
+      allow read, write: if isAuthenticated() && isSuperAdmin(request.auth.uid);
     }
 
     // ========== DEFAULT DENY ALL ==========

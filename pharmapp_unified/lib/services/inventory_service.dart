@@ -1,6 +1,8 @@
+import 'dart:async' show unawaited;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:pharmapp_shared/pharmapp_shared.dart';
 import '../models/pharmacy_inventory.dart';
 import '../models/medicine.dart';
 
@@ -93,40 +95,64 @@ class InventoryService {
         return;
       }
 
-      // Extract current pharmacy's city
-      final String? currentCity = pharmacyDoc.data()?['city'] as String?;
+      final docData = pharmacyDoc.data()!;
 
-      // ✅ FIX 2: Enhanced null safety - check for null AND empty string
-      if (currentCity == null || currentCity.isEmpty) {
+      // Prefer canonical cityCode (written by Sprint 2A+ registration).
+      // If absent, compute slug from legacy city display name and write it back
+      // lazily — this is the Sprint 2D backfill for pre-migration documents.
+      String? resolvedCityCode = docData['cityCode'] as String?;
+      final String? legacyCityName = docData['city'] as String?;
+
+      if (resolvedCityCode == null &&
+          legacyCityName != null &&
+          legacyCityName.isNotEmpty) {
+        resolvedCityCode = MasterDataService.citySlug(legacyCityName);
+        unawaited(_firestore
+            .collection('pharmacies')
+            .doc(user.uid)
+            .update({'cityCode': resolvedCityCode}));
+      }
+
+      if (resolvedCityCode == null) {
         debugPrint('⚠️ Pharmacy ${user.uid} has no city configured');
         yield <PharmacyInventoryItem>[];
         return;
       }
 
-      debugPrint('🏙️ Pharmacy city: $currentCity');
+      debugPrint('🏙️ Pharmacy cityCode: $resolvedCityCode (legacy: $legacyCityName)');
 
-      // Get all pharmacies in the same city
-      final pharmaciesSnapshot = await _firestore
-          .collection('pharmacies')
-          .where('city', isEqualTo: currentCity)
-          .get();
+      // Dual-mode query: cityCode (Sprint 2A+ docs) + legacy city (pre-migration docs).
+      // Merging both result sets ensures no pharmacy is missed during the transition.
+      final cityQueries = <Future<QuerySnapshot<Map<String, dynamic>>>>[
+        _firestore
+            .collection('pharmacies')
+            .where('cityCode', isEqualTo: resolvedCityCode)
+            .get(),
+        if (legacyCityName != null && legacyCityName.isNotEmpty)
+          _firestore
+              .collection('pharmacies')
+              .where('city', isEqualTo: legacyCityName)
+              .get(),
+      ];
+      final citySnapshots = await Future.wait(cityQueries);
 
-      debugPrint('📍 Found ${pharmaciesSnapshot.docs.length} total pharmacies in $currentCity');
+      debugPrint('📍 City query returned ${citySnapshots.map((s) => s.docs.length).reduce((a, b) => a + b)} docs (pre-dedup)');
 
-      // ✅ FIX 3: Exclude own pharmacy ID from the list (not just client-side filtering)
-      final pharmacyIdsInCity = pharmaciesSnapshot.docs
-          .map((doc) => doc.id)
-          .where((id) => id != user.uid) // Exclude self at query level
+      // ✅ FIX 3: Deduplicate across both result sets, exclude self.
+      final pharmacyIdsInCity = citySnapshots
+          .expand((s) => s.docs.map((d) => d.id))
+          .toSet()
+          .where((id) => id != user.uid)
           .toList();
 
       // ✅ FIX 4: Check if there are any other pharmacies in the same city
       if (pharmacyIdsInCity.isEmpty) {
-        debugPrint('ℹ️ User is the only pharmacy in $currentCity');
+        debugPrint('ℹ️ User is the only pharmacy in $resolvedCityCode');
         yield <PharmacyInventoryItem>[];
         return;
       }
 
-      debugPrint('👥 Found ${pharmacyIdsInCity.length} other pharmacies in $currentCity');
+      debugPrint('👥 Found ${pharmacyIdsInCity.length} other pharmacies in $resolvedCityCode');
 
       // ✅ FIX 5: Handle Firebase whereIn limit of 30 items - split into chunks
       const chunkSize = 30;
@@ -191,7 +217,7 @@ class InventoryService {
       // Sort by creation date (most recent first) in client-side
       items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-      debugPrint('✅ Returning ${items.length} filtered medicines from $currentCity');
+      debugPrint('✅ Returning ${items.length} filtered medicines from $resolvedCityCode');
 
       yield items;
     });

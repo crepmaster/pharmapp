@@ -18,6 +18,8 @@
     "typecheck": "tsc --noEmit",
     "validate": "npm run typecheck && npm run lint && npm run test",
     "validate:quick": "npm run typecheck && npm run lint",
+    "backfill:dry-run": "npm run build && node lib/backfillCityCode.js --dry-run",
+    "backfill": "npm run build && node lib/backfillCityCode.js",
     "clean": "node -e \"const fs=require('fs'); fs.rmSync('lib',{recursive:true,force:true}); fs.rmSync('coverage',{recursive:true,force:true});\"",
     "prebuild": "npm run clean"
   },

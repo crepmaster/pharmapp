@@ -1,3 +1,4 @@
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -7,7 +8,17 @@ import '../models/subscription.dart';
 import '../services/pharmacy_management_service.dart';
 
 class PharmacyManagementScreen extends StatefulWidget {
-  const PharmacyManagementScreen({super.key});
+  /// Country scopes for this admin.
+  final List<String> countryScopes;
+
+  /// True if this admin is super_admin (empty scopes = global).
+  final bool isSuperAdmin;
+
+  const PharmacyManagementScreen({
+    super.key,
+    this.countryScopes = const [],
+    this.isSuperAdmin = false,
+  });
 
   @override
   State<PharmacyManagementScreen> createState() => _PharmacyManagementScreenState();
@@ -138,7 +149,9 @@ class _PharmacyManagementScreenState extends State<PharmacyManagementScreen> {
           // Pharmacy list
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
-              stream: _pharmacyService.getPharmaciesStream(),
+              stream: _pharmacyService.getScopedPharmaciesStream(
+                  widget.countryScopes,
+                  isSuperAdmin: widget.isSuperAdmin),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return Center(
@@ -340,7 +353,8 @@ class _PharmacyManagementScreenState extends State<PharmacyManagementScreen> {
         pharmacy.uid,
         !pharmacy.isActive,
       );
-      
+
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -350,7 +364,16 @@ class _PharmacyManagementScreenState extends State<PharmacyManagementScreen> {
           ),
         ),
       );
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed: ${e.message}'),
+          backgroundColor: Colors.red,
+        ),
+      );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to update status: $e'),

@@ -107,8 +107,14 @@ class EncryptionService {
   /// ✅ FIX: Support all operators across all countries
   static bool isValidPaymentMethod(String method) {
     const validMethods = [
-      // Cameroon
+      // Cameroon — legacy strings
       'mtn', 'orange', 'camtel', 'mtn_cameroon', 'orange_cameroon',
+      // Cameroon — Firestore V1 provider ID format
+      'mtn_cm', 'orange_cm', 'camtel_cm',
+      // Cameroon — common methodCode values from Firestore
+      // Note: generic rail codes (no country suffix) are aliased to Cameroon
+      // in validatePhoneWithMethod — see comment there.
+      'mtn_momo', 'orange_money', 'camtel_mobile',
       // Kenya
       'mpesa', 'mpesa_kenya', 'airtel_kenya',
       // Tanzania
@@ -138,16 +144,26 @@ class EncryptionService {
     }
 
     switch (method.toLowerCase().replaceAll(' ', '_')) {
-      // Cameroon operators
+      // Cameroon operators — legacy strings + Firestore V1 formats
       case 'mtn':
       case 'mtn_cameroon':
+      case 'mtn_cm':
+      // Generic rail codes without country suffix are aliased to Cameroon
+      // (primary deployment market).  If a multi-country deployment uses
+      // 'mtn_momo' for a non-Cameroon country the phone prefix check will
+      // be incorrect — track as a Sprint 2C concern if needed.
+      case 'mtn_momo':
         // MTN MoMo prefixes in Cameroon: 650-659, 670-679, 680-689
         return RegExp(r'^(65[0-9]|67[0-9]|68[0-9])\d{6}$').hasMatch(normalizedPhone);
       case 'orange':
       case 'orange_cameroon':
+      case 'orange_cm':
+      case 'orange_money':
         // Orange Money prefixes: 690-699
         return RegExp(r'^69[0-9]\d{6}$').hasMatch(normalizedPhone);
       case 'camtel':
+      case 'camtel_cm':
+      case 'camtel_mobile':
         // Camtel Mobile Money prefixes: 620-629
         return RegExp(r'^62[0-9]\d{6}$').hasMatch(normalizedPhone);
 

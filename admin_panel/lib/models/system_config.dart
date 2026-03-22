@@ -1,159 +1,186 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-/// System-wide configuration managed by administrators
-class SystemConfig {
-  final String id;
-  final String primaryCurrency;
-  final Map<String, CurrencyConfig> supportedCurrencies;
-  final List<String> supportedCities;
-  final Map<String, double> deliveryRatesByCity;
-  final DateTime lastUpdated;
+import 'country_option.dart';
+import 'city_option.dart';
+import 'currency_option.dart';
+import 'provider_option.dart';
+
+/// Revenue policy for a specific revenue stream.
+class RevenuePolicy {
+  final bool enabled;
+  final String? mode; // e.g. "full_amount_to_platform"
+  final int? commissionBps;
+  final int? platformShareBps;
+
+  const RevenuePolicy({
+    required this.enabled,
+    this.mode,
+    this.commissionBps,
+    this.platformShareBps,
+  });
+
+  factory RevenuePolicy.fromMap(Map<String, dynamic> map) {
+    return RevenuePolicy(
+      enabled: map['enabled'] ?? false,
+      mode: map['mode'],
+      commissionBps: map['commissionBps'],
+      platformShareBps: map['platformShareBps'],
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    final m = <String, dynamic>{'enabled': enabled};
+    if (mode != null) m['mode'] = mode;
+    if (commissionBps != null) m['commissionBps'] = commissionBps;
+    if (platformShareBps != null) m['platformShareBps'] = platformShareBps;
+    return m;
+  }
+}
+
+/// V1 system configuration matching CONTRACT_ADMIN_MASTER_DATA_AND_TREASURY_V1 §6.1.
+///
+/// Source of truth: Firestore document `system_config/main`.
+class SystemConfigV1 {
+  final int schemaVersion;
+  final String status;
+  final String primaryCountryCode;
+  final String primaryCurrencyCode;
+  final Map<String, CountryOption> countries;
+  final Map<String, Map<String, CityOption>> citiesByCountry;
+  final Map<String, CurrencyOption> currencies;
+  final Map<String, ProviderOption> mobileMoneyProviders;
+  final Map<String, RevenuePolicy> revenuePolicies;
+  final DateTime? updatedAt;
   final String updatedByAdminId;
 
-  SystemConfig({
-    required this.id,
-    required this.primaryCurrency,
-    required this.supportedCurrencies,
-    required this.supportedCities,
-    required this.deliveryRatesByCity,
-    required this.lastUpdated,
+  const SystemConfigV1({
+    required this.schemaVersion,
+    required this.status,
+    required this.primaryCountryCode,
+    required this.primaryCurrencyCode,
+    required this.countries,
+    required this.citiesByCountry,
+    required this.currencies,
+    required this.mobileMoneyProviders,
+    required this.revenuePolicies,
+    this.updatedAt,
     required this.updatedByAdminId,
   });
 
-  factory SystemConfig.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
-    
-    return SystemConfig(
-      id: doc.id,
-      primaryCurrency: data['primaryCurrency'] ?? 'USD',
-      supportedCurrencies: (data['supportedCurrencies'] as Map<String, dynamic>? ?? {})
-          .map((key, value) => MapEntry(key, CurrencyConfig.fromMap(value))),
-      supportedCities: List<String>.from(data['supportedCities'] ?? []),
-      deliveryRatesByCity: Map<String, double>.from(data['deliveryRatesByCity'] ?? {}),
-      lastUpdated: (data['lastUpdated'] as Timestamp).toDate(),
+  factory SystemConfigV1.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>? ?? {};
+
+    // Parse countries
+    final countriesRaw = data['countries'] as Map<String, dynamic>? ?? {};
+    final countries = countriesRaw.map(
+      (key, value) => MapEntry(key, CountryOption.fromMap(value as Map<String, dynamic>)),
+    );
+
+    // Parse citiesByCountry (nested: { "CM": { "douala": { ... } } })
+    final citiesRaw = data['citiesByCountry'] as Map<String, dynamic>? ?? {};
+    final citiesByCountry = citiesRaw.map((countryCode, citiesMap) {
+      final cities = (citiesMap as Map<String, dynamic>).map(
+        (cityCode, cityData) => MapEntry(cityCode, CityOption.fromMap(cityData as Map<String, dynamic>)),
+      );
+      return MapEntry(countryCode, cities);
+    });
+
+    // Parse currencies
+    final currenciesRaw = data['currencies'] as Map<String, dynamic>? ?? {};
+    final currencies = currenciesRaw.map(
+      (key, value) => MapEntry(key, CurrencyOption.fromMap(value as Map<String, dynamic>)),
+    );
+
+    // Parse providers
+    final providersRaw = data['mobileMoneyProviders'] as Map<String, dynamic>? ?? {};
+    final providers = providersRaw.map(
+      (key, value) => MapEntry(key, ProviderOption.fromMap(value as Map<String, dynamic>)),
+    );
+
+    // Parse revenue policies
+    final policiesRaw = data['revenuePolicies'] as Map<String, dynamic>? ?? {};
+    final policies = policiesRaw.map(
+      (key, value) => MapEntry(key, RevenuePolicy.fromMap(value as Map<String, dynamic>)),
+    );
+
+    // Parse updatedAt
+    DateTime? updatedAt;
+    if (data['updatedAt'] is Timestamp) {
+      updatedAt = (data['updatedAt'] as Timestamp).toDate();
+    }
+
+    return SystemConfigV1(
+      schemaVersion: data['schemaVersion'] ?? 0,
+      status: data['status'] ?? 'unknown',
+      primaryCountryCode: data['primaryCountryCode'] ?? '',
+      primaryCurrencyCode: data['primaryCurrencyCode'] ?? '',
+      countries: countries,
+      citiesByCountry: citiesByCountry,
+      currencies: currencies,
+      mobileMoneyProviders: providers,
+      revenuePolicies: policies,
+      updatedAt: updatedAt,
       updatedByAdminId: data['updatedByAdminId'] ?? '',
     );
   }
 
   Map<String, dynamic> toFirestore() {
     return {
-      'primaryCurrency': primaryCurrency,
-      'supportedCurrencies': supportedCurrencies.map((key, value) => MapEntry(key, value.toMap())),
-      'supportedCities': supportedCities,
-      'deliveryRatesByCity': deliveryRatesByCity,
-      'lastUpdated': FieldValue.serverTimestamp(),
+      'schemaVersion': schemaVersion,
+      'status': status,
+      'primaryCountryCode': primaryCountryCode,
+      'primaryCurrencyCode': primaryCurrencyCode,
+      'countries': countries.map((k, v) => MapEntry(k, v.toMap())),
+      'citiesByCountry': citiesByCountry.map(
+        (countryCode, cities) => MapEntry(
+          countryCode,
+          cities.map((cityCode, city) => MapEntry(cityCode, city.toMap())),
+        ),
+      ),
+      'currencies': currencies.map((k, v) => MapEntry(k, v.toMap())),
+      'mobileMoneyProviders': mobileMoneyProviders.map((k, v) => MapEntry(k, v.toMap())),
+      'revenuePolicies': revenuePolicies.map((k, v) => MapEntry(k, v.toMap())),
+      'updatedAt': FieldValue.serverTimestamp(),
       'updatedByAdminId': updatedByAdminId,
     };
   }
 
-  SystemConfig copyWith({
-    String? primaryCurrency,
-    Map<String, CurrencyConfig>? supportedCurrencies,
-    List<String>? supportedCities,
-    Map<String, double>? deliveryRatesByCity,
-    String? updatedByAdminId,
-  }) {
-    return SystemConfig(
-      id: id,
-      primaryCurrency: primaryCurrency ?? this.primaryCurrency,
-      supportedCurrencies: supportedCurrencies ?? this.supportedCurrencies,
-      supportedCities: supportedCities ?? this.supportedCities,
-      deliveryRatesByCity: deliveryRatesByCity ?? this.deliveryRatesByCity,
-      lastUpdated: DateTime.now(),
-      updatedByAdminId: updatedByAdminId ?? this.updatedByAdminId,
-    );
+  /// Convenience getters for sorted/filtered access.
+  List<CountryOption> get enabledCountries =>
+      countries.values.where((c) => c.enabled).toList()..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+
+  List<CityOption> getEnabledCities(String countryCode) {
+    final cities = citiesByCountry[countryCode];
+    if (cities == null) return [];
+    return cities.values.where((c) => c.enabled).toList()..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
   }
+
+  List<CurrencyOption> get enabledCurrencies =>
+      currencies.values.where((c) => c.enabled).toList()..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+
+  List<ProviderOption> getEnabledProviders(String countryCode) =>
+      mobileMoneyProviders.values
+          .where((p) => p.enabled && p.countryCode == countryCode)
+          .toList()
+        ..sort((a, b) => a.displayOrder.compareTo(b.displayOrder));
+
+  CurrencyOption? getCurrency(String code) => currencies[code];
+
+  double? getCityDeliveryFee(String countryCode, String cityCode) =>
+      citiesByCountry[countryCode]?[cityCode]?.deliveryFee;
 }
 
-class CurrencyConfig {
-  final String code; // XAF, USD, EUR
-  final String symbol; // FCFA, $, €
-  final String name; // Central African CFA Franc
-  final double exchangeRate; // Rate to USD
-  final bool isActive;
-
-  CurrencyConfig({
-    required this.code,
-    required this.symbol,
-    required this.name,
-    required this.exchangeRate,
-    required this.isActive,
-  });
-
-  factory CurrencyConfig.fromMap(Map<String, dynamic> map) {
-    return CurrencyConfig(
-      code: map['code'] ?? '',
-      symbol: map['symbol'] ?? '',
-      name: map['name'] ?? '',
-      exchangeRate: (map['exchangeRate'] ?? 0.0).toDouble(),
-      isActive: map['isActive'] ?? true,
-    );
-  }
-
-  Map<String, dynamic> toMap() {
-    return {
-      'code': code,
-      'symbol': symbol,
-      'name': name,
-      'exchangeRate': exchangeRate,
-      'isActive': isActive,
-    };
-  }
-
-  static Map<String, CurrencyConfig> getAfricanDefaults() {
-    return {
-      'XAF': CurrencyConfig(
-        code: 'XAF',
-        symbol: 'FCFA',
-        name: 'Central African CFA Franc',
-        exchangeRate: 600.0, // ~600 XAF = 1 USD
-        isActive: true,
-      ),
-      'XOF': CurrencyConfig(
-        code: 'XOF',
-        symbol: 'FCFA',
-        name: 'West African CFA Franc',
-        exchangeRate: 600.0,
-        isActive: true,
-      ),
-      'KES': CurrencyConfig(
-        code: 'KES',
-        symbol: 'KSh',
-        name: 'Kenyan Shilling',
-        exchangeRate: 150.0, // ~150 KES = 1 USD
-        isActive: true,
-      ),
-      'NGN': CurrencyConfig(
-        code: 'NGN',
-        symbol: '₦',
-        name: 'Nigerian Naira',
-        exchangeRate: 800.0, // ~800 NGN = 1 USD
-        isActive: true,
-      ),
-      'GHS': CurrencyConfig(
-        code: 'GHS',
-        symbol: 'GH₵',
-        name: 'Ghanaian Cedi',
-        exchangeRate: 12.0, // ~12 GHS = 1 USD
-        isActive: true,
-      ),
-      'USD': CurrencyConfig(
-        code: 'USD',
-        symbol: '\$',
-        name: 'US Dollar',
-        exchangeRate: 1.0,
-        isActive: true,
-      ),
-    };
-  }
-}
+// ---------------------------------------------------------------------------
+// DynamicSubscriptionPlan — kept as-is from legacy, lives in its own
+// Firestore collection `dynamic_subscription_plans`.
+// ---------------------------------------------------------------------------
 
 class DynamicSubscriptionPlan {
   final String id;
   final String name;
   final String description;
-  final Map<String, double> pricesByCurrency; // XAF: 6000, USD: 10
-  final int inventoryLimit; // -1 for unlimited
+  final Map<String, double> pricesByCurrency;
+  final int inventoryLimit;
   final List<String> features;
   final int trialDays;
   final bool isActive;
@@ -173,7 +200,7 @@ class DynamicSubscriptionPlan {
 
   factory DynamicSubscriptionPlan.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
-    
+
     return DynamicSubscriptionPlan(
       id: doc.id,
       name: data['name'] ?? '',

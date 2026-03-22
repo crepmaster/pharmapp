@@ -126,7 +126,13 @@ class AdminAuthService {
     required String displayName,
     required String role,
     List<String>? customPermissions,
+    List<String> countryScopes = const [],
   }) async {
+    // Guard: admin role requires non-empty countryScopes.
+    if (role == 'admin' && countryScopes.isEmpty) {
+      throw Exception(
+          'admin role requires at least one country in countryScopes.');
+    }
     try {
       // Create Firebase Auth user first
       final credential = await _auth.createUserWithEmailAndPassword(
@@ -148,6 +154,7 @@ class AdminAuthService {
           createdAt: DateTime.now(),
           lastLoginAt: DateTime.now(),
           permissions: customPermissions ?? AdminPermissions.getPermissionsForRole(role),
+          countryScopes: countryScopes,
         );
 
         await _firestore
@@ -178,14 +185,33 @@ class AdminAuthService {
     String? role,
     bool? isActive,
     List<String>? permissions,
+    List<String>? countryScopes,
   }) async {
+    // Guard: if setting role to admin, countryScopes must be non-empty.
+    if (role == 'admin') {
+      if (countryScopes != null && countryScopes.isEmpty) {
+        throw Exception(
+            'admin role requires at least one country in countryScopes.');
+      }
+      if (countryScopes == null) {
+        // Role changed to admin but no scopes provided — check existing doc.
+        final doc = await _firestore.collection(_adminsCollection).doc(uid).get();
+        final existing = List<String>.from(doc.data()?['countryScopes'] ?? []);
+        if (existing.isEmpty) {
+          throw Exception(
+              'Cannot set role to admin: existing countryScopes is empty. '
+              'Provide countryScopes with at least one country.');
+        }
+      }
+    }
     try {
       final updates = <String, dynamic>{};
-      
+
       if (displayName != null) updates['displayName'] = displayName;
       if (role != null) updates['role'] = role;
       if (isActive != null) updates['isActive'] = isActive;
       if (permissions != null) updates['permissions'] = permissions;
+      if (countryScopes != null) updates['countryScopes'] = countryScopes;
 
       if (updates.isNotEmpty) {
         await _firestore

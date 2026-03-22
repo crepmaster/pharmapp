@@ -2,12 +2,17 @@ import 'package:equatable/equatable.dart';
 import '../services/encryption_service.dart';
 import 'country_config.dart';
 
-/// Payment preferences for users (pharmacies and couriers) with encryption
-/// Supports multi-country mobile money operators
+/// Payment preferences for users (pharmacies and couriers) with encryption.
+/// Supports both the legacy enum-based flow and the new data-driven flow
+/// (Sprint 2A) that uses canonical string identifiers.
 class PaymentPreferences extends Equatable {
   const PaymentPreferences({
     required this.defaultMethod,
     required this.defaultPhone,
+    // New canonical fields (data-driven flow):
+    this.countryCode,
+    this.providerId,
+    // Legacy enum fields (kept for backward compat):
     this.country,
     this.operator,
     this.encryptedPhone,
@@ -16,48 +21,124 @@ class PaymentPreferences extends Equatable {
     this.isSetupComplete = false,
   });
 
-  /// Primary mobile money operator: 'mtn', 'orange', 'mpesa', etc.
+  /// Primary mobile money method identifier (e.g. 'mtn', 'mtn_cm', 'mpesa').
   final String defaultMethod;
 
-  /// Country selection (for multi-country support)
+  // ---------------------------------------------------------------------------
+  // NEW — data-driven canonical identifiers (Sprint 2A)
+  // ---------------------------------------------------------------------------
+
+  /// ISO 3166-1 alpha-2 country code, e.g. "CM". Set by the new
+  /// data-driven registration flow. Null when loaded from legacy data.
+  final String? countryCode;
+
+  /// Stable provider ID from system_config/main → mobileMoneyProviders,
+  /// e.g. "mtn_cm". Set by the new registration flow.
+  final String? providerId;
+
+  // ---------------------------------------------------------------------------
+  // LEGACY — enum-based fields (kept for backward compat)
+  // ---------------------------------------------------------------------------
+
+  /// Country enum (legacy multi-country support). Prefer [countryCode].
   final Country? country;
 
-  /// Payment operator (multi-country support)
+  /// Payment operator enum (legacy). Prefer [providerId].
   final PaymentOperator? operator;
-  
-  /// Default phone number for mobile money (Cameroon format: +2376XXXXXXXX) - for display only
+
+  // ---------------------------------------------------------------------------
+  // COMMON FIELDS
+  // ---------------------------------------------------------------------------
+
+  /// Default phone number for mobile money — for display/backend use.
   final String defaultPhone;
-  
-  /// Encrypted phone number for secure storage
+
+  /// Encrypted phone number for secure Firestore storage.
   final String? encryptedPhone;
-  
-  /// Phone number hash for validation and lookup
+
+  /// Phone number hash for validation and lookup.
   final String? phoneHash;
-  
-  /// Whether to automatically use wallet balance first before mobile money
+
+  /// Whether to automatically use wallet balance first before mobile money.
   final bool autoPayFromWallet;
-  
-  /// Whether payment setup has been completed
+
+  /// Whether payment setup has been completed.
   final bool isSetupComplete;
 
-  /// Display name for payment method (multi-country support)
+  // ---------------------------------------------------------------------------
+  // COUNTRY-AWARE LOOKUPS
+  // ---------------------------------------------------------------------------
+
+  /// Dial prefix (without +) for the selected country.
+  String get _dialCode {
+    if (countryCode != null) {
+      return _dialCodeMap[countryCode] ?? '237';
+    }
+    if (country != null) {
+      return Countries.getByCountry(country!)?.countryCode ?? '237';
+    }
+    return '237';
+  }
+
+  // Static lookup maps — avoids async calls in getters.
+  static const _dialCodeMap = {
+    'CM': '237',
+    'KE': '254',
+    'TZ': '255',
+    'UG': '256',
+    'NG': '234',
+  };
+
+  /// Maps ISO 3166-1 alpha-2 codes to [Country] enum values.
+  /// Used by [isPhoneValid] to look up the [CountryConfig] for the
+  /// canonical `countryCode` field set by the data-driven registration flow.
+  static const _isoToCountry = {
+    'CM': Country.cameroon,
+    'KE': Country.kenya,
+    'TZ': Country.tanzania,
+    'UG': Country.uganda,
+    'NG': Country.nigeria,
+  };
+
+  static const _currencyMap = {
+    'CM': 'XAF',
+    'KE': 'KES',
+    'TZ': 'TZS',
+    'UG': 'UGX',
+    'NG': 'NGN',
+  };
+
+  static const _symbolMap = {
+    'XAF': 'FCFA',
+    'KES': 'KSh',
+    'TZS': 'TSh',
+    'UGX': 'USh',
+    'NGN': '₦',
+    'USD': '\$',
+    'GHS': 'GH₵',
+  };
+
+  // ---------------------------------------------------------------------------
+  // DISPLAY GETTERS
+  // ---------------------------------------------------------------------------
+
+  /// Human-readable name for the payment method.
   String get methodDisplayName {
-    // Use operator config if available
+    // Prefer operator enum config when available (legacy path).
     if (operator != null && country != null) {
       final countryConfig = Countries.getByCountry(country!);
       final operatorConfig = countryConfig?.getOperatorConfig(operator!);
-      if (operatorConfig != null) {
-        return operatorConfig.displayName;
-      }
+      if (operatorConfig != null) return operatorConfig.displayName;
     }
 
-    // Fallback to legacy string-based method
     switch (defaultMethod.toLowerCase()) {
       case 'mtn':
       case 'mtn_cameroon':
+      case 'mtn_cm':
         return 'MTN Mobile Money';
       case 'orange':
       case 'orange_cameroon':
+      case 'orange_cm':
         return 'Orange Money';
       case 'mpesa':
       case 'mpesa_kenya':
@@ -88,97 +169,105 @@ class PaymentPreferences extends Equatable {
     }
   }
 
-  /// Masked phone number for secure display
+  /// Masked phone number for secure display (e.g. 677****56).
   String get maskedPhone {
     return EncryptionService.maskPhoneNumber(defaultPhone);
   }
-  
-  /// Formatted phone number for display (masked for security, multi-country)
+
+  /// Formatted phone with country prefix (masked).
   String get formattedPhone {
+    return '+$_dialCode $maskedPhone';
+  }
+
+  /// Full phone number with country prefix (use only for payment processing).
+  String get fullPhoneNumber {
+    final dial = _dialCode;
+    if (defaultPhone.startsWith('+')) return defaultPhone;
+    if (defaultPhone.startsWith(dial)) return '+$defaultPhone';
+    return '+$dial$defaultPhone';
+  }
+
+  /// ISO 4217 currency code for the selected country.
+  String get currency {
+    if (countryCode != null) {
+      return _currencyMap[countryCode] ?? 'XAF';
+    }
     if (country != null) {
-      final countryConfig = Countries.getByCountry(country!);
-      if (countryConfig != null) {
-        return '+${countryConfig.countryCode} ${maskedPhone}';
+      return Countries.getByCountry(country!)?.currency ?? 'XAF';
+    }
+    return 'XAF';
+  }
+
+  /// Currency display symbol.
+  String get currencySymbol {
+    return _symbolMap[currency] ?? 'FCFA';
+  }
+
+  // ---------------------------------------------------------------------------
+  // VALIDATION
+  // ---------------------------------------------------------------------------
+
+  bool get isPhoneValid {
+    // Country-aware path: resolve CountryConfig from canonical countryCode
+    // (new data-driven flow) or legacy country enum, then validate against
+    // any operator in that country.
+    final Country? countryEnum = _isoToCountry[countryCode] ?? country;
+    if (countryEnum != null) {
+      final config = Countries.getByCountry(countryEnum);
+      if (config != null) {
+        return config.availableOperators
+            .any((op) => config.isValidPhoneNumber(defaultPhone, op));
       }
     }
-    // Default to Cameroon for backwards compatibility
-    return '+237 ${maskedPhone}';
-  }
-
-  /// Get full phone number (use with caution - for payment processing only)
-  String get fullPhoneNumber {
-    final countryCode = country != null
-        ? Countries.getByCountry(country!)?.countryCode ?? '237'
-        : '237';
-
-    if (defaultPhone.startsWith('+')) {
-      return defaultPhone;
-    }
-    if (defaultPhone.startsWith(countryCode)) {
-      return '+$defaultPhone';
-    }
-    return '+$countryCode$defaultPhone';
-  }
-
-  /// Get currency for selected country
-  String get currency {
-    if (country != null) {
-      final countryConfig = Countries.getByCountry(country!);
-      return countryConfig?.currency ?? 'XAF';
-    }
-    return 'XAF'; // Default to Cameroon
-  }
-
-  /// Get currency symbol for selected country
-  String get currencySymbol {
-    if (country != null) {
-      final countryConfig = Countries.getByCountry(country!);
-      return countryConfig?.currencySymbol ?? 'FCFA';
-    }
-    return 'FCFA'; // Default to Cameroon
-  }
-
-  /// Validate Cameroon phone number format
-  bool get isPhoneValid {
+    // No country context available — fall back to Cameroon validation
+    // (legacy compat for pre-Sprint-2A records without countryCode/country).
     return EncryptionService.isValidCameroonPhone(defaultPhone);
   }
-  
-  /// Cross-validate phone number with selected payment method
+
   bool get isPhoneMethodValid {
     return EncryptionService.validatePhoneWithMethod(defaultPhone, defaultMethod);
   }
-  
-  /// Check if this is a test/sandbox phone number
+
   bool get isTestNumber {
     return EncryptionService.isTestPhoneNumber(defaultPhone);
   }
 
-  /// Create from Firestore data (with encryption support + multi-country)
+  bool get isSecurityCompliant {
+    return isPhoneValid &&
+        isPhoneMethodValid &&
+        EncryptionService.isValidPaymentMethod(defaultMethod) &&
+        (!EncryptionService.isProductionEnvironment() || !isTestNumber);
+  }
+
+  // ---------------------------------------------------------------------------
+  // SERIALISATION
+  // ---------------------------------------------------------------------------
+
   factory PaymentPreferences.fromMap(Map<String, dynamic> map) {
-    // Parse country
+    // Parse legacy Country enum.
     Country? country;
     if (map['country'] != null) {
       try {
-        final countryStr = map['country'] as String;
+        final s = map['country'] as String;
         country = Country.values.firstWhere(
-          (c) => c.toString().split('.').last == countryStr,
+          (c) => c.toString().split('.').last == s,
           orElse: () => Country.cameroon,
         );
-      } catch (e) {
-        country = Country.cameroon; // Default to Cameroon
+      } catch (_) {
+        country = Country.cameroon;
       }
     }
 
-    // Parse operator
+    // Parse legacy PaymentOperator enum.
     PaymentOperator? operator;
     if (map['operator'] != null) {
       try {
-        final operatorStr = map['operator'] as String;
+        final s = map['operator'] as String;
         operator = PaymentOperator.values.firstWhere(
-          (o) => o.toString().split('.').last == operatorStr,
+          (o) => o.toString().split('.').last == s,
           orElse: () => PaymentOperator.mtnCameroon,
         );
-      } catch (e) {
+      } catch (_) {
         operator = null;
       }
     }
@@ -186,6 +275,8 @@ class PaymentPreferences extends Equatable {
     return PaymentPreferences(
       defaultMethod: map['defaultMethod'] as String? ?? '',
       defaultPhone: map['defaultPhone'] as String? ?? '',
+      countryCode: map['countryCode'] as String?,
+      providerId: map['providerId'] as String?,
       country: country,
       operator: operator,
       encryptedPhone: map['encryptedPhone'] as String?,
@@ -195,36 +286,51 @@ class PaymentPreferences extends Equatable {
     );
   }
 
-  /// Convert to Firestore data (with encryption + multi-country)
   Map<String, dynamic> toMap() {
     return {
       'defaultMethod': defaultMethod,
-      'defaultPhone': EncryptionService.maskPhoneNumber(defaultPhone), // 🔒 SECURITY: Store masked version only
+      // 🔒 SECURITY: store masked version only.
+      'defaultPhone': EncryptionService.maskPhoneNumber(defaultPhone),
+      // Canonical fields (new flow):
+      if (countryCode != null) 'countryCode': countryCode,
+      if (providerId != null) 'providerId': providerId,
+      // Legacy fields:
       'country': country?.toString().split('.').last,
       'operator': operator?.toString().split('.').last,
-      'encryptedPhone': encryptedPhone ?? EncryptionService.encryptData(defaultPhone),
+      'encryptedPhone':
+          encryptedPhone ?? EncryptionService.encryptData(defaultPhone),
       'phoneHash': phoneHash ?? EncryptionService.hashPhoneNumber(defaultPhone),
       'autoPayFromWallet': autoPayFromWallet,
       'isSetupComplete': isSetupComplete,
     };
   }
-  
-  /// Convert to backend data (legacy format for compatibility)
+
+  /// Backend-compatible simplified format (excludes encrypted fields).
   Map<String, dynamic> toBackendMap() {
-    // Send simplified format that backend expects
     return {
       'defaultMethod': defaultMethod,
-      'defaultPhone': defaultPhone, // Send original phone to backend
+      'defaultPhone': defaultPhone,
       'autoPayFromWallet': autoPayFromWallet,
       'isSetupComplete': isSetupComplete,
-      // Exclude encrypted fields for backend compatibility
     };
   }
-  
-  /// Create secure version with encrypted data (multi-country support)
+
+  // ---------------------------------------------------------------------------
+  // FACTORIES
+  // ---------------------------------------------------------------------------
+
+  /// Creates a [PaymentPreferences] with encrypted phone data.
+  ///
+  /// The new data-driven registration flow passes [countryCode] and [providerId]
+  /// (string identifiers). The legacy flow passes [country] and [operator] enums.
+  /// Both sets of parameters are optional and independent.
   static PaymentPreferences createSecure({
     required String method,
     required String phoneNumber,
+    // New canonical params:
+    String? countryCode,
+    String? providerId,
+    // Legacy enum params:
     Country? country,
     PaymentOperator? operator,
     bool autoPayFromWallet = false,
@@ -232,7 +338,9 @@ class PaymentPreferences extends Equatable {
   }) {
     return PaymentPreferences(
       defaultMethod: method,
-      defaultPhone: phoneNumber, // Keep original for backend processing
+      defaultPhone: phoneNumber,
+      countryCode: countryCode,
+      providerId: providerId,
       country: country,
       operator: operator,
       encryptedPhone: EncryptionService.encryptData(phoneNumber),
@@ -242,7 +350,6 @@ class PaymentPreferences extends Equatable {
     );
   }
 
-  /// Create empty preferences (for new users)
   factory PaymentPreferences.empty() {
     return const PaymentPreferences(
       defaultMethod: '',
@@ -252,10 +359,11 @@ class PaymentPreferences extends Equatable {
     );
   }
 
-  /// Copy with new values (maintains encryption + multi-country)
   PaymentPreferences copyWith({
     String? defaultMethod,
     String? defaultPhone,
+    String? countryCode,
+    String? providerId,
     Country? country,
     PaymentOperator? operator,
     String? encryptedPhone,
@@ -266,6 +374,8 @@ class PaymentPreferences extends Equatable {
     return PaymentPreferences(
       defaultMethod: defaultMethod ?? this.defaultMethod,
       defaultPhone: defaultPhone ?? this.defaultPhone,
+      countryCode: countryCode ?? this.countryCode,
+      providerId: providerId ?? this.providerId,
       country: country ?? this.country,
       operator: operator ?? this.operator,
       encryptedPhone: encryptedPhone ?? this.encryptedPhone,
@@ -275,10 +385,25 @@ class PaymentPreferences extends Equatable {
     );
   }
 
+  /// Environment-aware sandbox test number.
+  static String getSandboxNumber(String method) {
+    if (EncryptionService.isProductionEnvironment()) return '';
+    switch (method.toLowerCase()) {
+      case 'mtn':
+        return '677123456';
+      case 'orange':
+        return '694123456';
+      default:
+        return '677123456';
+    }
+  }
+
   @override
   List<Object?> get props => [
         defaultMethod,
         defaultPhone,
+        countryCode,
+        providerId,
         country,
         operator,
         encryptedPhone,
@@ -289,31 +414,8 @@ class PaymentPreferences extends Equatable {
 
   @override
   String toString() {
-    return 'PaymentPreferences(method: $defaultMethod, phone: ${maskedPhone}, autoWallet: $autoPayFromWallet, complete: $isSetupComplete)';
-  }
-
-  /// Get sandbox test number (environment-aware)
-  static String getSandboxNumber(String method) {
-    // Only return test numbers in development
-    if (EncryptionService.isProductionEnvironment()) {
-      return ''; // No test numbers in production
-    }
-    
-    switch (method.toLowerCase()) {
-      case 'mtn':
-        return '677123456'; // MTN test number
-      case 'orange':
-        return '694123456'; // Orange test number
-      default:
-        return '677123456';
-    }
-  }
-  
-  /// Validate payment preferences for security compliance
-  bool get isSecurityCompliant {
-    return isPhoneValid && 
-           isPhoneMethodValid && 
-           EncryptionService.isValidPaymentMethod(defaultMethod) &&
-           (!EncryptionService.isProductionEnvironment() || !isTestNumber);
+    return 'PaymentPreferences(method: $defaultMethod, phone: $maskedPhone, '
+        'countryCode: $countryCode, autoWallet: $autoPayFromWallet, '
+        'complete: $isSetupComplete)';
   }
 }

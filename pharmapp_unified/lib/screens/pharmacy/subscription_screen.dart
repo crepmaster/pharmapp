@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:pharmapp_shared/pharmapp_shared.dart';
 import '../../models/subscription.dart';
 import '../../services/subscription_service.dart';
@@ -18,6 +19,17 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   bool _isLoading = true;
   SubscriptionPlan _selectedPlan = SubscriptionPlan.basic;
   String _currencySymbol = 'FCFA'; // Default to XAF
+
+  /// Maps ISO 3166-1 alpha-2 country codes to currency display symbols.
+  /// Used when the pharmacy document has the canonical `countryCode` field
+  /// (Sprint 2A+), avoiding an async MasterDataService call in this screen.
+  static const _isoToCurrencySymbol = {
+    'CM': 'FCFA',
+    'KE': 'KSh',
+    'TZ': 'TSh',
+    'UG': 'USh',
+    'NG': '₦',
+  };
 
   @override
   void initState() {
@@ -37,16 +49,22 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
     if (pharmacyDoc.exists) {
       final data = pharmacyDoc.data();
-      if (data != null && data.containsKey('country')) {
-        final countryStr = data['country'] as String;
-        final country = Country.values.firstWhere(
-          (c) => c.toString().split('.').last == countryStr,
-          orElse: () => Country.cameroon,
-        );
-        final countryConfig = Countries.getByCountry(country);
-        if (countryConfig != null) {
-          _currencySymbol = countryConfig.currencySymbol;
-          // _currency removed — SubscriptionService handles currency
+      if (data != null) {
+        // Prefer the canonical countryCode field (written by Sprint 2A+ flow).
+        // Fall back to the legacy country enum-name string for older profiles.
+        final isoCode = data['countryCode'] as String?;
+        if (isoCode != null && isoCode.isNotEmpty) {
+          _currencySymbol = _isoToCurrencySymbol[isoCode] ?? 'FCFA';
+        } else if (data.containsKey('country')) {
+          final countryStr = data['country'] as String;
+          final country = Country.values.firstWhere(
+            (c) => c.toString().split('.').last == countryStr,
+            orElse: () => Country.cameroon,
+          );
+          final countryConfig = Countries.getByCountry(country);
+          if (countryConfig != null) {
+            _currencySymbol = countryConfig.currencySymbol;
+          }
         }
       }
     }
@@ -432,8 +450,16 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     );
   }
 
+  /// Calls the backend [sandboxSubscriptionSuccess] callable function.
+  ///
+  /// SANDBOX ONLY — replaces the old direct Firestore write.
+  /// The backend atomically:
+  ///   - Credits platform_treasuries/{country}_{currency}
+  ///   - Writes a ledger entry (platform_subscription_revenue)
+  ///   - Activates the subscription on pharmacies/{uid} (flat fields)
+  ///   - Writes an audit record to subscription_payments/
   Future<void> _simulatePayment() async {
-    // Show loading
+    // Show loading dialog.
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -454,65 +480,52 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       ),
     );
 
-    // Simulate payment processing
-    await Future.delayed(const Duration(seconds: 2));
+    try {
+      // 🔒 SANDBOX: call backend callable — no direct Firestore write from client.
+      final callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
+          .httpsCallable('sandboxSubscriptionSuccess');
 
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      try {
-        final now = DateTime.now();
-        final endDate = now.add(const Duration(days: 30));
+      await callable.call<Map<String, dynamic>>({
+        'planName': _selectedPlan.toString().split('.').last,
+      });
 
-        // Write subscription fields directly on pharmacies/{uid}
-        // (subscriptions/ collection is backend-only, rules deny client writes)
-        await FirebaseFirestore.instance
-            .collection('pharmacies')
-            .doc(user.uid)
-            .update({
-          'hasActiveSubscription': true,
-          'subscriptionStatus': 'active',
-          'subscriptionPlan': _selectedPlan.toString().split('.').last,
-          'subscriptionStartDate': Timestamp.fromDate(now),
-          'subscriptionEndDate': Timestamp.fromDate(endDate),
-          'subscriptionPaymentRef': 'SANDBOX_${now.millisecondsSinceEpoch}',
-        });
-      } catch (e) {
-        if (!mounted) return;
-        Navigator.pop(context); // Close loading
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Payment failed: $e'), backgroundColor: Colors.red),
-        );
-        return;
-      }
-    }
+      if (!mounted) return;
+      Navigator.pop(context); // Close loading dialog.
 
-    if (!mounted) return;
-
-    // Close loading dialog
-    Navigator.pop(context);
-
-    // Show success
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.check_circle, color: Colors.green),
-            SizedBox(width: 8),
-            Text('Success!'),
+      // Show success.
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.green),
+              SizedBox(width: 8),
+              Text('Success!'),
+            ],
+          ),
+          content: Text(
+            '[SANDBOX] ${_getPlanDisplayName(_selectedPlan)} subscription activated for 30 days.',
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _loadSubscription(); // Reload from pharmacies/{uid} flat fields.
+              },
+              child: const Text('OK'),
+            ),
           ],
         ),
-        content: Text('Your ${_getPlanDisplayName(_selectedPlan)} subscription has been activated for 30 days.'),
-        actions: [
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _loadSubscription(); // Reload subscription
-            },
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
+      );
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context); // Close loading dialog.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Payment failed: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 }

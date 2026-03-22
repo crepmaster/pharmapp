@@ -17,6 +17,17 @@ export { createExchangeProposal } from "./createExchangeProposal.js";
 export { acceptExchangeProposal } from "./acceptExchangeProposal.js";
 export { completeExchangeDelivery } from "./completeExchangeDelivery.js";
 export { cancelExchangeProposal } from "./cancelExchangeProposal.js";
+// ======================= Subscription / Treasury (Lot 3 — Sprint 3A) =======================
+// Sandbox callable: simulates subscription payment success, credits platform treasury,
+// writes ledger entry, activates subscription on pharmacies/{uid}.
+// ⚠️ SANDBOX ONLY — production payment flow to be wired in a future sprint.
+export { sandboxSubscriptionSuccess } from "./sandboxSubscriptionSuccess.js";
+// ======================= Platform Payout (Lot 4 — Sprint 4B) =======================
+// Admin callables for requesting and resolving platform treasury payouts.
+export { requestPlatformPayout } from "./requestPlatformPayout.js";
+export { resolvePlatformPayout } from "./resolvePlatformPayout.js";
+// ======================= Admin Operations (V2A) =======================
+export { setPharmacyActive } from "./setPharmacyActive.js";
 // --------- Admin init ---------
 if (getApps().length === 0)
     initializeApp();

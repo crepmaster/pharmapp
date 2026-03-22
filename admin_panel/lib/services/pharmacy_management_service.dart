@@ -1,17 +1,47 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import '../models/pharmacy_user.dart';
 import '../models/subscription.dart';
 
 class PharmacyManagementService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  
+  static final FirebaseFunctions _functions =
+      FirebaseFunctions.instanceFor(region: 'europe-west1');
+
   static const String _pharmaciesCollection = 'pharmacies';
   static const String _subscriptionsCollection = 'subscriptions';
 
-  /// Get real-time stream of all pharmacies
+  /// Get real-time stream of all pharmacies (global — for super_admin).
   Stream<QuerySnapshot> getPharmaciesStream() {
     return _firestore
         .collection(_pharmaciesCollection)
+        .orderBy('createdAt', descending: true)
+        .snapshots();
+  }
+
+  /// Get real-time stream of pharmacies scoped to [countryScopes].
+  ///
+  /// Caller must pass the admin's `countryScopes` directly.
+  /// - `super_admin` has `countryScopes: []` → global (returns all).
+  /// - `admin` should always have non-empty scopes. If empty (misconfigured),
+  ///   this method returns an empty stream to prevent accidental global access.
+  ///
+  /// The distinction is made by the caller: `AdminDashboardBody._buildEntries`
+  /// only adds the Pharmacies tab for admins with `canManagePharmacies`.
+  /// The [isSuperAdmin] flag disambiguates empty-global vs empty-misconfigured.
+  ///
+  /// Firestore `whereIn` supports up to 30 values — sufficient for country lists.
+  /// Pharmacies without `countryCode` are excluded from scoped results.
+  Stream<QuerySnapshot> getScopedPharmaciesStream(
+      List<String> countryScopes, {bool isSuperAdmin = false}) {
+    if (countryScopes.isEmpty) {
+      if (isSuperAdmin) return getPharmaciesStream();
+      // Misconfigured admin — return empty stream.
+      return const Stream.empty();
+    }
+    return _firestore
+        .collection(_pharmaciesCollection)
+        .where('countryCode', whereIn: countryScopes)
         .orderBy('createdAt', descending: true)
         .snapshots();
   }
@@ -120,19 +150,17 @@ class PharmacyManagementService {
     }
   }
 
-  /// Update pharmacy status (active/inactive)
+  /// Update pharmacy status via backend callable.
+  ///
+  /// Replaces the previous direct Firestore write which was blocked by rules
+  /// (pharmacies/{uid} only allows owner writes).
+  /// The callable validates admin permissions and country scope server-side.
   Future<void> updatePharmacyStatus(String pharmacyId, bool isActive) async {
-    try {
-      await _firestore
-          .collection(_pharmaciesCollection)
-          .doc(pharmacyId)
-          .update({
-            'isActive': isActive,
-            'updatedAt': Timestamp.now(),
-          });
-    } catch (e) {
-      throw Exception('Failed to update pharmacy status: $e');
-    }
+    final callable = _functions.httpsCallable('setPharmacyActive');
+    await callable.call<Map<String, dynamic>>({
+      'pharmacyId': pharmacyId,
+      'isActive': isActive,
+    });
   }
 
   /// Get pharmacy statistics

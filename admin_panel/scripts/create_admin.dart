@@ -22,7 +22,23 @@ void main() async {
     
     stdout.write('Enter admin role (super_admin/admin/finance): ');
     final role = stdin.readLineSync() ?? 'admin';
-    
+
+    // Country scopes — required for admin role
+    List<String> countryScopes = [];
+    if (role == 'admin') {
+      stdout.write('Enter country scopes (comma-separated ISO codes, e.g. CM,KE): ');
+      final scopesInput = stdin.readLineSync() ?? '';
+      countryScopes = scopesInput
+          .split(',')
+          .map((s) => s.trim().toUpperCase())
+          .where((s) => s.isNotEmpty)
+          .toList();
+      if (countryScopes.isEmpty) {
+        print('❌ admin role requires at least one country scope');
+        return;
+      }
+    }
+
     // Get password from admin (no hardcoded passwords)
     stdout.write('Enter temporary password for admin: ');
     final tempPassword = stdin.readLineSync() ?? '';
@@ -57,6 +73,7 @@ void main() async {
         'createdAt': FieldValue.serverTimestamp(),
         'lastLoginAt': FieldValue.serverTimestamp(),
         'permissions': permissions,
+        'countryScopes': countryScopes,
       });
 
       print('✅ Admin user created successfully!');

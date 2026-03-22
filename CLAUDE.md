@@ -38,9 +38,43 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **DO NOT waste time modifying obsolete `pharmacy_app` or `courier_app` directories!**
 
-## 🚀 **CURRENT PROJECT STATUS - 2025-10-26 (PROFILE FEATURE COMPLETE!)**
+## 🚀 **CURRENT PROJECT STATUS - 2026-03-22 (V2A VALIDÉ — RBAC + SCOPE PAYS)**
 
-### 🎉 **LATEST SESSION ACHIEVEMENTS - 2025-10-26 (EDITABLE PROFILE WITH GPS LOCATION!):**
+### ✅ **Contrat V1 `CONTRACT_ADMIN_MASTER_DATA_AND_TREASURY_V1.md` — COMPLÉTÉ**
+
+**Lots V1 :** tous fermés (Lots 1–4, Sprints 1 → 4C)
+
+### ✅ **V2A — Country-scoped admin foundation — VALIDÉ (22 mars 2026)**
+
+**Modèle RBAC :**
+- `super_admin` = global, voit tout
+- `admin` = scoped par `countryScopes: ['CM']`, ne voit que ses pays
+- `admin` sans scopes = non-opérationnel (sécurité par défaut)
+
+**Ce qui a été livré :**
+- `admin_panel/lib/models/admin_user.dart` — `countryScopes`, `isGlobal` = super_admin only, `hasCountryScope()` ✅
+- `admin_panel/lib/services/admin_auth_service.dart` — guards create/update pour scopes obligatoires ✅
+- `admin_panel/lib/services/pharmacy_management_service.dart` — `getScopedPharmaciesStream()`, toggle via callable ✅
+- `admin_panel/lib/screens/admin_dashboard_screen.dart` — navigation dynamique par rôle, KPIs scopés ✅
+- `admin_panel/lib/screens/pharmacy_management_screen.dart` — liste pharmacies scopée ✅
+- `functions/src/setPharmacyActive.ts` — callable avec validation scope pays ✅
+- `firestore.indexes.json` — index `pharmacies: countryCode + createdAt` ✅
+
+**Déploiement cumulé requis (V1 + V2A) :**
+1. `firebase deploy --only firestore:indexes`
+2. `firebase deploy --only firestore:rules`
+3. `firebase deploy --only functions`
+
+**Prochains sprints V2 :**
+- **V2B** : gestion des villes par admin scoped via callables
+- **V2C** : gestion des couriers par pays
+- **V2D** : finance par pays (optionnel)
+
+---
+
+## 🗂️ **PREVIOUS STATUS - 2025-10-26 (PROFILE FEATURE COMPLETE!)**
+
+### 🎉 **SESSION ACHIEVEMENTS - 2025-10-26 (EDITABLE PROFILE WITH GPS LOCATION!):**
 - **Profile Feature Complete**: ✅ Migrated editable ProfileScreen with full GPS location picker functionality
 - **8 Components Migrated**: ✅ ~1,400 lines of code transferred from pharmacy_app to pharmapp_unified
 - **Flutter Compatibility Fixed**: ✅ withValues() → withOpacity() for Flutter 3.13 compatibility (RangeError resolved)

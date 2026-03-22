@@ -1,6 +1,8 @@
+import 'dart:async' show unawaited;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:pharmapp_shared/pharmapp_shared.dart';
 import '../models/delivery.dart';
 
 class DeliveryService {
@@ -14,15 +16,35 @@ class DeliveryService {
     final currentUser = _auth.currentUser;
     if (currentUser == null) return Stream.value([]);
 
-    // Read courier's operating city from couriers/ collection (set at registration)
     return _firestore
         .collection('couriers')
         .doc(currentUser.uid)
         .snapshots()
         .asyncExpand((courierDoc) {
-      final city = courierDoc.data()?['operatingCity'] as String?
-          ?? courierDoc.data()?['city'] as String?
-          ?? '';
+      final courierData = courierDoc.data() ?? {};
+
+      // Prefer canonical cityCode (written by Sprint 2A+ registration).
+      // If absent, compute slug from legacy operatingCity/city and write it back
+      // lazily — this is the Sprint 2D backfill for pre-migration courier docs.
+      String? resolvedCityCode = courierData['cityCode'] as String?;
+      final String? legacyCity = courierData['operatingCity'] as String?
+          ?? courierData['city'] as String?;
+
+      if (resolvedCityCode == null &&
+          legacyCity != null &&
+          legacyCity.isNotEmpty) {
+        resolvedCityCode = MasterDataService.citySlug(legacyCity);
+        unawaited(_firestore
+            .collection('couriers')
+            .doc(currentUser.uid)
+            .update({'cityCode': resolvedCityCode}));
+      }
+
+      // The delivery documents still carry the legacy 'city' field (set by the
+      // backend exchangeCapture function). Querying on 'city' using the legacy
+      // display name ensures no delivery is missed until the backend also writes
+      // 'cityCode' on delivery documents (tracked as a backend alignment task).
+      final city = legacyCity ?? '';
       if (city.isEmpty) {
         return Stream.value(<Delivery>[]);
       }
@@ -283,7 +305,9 @@ class DeliveryService {
     }
   }
 
-  /// Create a mock delivery for testing purposes
+  /// Create a mock delivery for local dev/QA testing only.
+  /// courierFee here is a fixed test stub — in the production flow the fee
+  /// is written by the backend (exchangeCapture Firebase Function).
   static Future<void> createMockDelivery() async {
     final mockDelivery = {
       'exchangeId':

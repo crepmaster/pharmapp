@@ -4,8 +4,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pharmapp_unified/screens/auth/unified_registration_screen.dart';
 import 'package:pharmapp_unified/blocs/unified_auth_bloc.dart';
 import 'package:pharmapp_shared/services/unified_auth_service.dart';
-import 'package:pharmapp_shared/models/country_config.dart';
 import 'package:pharmapp_shared/models/payment_preferences.dart';
+import 'package:pharmapp_shared/services/encryption_service.dart';
 
 void main() {
   Widget createTestWidget(UserType userType) {
@@ -14,30 +14,87 @@ void main() {
         create: (context) => UnifiedAuthBloc(),
         child: UnifiedRegistrationScreen(
           userType: userType,
-          selectedCountry: Country.cameroon,
-          selectedCity: 'Douala',
+          countryCode: 'CM',
+          cityCode: 'douala',
         ),
       ),
     );
   }
 
+  /// Builds a [PaymentPreferences] that mirrors what [_handleRegistration]
+  /// now produces: `method` = provider.methodCode (e.g. 'mtn_cameroon'),
+  /// `providerId` = provider.id (e.g. 'mtn_cm').
+  /// These two fields have distinct semantics and must NOT be the same value.
   PaymentPreferences createPaymentPreferences() {
     return PaymentPreferences.createSecure(
-      method: 'mtnCameroon',
+      method: 'mtn_cameroon', // methodCode — the payment rail identifier
       phoneNumber: '677123456',
-      country: Country.cameroon,
-      operator: PaymentOperator.mtnCameroon,
+      countryCode: 'CM',
+      providerId: 'mtn_cm', // provider stable ID — different from methodCode
       isSetupComplete: true,
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Sprint 2B — Payment method / providerId semantics
+  // ---------------------------------------------------------------------------
+
+  group('PaymentPreferences — methodCode vs providerId semantics', () {
+    test('defaultMethod is methodCode, not providerId', () {
+      final prefs = createPaymentPreferences();
+      // defaultMethod must be the payment rail code from provider.methodCode.
+      expect(prefs.defaultMethod, 'mtn_cameroon');
+      // providerId must be the stable config key — different value.
+      expect(prefs.providerId, 'mtn_cm');
+      expect(prefs.defaultMethod, isNot(equals(prefs.providerId)));
+    });
+
+    test('methodCode is accepted by EncryptionService.isValidPaymentMethod', () {
+      final prefs = createPaymentPreferences();
+      expect(
+        EncryptionService.isValidPaymentMethod(prefs.defaultMethod),
+        isTrue,
+        reason: 'defaultMethod must pass isValidPaymentMethod so that '
+            'isSecurityCompliant does not return false for new-flow users',
+      );
+    });
+
+    test('isValidPaymentMethod accepts Firestore V1 provider ID formats', () {
+      // Firestore V1 may use provider IDs as method codes in older configs.
+      expect(EncryptionService.isValidPaymentMethod('mtn_cm'), isTrue);
+      expect(EncryptionService.isValidPaymentMethod('orange_cm'), isTrue);
+      expect(EncryptionService.isValidPaymentMethod('camtel_cm'), isTrue);
+      expect(EncryptionService.isValidPaymentMethod('mtn_momo'), isTrue);
+      expect(EncryptionService.isValidPaymentMethod('orange_money'), isTrue);
+    });
+
+    test('validatePhoneWithMethod works for new Cameroon format aliases', () {
+      const mtnPhone = '677123456'; // valid MTN Cameroon prefix
+      expect(
+          EncryptionService.validatePhoneWithMethod(mtnPhone, 'mtn_cm'), isTrue);
+      expect(EncryptionService.validatePhoneWithMethod(mtnPhone, 'mtn_momo'),
+          isTrue);
+      expect(
+          EncryptionService.validatePhoneWithMethod(mtnPhone, 'mtn_cameroon'),
+          isTrue);
+
+      const orangePhone = '694123456'; // valid Orange Cameroon prefix
+      expect(EncryptionService.validatePhoneWithMethod(orangePhone, 'orange_cm'),
+          isTrue);
+      expect(
+          EncryptionService.validatePhoneWithMethod(orangePhone, 'orange_money'),
+          isTrue);
+    });
+  });
 
   group('UnifiedRegistrationScreen - Profile Data Builder', () {
     test('includes pharmacyName in pharmacy profile payload', () {
       final profileData = buildUnifiedRegistrationProfileData(
         userType: UserType.pharmacy,
         phoneNumber: '677123456',
-        selectedCountry: Country.cameroon,
-        selectedCity: 'Douala',
+        countryCode: 'CM',
+        cityCode: 'douala',
+        cityDisplayName: 'Douala',
         paymentPreferences: createPaymentPreferences(),
         pharmacyName: 'Central Pharmacy',
         address: '123 Main St',
@@ -47,7 +104,12 @@ void main() {
       expect(profileData['displayName'], 'Central Pharmacy');
       expect(profileData['name'], 'Central Pharmacy');
       expect(profileData['address'], '123 Main St');
-      expect(profileData['city'], 'Douala');
+      // Canonical fields:
+      expect(profileData['countryCode'], 'CM');
+      expect(profileData['cityCode'], 'douala');
+      // Legacy fields — must keep old format for backward compat:
+      expect(profileData['country'], 'cameroon'); // enum name, not ISO code
+      expect(profileData['city'], 'Douala');       // display name, not slug
     });
   });
 
@@ -485,8 +547,8 @@ void main() {
                       create: (context) => UnifiedAuthBloc(),
                       child: const UnifiedRegistrationScreen(
                         userType: UserType.pharmacy,
-                        selectedCountry: Country.cameroon,
-                        selectedCity: 'Douala',
+                        countryCode: 'CM',
+                        cityCode: 'douala',
                       ),
                     ),
                   ),

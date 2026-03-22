@@ -20,6 +20,7 @@
 
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { citySlug } from "./cityUtils.js";
 import * as logger from "firebase-functions/logger";
 
 const db = getFirestore();
@@ -120,8 +121,10 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
       if (!targetPharmacyDoc.exists) {
         throw new HttpsError("not-found", "Target pharmacy not found");
       }
-      const fromCity = pharmacyData?.city || "";
-      const toCity = targetPharmacyDoc.data()?.city || "";
+      // Canonical comparison: prefer cityCode (Sprint 2A+), normalize legacy city to slug as fallback.
+      // This handles the transition period where some documents have cityCode and others don't.
+      const fromCity = pharmacyData?.cityCode || citySlug(pharmacyData?.city || "");
+      const toCity = targetPharmacyDoc.data()?.cityCode || citySlug(targetPharmacyDoc.data()?.city || "");
       if (!fromCity || !toCity || fromCity !== toCity) {
         logger.warn(`createExchangeProposal: City mismatch - ${fromCity} vs ${toCity}`);
         throw new HttpsError(

@@ -80,6 +80,11 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
                   ),
                   const SizedBox(height: 16),
                   
+                  // LEGACY: withdrawal dialog is Cameroon-only — operator list,
+                  // dial prefix (+237), and phone regex are all hardcoded for
+                  // the Cameroon market. UnifiedWalletService.createCourierWithdrawal
+                  // also passes +237 prefix to the backend payout rail.
+                  // Refactor to country-aware when multi-country payout is introduced.
                   // Payment Method Selection
                   DropdownButtonFormField<String>(
                     initialValue: selectedMethod,

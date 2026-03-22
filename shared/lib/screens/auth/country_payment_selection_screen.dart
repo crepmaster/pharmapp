@@ -1,24 +1,30 @@
-/// Country and Payment Method Selection Screen
-/// Multi-country support for PharmApp Mobile
+/// Country and City Selection Screen — Sprint 2A data-driven version.
 ///
-/// Features:
-/// - Country selection (Cameroon, Kenya, Tanzania, Uganda, Nigeria)
-/// - Dynamic payment operator loading based on selected country
-/// - Phone number prefix display
-/// - Currency display
-/// - Automatic phone number validation
-/// - Encrypted payment preferences creation
+/// Reads countries and cities from [MasterDataService] (Firestore
+/// system_config/main, with static fallback). The [registrationScreenBuilder]
+/// callback now receives canonical string identifiers:
+///   - countryCode: ISO 3166-1 alpha-2, e.g. "CM"
+///   - cityCode:    stable slug, e.g. "douala"
 
 import 'package:flutter/material.dart';
-import '../../models/country_config.dart';
+
+import '../../models/master_data_snapshot.dart';
 import '../../models/payment_preferences.dart';
+import '../../services/master_data_service.dart';
 
 class CountryPaymentSelectionScreen extends StatefulWidget {
   final String title;
   final String subtitle;
   final bool allowSkip;
+
+  /// Legacy callback kept for backward compatibility.
   final Function(PaymentPreferences)? onPaymentMethodSelected;
-  final Widget Function(Country selectedCountry, String selectedCity)? registrationScreenBuilder;
+
+  /// Registration flow builder. Receives canonical identifiers:
+  ///   - countryCode: ISO 3166-1 alpha-2 (e.g. "CM")
+  ///   - cityCode:    stable slug (e.g. "douala")
+  final Widget Function(String countryCode, String cityCode)?
+      registrationScreenBuilder;
 
   const CountryPaymentSelectionScreen({
     super.key,
@@ -38,37 +44,51 @@ class _CountryPaymentSelectionScreenState
     extends State<CountryPaymentSelectionScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  Country? _selectedCountry;
-  CountryConfig? _countryConfig;
-  String? _selectedCity;
-  bool _isLoading = false;
+  MasterDataSnapshot? _snapshot;
+  bool _isLoadingData = true;
+
+  String? _selectedCountryCode;
+  MasterDataCountry? _selectedCountry;
+  String? _selectedCityCode;
+
+  bool _isSubmitting = false;
 
   @override
   void initState() {
     super.initState();
-    // Default to Cameroon for backwards compatibility
-    _selectCountry(Country.cameroon);
+    _loadMasterData();
   }
 
-  @override
-  void dispose() {
-    super.dispose();
-  }
-
-  void _selectCountry(Country country) {
+  Future<void> _loadMasterData() async {
+    final snapshot = await MasterDataService.load();
+    if (!mounted) return;
     setState(() {
+      _snapshot = snapshot;
+      _isLoadingData = false;
+      // Default to primary country or first enabled country.
+      final countries = snapshot.getEnabledCountries();
+      if (countries.isNotEmpty) {
+        final primary = countries.firstWhere(
+          (c) => c.code == snapshot.primaryCountryCode,
+          orElse: () => countries.first,
+        );
+        _selectCountry(primary);
+      }
+    });
+  }
+
+  void _selectCountry(MasterDataCountry country) {
+    setState(() {
+      _selectedCountryCode = country.code;
       _selectedCountry = country;
-      _countryConfig = Countries.getByCountry(country);
-      _selectedCity = null; // Reset city when country changes
+      _selectedCityCode = null; // reset city when country changes
     });
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+    if (!_formKey.currentState!.validate()) return;
 
-    if (_selectedCountry == null || _selectedCity == null) {
+    if (_selectedCountryCode == null || _selectedCityCode == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -79,42 +99,24 @@ class _CountryPaymentSelectionScreenState
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-    });
+    setState(() => _isSubmitting = true);
 
-    try {
-      // Navigate to registration screen with country and city only
-      if (widget.registrationScreenBuilder != null) {
-        if (!mounted) return;
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (context) => widget.registrationScreenBuilder!(
-              _selectedCountry!,
-              _selectedCity!,
-            ),
+    if (widget.registrationScreenBuilder != null) {
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => widget.registrationScreenBuilder!(
+            _selectedCountryCode!,
+            _selectedCityCode!,
           ),
-        );
-        return;
-      }
-
-      // Legacy pattern: Create empty payment preferences
-      if (!mounted) return;
-      widget.onPaymentMethodSelected!(PaymentPreferences.empty());
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: ${e.toString()}'),
-          backgroundColor: Colors.red,
         ),
       );
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      return;
     }
+
+    // Legacy path: emit empty preferences.
+    if (!mounted) return;
+    widget.onPaymentMethodSelected!(PaymentPreferences.empty());
   }
 
   @override
@@ -126,83 +128,80 @@ class _CountryPaymentSelectionScreenState
         elevation: 0,
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Header
-                Text(
-                  widget.subtitle,
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey[600],
-                  ),
-                  textAlign: TextAlign.center,
-                ),
+        child: _isLoadingData
+            ? const Center(child: CircularProgressIndicator())
+            : SingleChildScrollView(
+                padding: const EdgeInsets.all(24.0),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        widget.subtitle,
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: Colors.grey[600],
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 32),
 
-                const SizedBox(height: 32),
+                      _buildSectionHeader('Select Your Country'),
+                      const SizedBox(height: 16),
+                      _buildCountryGrid(),
 
-                // Country Selection
-                _buildSectionHeader('Select Your Country'),
-                const SizedBox(height: 16),
-                _buildCountryGrid(),
+                      const SizedBox(height: 32),
 
-                const SizedBox(height: 32),
+                      if (_selectedCountry != null) ...[
+                        _buildSelectedCountryCard(),
+                        const SizedBox(height: 24),
+                      ],
 
-                // Selected Country Info
-                if (_countryConfig != null) ...[
-                  _buildSelectedCountryCard(),
-                  const SizedBox(height: 24),
-                ],
+                      if (_selectedCountry != null) ...[
+                        _buildSectionHeader('Select Your City'),
+                        const SizedBox(height: 16),
+                        _buildCityDropdown(),
+                        const SizedBox(height: 24),
+                      ],
 
-                // City Selection (appears after country selection)
-                if (_countryConfig != null) ...[
-                  _buildSectionHeader('Select Your City'),
-                  const SizedBox(height: 16),
-                  _buildCityDropdown(),
-                  const SizedBox(height: 24),
-                ],
-
-                // Submit Button (appears after city selection)
-                if (_selectedCity != null)
-                  ElevatedButton(
-                    onPressed: _isLoading ? null : _submit,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Theme.of(context).primaryColor,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.all(16),
-                      minimumSize: const Size(double.infinity, 56),
-                    ),
-                    child: _isLoading
-                        ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text(
-                            'Continue to Registration',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
+                      if (_selectedCityCode != null)
+                        ElevatedButton(
+                          onPressed: _isSubmitting ? null : _submit,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Theme.of(context).primaryColor,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.all(16),
+                            minimumSize: const Size(double.infinity, 56),
                           ),
-                  ),
+                          child: _isSubmitting
+                              ? const CircularProgressIndicator(
+                                  color: Colors.white)
+                              : const Text(
+                                  'Continue to Registration',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                        ),
 
-                // Skip Button (if allowed)
-                if (widget.allowSkip) ...[
-                  const SizedBox(height: 16),
-                  TextButton(
-                    onPressed: () {
-                      if (widget.onPaymentMethodSelected != null) {
-                        widget.onPaymentMethodSelected!(PaymentPreferences.empty());
-                      }
-                    },
-                    child: const Text('Skip for now'),
+                      if (widget.allowSkip) ...[
+                        const SizedBox(height: 16),
+                        TextButton(
+                          onPressed: () {
+                            if (widget.onPaymentMethodSelected != null) {
+                              widget.onPaymentMethodSelected!(
+                                  PaymentPreferences.empty());
+                            }
+                          },
+                          child: const Text('Skip for now'),
+                        ),
+                      ],
+                    ],
                   ),
-                ],
-              ],
-            ),
-          ),
-        ),
+                ),
+              ),
       ),
     );
   }
@@ -218,6 +217,14 @@ class _CountryPaymentSelectionScreenState
   }
 
   Widget _buildCountryGrid() {
+    final countries = _snapshot?.getEnabledCountries() ?? [];
+    if (countries.isEmpty) {
+      return const Text(
+        'No countries available. Please try again later.',
+        style: TextStyle(color: Colors.grey),
+      );
+    }
+
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -227,13 +234,13 @@ class _CountryPaymentSelectionScreenState
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
       ),
-      itemCount: Countries.all.length,
+      itemCount: countries.length,
       itemBuilder: (context, index) {
-        final country = Countries.all[index];
-        final isSelected = _selectedCountry == country.country;
+        final country = countries[index];
+        final isSelected = _selectedCountryCode == country.code;
 
         return InkWell(
-          onTap: () => _selectCountry(country.country),
+          onTap: () => _selectCountry(country),
           child: Container(
             decoration: BoxDecoration(
               border: Border.all(
@@ -244,7 +251,7 @@ class _CountryPaymentSelectionScreenState
               ),
               borderRadius: BorderRadius.circular(12),
               color: isSelected
-                  ? Theme.of(context).primaryColor.withValues(alpha: 0.1)
+                  ? Theme.of(context).primaryColor.withOpacity(0.1)
                   : Colors.white,
             ),
             padding: const EdgeInsets.all(12),
@@ -252,7 +259,7 @@ class _CountryPaymentSelectionScreenState
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
-                  _getCountryFlag(country.country),
+                  _countryFlag(country.code),
                   style: const TextStyle(fontSize: 24),
                 ),
                 const SizedBox(height: 4),
@@ -260,8 +267,11 @@ class _CountryPaymentSelectionScreenState
                   country.name,
                   style: TextStyle(
                     fontSize: 14,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    color: isSelected ? Theme.of(context).primaryColor : Colors.black,
+                    fontWeight:
+                        isSelected ? FontWeight.bold : FontWeight.normal,
+                    color: isSelected
+                        ? Theme.of(context).primaryColor
+                        : Colors.black,
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -274,6 +284,7 @@ class _CountryPaymentSelectionScreenState
   }
 
   Widget _buildSelectedCountryCard() {
+    final country = _selectedCountry!;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -284,7 +295,7 @@ class _CountryPaymentSelectionScreenState
       child: Row(
         children: [
           Text(
-            _getCountryFlag(_selectedCountry!),
+            _countryFlag(country.code),
             style: const TextStyle(fontSize: 32),
           ),
           const SizedBox(width: 16),
@@ -293,7 +304,7 @@ class _CountryPaymentSelectionScreenState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _countryConfig!.name,
+                  country.name,
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -301,18 +312,12 @@ class _CountryPaymentSelectionScreenState
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Currency: ${_countryConfig!.currency} (${_countryConfig!.currencySymbol})',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey[700],
-                  ),
+                  'Currency: ${country.defaultCurrencyCode}',
+                  style: TextStyle(fontSize: 14, color: Colors.grey[700]),
                 ),
                 Text(
-                  'Country Code: +${_countryConfig!.countryCode}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey[700],
-                  ),
+                  'Country Code: +${country.dialCode}',
+                  style: TextStyle(fontSize: 14, color: Colors.grey[700]),
                 ),
               ],
             ),
@@ -323,8 +328,20 @@ class _CountryPaymentSelectionScreenState
   }
 
   Widget _buildCityDropdown() {
+    if (_snapshot == null || _selectedCountryCode == null) {
+      return const SizedBox.shrink();
+    }
+
+    final cities = _snapshot!.getEnabledCities(_selectedCountryCode!);
+    if (cities.isEmpty) {
+      return Text(
+        'No cities configured for ${_selectedCountry?.name ?? _selectedCountryCode}.',
+        style: const TextStyle(color: Colors.grey),
+      );
+    }
+
     return DropdownButtonFormField<String>(
-      initialValue: _selectedCity,
+      initialValue: _selectedCityCode,
       decoration: InputDecoration(
         labelText: 'City',
         hintText: 'Select your city',
@@ -338,21 +355,20 @@ class _CountryPaymentSelectionScreenState
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Theme.of(context).primaryColor, width: 2),
+          borderSide:
+              BorderSide(color: Theme.of(context).primaryColor, width: 2),
         ),
         filled: true,
         fillColor: Colors.white,
       ),
-      items: _countryConfig!.majorCities.map((city) {
+      items: cities.map((city) {
         return DropdownMenuItem<String>(
-          value: city,
-          child: Text(city),
+          value: city.code,
+          child: Text(city.name),
         );
       }).toList(),
       onChanged: (value) {
-        setState(() {
-          _selectedCity = value;
-        });
+        setState(() => _selectedCityCode = value);
       },
       validator: (value) {
         if (value == null || value.isEmpty) {
@@ -363,18 +379,20 @@ class _CountryPaymentSelectionScreenState
     );
   }
 
-  String _getCountryFlag(Country country) {
-    switch (country) {
-      case Country.cameroon:
+  String _countryFlag(String code) {
+    switch (code) {
+      case 'CM':
         return '🇨🇲';
-      case Country.kenya:
+      case 'KE':
         return '🇰🇪';
-      case Country.tanzania:
+      case 'TZ':
         return '🇹🇿';
-      case Country.uganda:
+      case 'UG':
         return '🇺🇬';
-      case Country.nigeria:
+      case 'NG':
         return '🇳🇬';
+      default:
+        return '🌍';
     }
   }
 }

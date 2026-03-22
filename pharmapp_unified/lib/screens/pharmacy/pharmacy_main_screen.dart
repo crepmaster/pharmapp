@@ -825,6 +825,9 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
                     return 'Phone number is required';
                   }
 
+                  // LEGACY: top-up dialog is Cameroon-only (operator dropdown
+                  // is also hardcoded to MTN/Orange Cameroon). Refactor to
+                  // country-aware when multi-country top-up is introduced.
                   if (!EncryptionService.isValidCameroonPhone(value!)) {
                     return 'Please enter a valid Cameroon phone number';
                   }

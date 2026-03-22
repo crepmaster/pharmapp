@@ -11,6 +11,11 @@ class AdminUser extends Equatable {
   final DateTime lastLoginAt;
   final List<String> permissions;
 
+  /// ISO 3166-1 alpha-2 country codes this admin is scoped to.
+  /// Empty or absent for `super_admin` (global scope).
+  /// Non-empty for `admin` role (e.g. `['CM']`, `['CM', 'KE']`).
+  final List<String> countryScopes;
+
   const AdminUser({
     required this.uid,
     required this.email,
@@ -20,6 +25,7 @@ class AdminUser extends Equatable {
     required this.createdAt,
     required this.lastLoginAt,
     this.permissions = const [],
+    this.countryScopes = const [],
   });
 
   /// Check if admin has specific permission
@@ -41,6 +47,14 @@ class AdminUser extends Equatable {
 
   /// Check if user is super admin
   bool get isSuperAdmin => role == 'super_admin';
+
+  /// True if this admin has global scope. Only `super_admin` is global.
+  /// An `admin` with empty `countryScopes` sees nothing (misconfigured).
+  bool get isGlobal => isSuperAdmin;
+
+  /// True if this admin's scope includes [countryCode].
+  bool hasCountryScope(String countryCode) =>
+      isGlobal || countryScopes.contains(countryCode);
 
   /// Get role display name
   String get roleDisplayName {
@@ -66,6 +80,7 @@ class AdminUser extends Equatable {
     DateTime? createdAt,
     DateTime? lastLoginAt,
     List<String>? permissions,
+    List<String>? countryScopes,
   }) {
     return AdminUser(
       uid: uid ?? this.uid,
@@ -76,6 +91,7 @@ class AdminUser extends Equatable {
       createdAt: createdAt ?? this.createdAt,
       lastLoginAt: lastLoginAt ?? this.lastLoginAt,
       permissions: permissions ?? this.permissions,
+      countryScopes: countryScopes ?? this.countryScopes,
     );
   }
 
@@ -89,6 +105,7 @@ class AdminUser extends Equatable {
       'createdAt': Timestamp.fromDate(createdAt),
       'lastLoginAt': Timestamp.fromDate(lastLoginAt),
       'permissions': permissions,
+      'countryScopes': countryScopes,
     };
   }
 
@@ -109,6 +126,7 @@ class AdminUser extends Equatable {
       createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       lastLoginAt: (map['lastLoginAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       permissions: List<String>.from(map['permissions'] ?? []),
+      countryScopes: List<String>.from(map['countryScopes'] ?? []),
     );
   }
 
@@ -122,6 +140,7 @@ class AdminUser extends Equatable {
         createdAt,
         lastLoginAt,
         permissions,
+        countryScopes,
       ];
 }
 

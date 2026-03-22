@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:pharmapp_shared/pharmapp_shared.dart';
 import '../../../models/pharmacy_inventory.dart';
 import '../../../models/exchange_proposal.dart';
 import '../../../services/secure_subscription_service.dart';
@@ -34,13 +36,64 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
   PharmacyInventoryItem? selectedMyInventory;
   List<PharmacyInventoryItem> myInventoryList = [];
 
-  final List<String> currencies = ['XAF', 'USD', 'EUR'];
+  // Loading-only initial value; always replaced after MasterDataService.load().
+  List<String> _currencies = const ['XAF', 'USD', 'EUR'];
+  // Estimated delivery fee from system_config/main for the pharmacy's city.
+  // Null until loaded; shown as informational hint only (actual fee set by backend).
+  double? _estimatedDeliveryFee;
 
   @override
   void initState() {
     super.initState();
     _loadMyInventory();
     _checkSubscriptionAccess();
+    _loadMasterData();
+  }
+
+  /// Loads runtime currencies and city delivery fee from MasterDataService.
+  /// MasterDataService owns the fallback — no screen-level static config needed.
+  Future<void> _loadMasterData() async {
+    final snapshot = await MasterDataService.load();
+
+    // Currencies: MasterDataService owns the fallback — always use its result.
+    // If enabled is empty the snapshot itself is broken; screen stays on loading values.
+    final enabled = snapshot.currencies.values
+        .where((c) => c.enabled)
+        .toList()
+      ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    if (enabled.isEmpty) return; // MasterDataService invariant violated — keep loading state
+    final codes = enabled.map((c) => c.code).toList();
+
+    // Delivery fee: read from pharmacy profile to resolve countryCode + cityCode.
+    double? estimatedFee;
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final doc = await FirebaseFirestore.instance
+            .collection('pharmacies')
+            .doc(user.uid)
+            .get();
+        final data = doc.data();
+        if (data != null) {
+          final countryCode = data['countryCode'] as String?;
+          final cityCode = data['cityCode'] as String?;
+          if (countryCode != null && cityCode != null) {
+            estimatedFee = snapshot.getCityDeliveryFee(countryCode, cityCode);
+          }
+        }
+      }
+    } catch (_) {
+      // Non-blocking — fee hint is informational only.
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _currencies = codes;
+      if (!_currencies.contains(selectedCurrency)) {
+        selectedCurrency = _currencies.first;
+      }
+      _estimatedDeliveryFee = estimatedFee;
+    });
   }
 
   Future<void> _checkSubscriptionAccess() async {
@@ -584,7 +637,7 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
                                         labelText: 'Currency',
                                         border: OutlineInputBorder(),
                                       ),
-                                      items: currencies.map((currency) {
+                                      items: _currencies.map((currency) {
                                         return DropdownMenuItem(
                                           value: currency,
                                           child: Text(currency),
@@ -687,6 +740,16 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
                               fontSize: 13,
                             ),
                           ),
+                          if (_estimatedDeliveryFee != null) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              '• Estimated delivery fee: ${_estimatedDeliveryFee!.toStringAsFixed(0)} $selectedCurrency (set by courier at acceptance)',
+                              style: TextStyle(
+                                color: Colors.blue.shade700,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),

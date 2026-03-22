@@ -2,15 +2,52 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pharmapp_shared/services/unified_auth_service.dart';
 import 'package:pharmapp_shared/models/payment_preferences.dart';
-import 'package:pharmapp_shared/models/country_config.dart';
+import 'package:pharmapp_shared/models/master_data_snapshot.dart';
+import 'package:pharmapp_shared/services/master_data_service.dart';
 import '../../blocs/unified_auth_bloc.dart';
 import '../../services/subscription_creation_service.dart';
 
+// ---------------------------------------------------------------------------
+// Static helpers — no enum dependency on Country / PaymentOperator
+// ---------------------------------------------------------------------------
+
+/// ISO 3166-1 alpha-2 → default currency code.
+const _countryCurrencyMap = {
+  'CM': 'XAF',
+  'KE': 'KES',
+  'TZ': 'TZS',
+  'UG': 'UGX',
+  'NG': 'NGN',
+};
+
+/// ISO 3166-1 alpha-2 → legacy Country enum name expected by existing readers.
+///
+/// Legacy readers (subscription_screen.dart, payment_preferences.fromMap, etc.)
+/// parse the `country` Firestore field as a Country enum name string.
+/// This map ensures backward compat: `country` keeps writing 'cameroon', not 'CM'.
+const _isoToCountryEnumName = {
+  'CM': 'cameroon',
+  'KE': 'kenya',
+  'TZ': 'tanzania',
+  'UG': 'uganda',
+  'NG': 'nigeria',
+};
+
+/// Builds the Firestore profile map for a new user registration.
+///
+/// Writes both canonical fields (countryCode, cityCode) and legacy fields
+/// (country, city) in the format expected by existing readers:
+///   - `country`: legacy Country enum name string (e.g. 'cameroon'), NOT ISO code
+///   - `city`: human-readable city display name (e.g. 'Douala'), NOT slug
+///
+/// [cityDisplayName] must be the human-readable city name. Callers derive it
+/// from MasterDataService (or fall back to cityCode when MasterData is absent).
 Map<String, dynamic> buildUnifiedRegistrationProfileData({
   required UserType userType,
   required String phoneNumber,
-  required Country selectedCountry,
-  required String selectedCity,
+  required String countryCode,
+  required String cityCode,
+  required String cityDisplayName,
   required PaymentPreferences paymentPreferences,
   String pharmacyName = '',
   String address = '',
@@ -22,8 +59,12 @@ Map<String, dynamic> buildUnifiedRegistrationProfileData({
 }) {
   final commonData = {
     'phoneNumber': phoneNumber.trim(),
-    'country': selectedCountry.toString().split('.').last,
-    'city': selectedCity,
+    // Canonical fields (Sprint 2A):
+    'countryCode': countryCode,
+    'cityCode': cityCode,
+    // Legacy fields — written in OLD format so existing readers keep working:
+    'country': _isoToCountryEnumName[countryCode] ?? countryCode.toLowerCase(),
+    'city': cityDisplayName,
     'paymentPreferences': paymentPreferences.toMap(),
   };
 
@@ -35,8 +76,6 @@ Map<String, dynamic> buildUnifiedRegistrationProfileData({
         'displayName': pharmacyName.trim(),
         'name': pharmacyName.trim(),
         'address': address.trim(),
-        // TODO: Add proper geocoding service to convert address to GPS coordinates
-        // For now using placeholder values - should use Nominatim or similar free geocoding API
         'latitude': 0.0,
         'longitude': 0.0,
       };
@@ -49,7 +88,8 @@ Map<String, dynamic> buildUnifiedRegistrationProfileData({
         'name': fullName.trim(),
         'vehicleType': vehicleType,
         'licensePlate': licensePlate.trim(),
-        'operatingCity': selectedCity,
+        // operatingCity uses display name for compat with delivery_service city filter.
+        'operatingCity': cityDisplayName,
       };
 
     case UserType.admin:
@@ -62,25 +102,32 @@ Map<String, dynamic> buildUnifiedRegistrationProfileData({
   }
 }
 
-/// Unified Registration Screen for all user types
+// ---------------------------------------------------------------------------
+// Widget
+// ---------------------------------------------------------------------------
+
+/// Unified Registration Screen for all user types.
 ///
-/// Features:
-/// - Multi-role support (pharmacy, courier, admin)
-/// - Encrypted payment preferences integration
-/// - Role-specific fields that adapt based on user type
-/// - Payment operator selection
-/// - Complete form validation
-/// - Integration with UnifiedAuthService and UnifiedAuthBloc
+/// Accepts canonical string identifiers from [CountryPaymentSelectionScreen]:
+///   - [countryCode]: ISO 3166-1 alpha-2 (e.g. "CM")
+///   - [cityCode]: stable slug (e.g. "douala")
+///
+/// Loads [MasterDataService] (already cached) to display available payment
+/// providers for the selected country.
 class UnifiedRegistrationScreen extends StatefulWidget {
   final UserType userType;
-  final Country selectedCountry;
-  final String selectedCity;
+
+  /// ISO 3166-1 alpha-2 code, e.g. "CM"
+  final String countryCode;
+
+  /// Stable city slug, e.g. "douala"
+  final String cityCode;
 
   const UnifiedRegistrationScreen({
     super.key,
     required this.userType,
-    required this.selectedCountry,
-    required this.selectedCity,
+    required this.countryCode,
+    required this.cityCode,
   });
 
   @override
@@ -92,7 +139,7 @@ class _UnifiedRegistrationScreenState
     extends State<UnifiedRegistrationScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  // COMMON CONTROLLERS (all user types)
+  // COMMON CONTROLLERS
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
@@ -100,7 +147,7 @@ class _UnifiedRegistrationScreenState
 
   // PAYMENT CONTROLLERS
   final _paymentPhoneController = TextEditingController();
-  PaymentOperator? _selectedPaymentOperator;
+  String? _selectedProviderId;
   bool _useDifferentPaymentPhone = false;
 
   // PHARMACY-SPECIFIC CONTROLLERS
@@ -119,6 +166,21 @@ class _UnifiedRegistrationScreenState
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   bool _isLoading = false;
+
+  // Master data (loaded from cache — already warm from previous screen).
+  MasterDataSnapshot? _masterData;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMasterData();
+  }
+
+  Future<void> _loadMasterData() async {
+    final snapshot = await MasterDataService.load();
+    if (!mounted) return;
+    setState(() => _masterData = snapshot);
+  }
 
   @override
   void dispose() {
@@ -146,7 +208,6 @@ class _UnifiedRegistrationScreenState
       body: BlocListener<UnifiedAuthBloc, UnifiedAuthState>(
         listener: (context, state) {
           if (state is Authenticated) {
-            // Navigate to appropriate dashboard based on role
             _navigateToDashboard(state.userType);
           } else if (state is AuthError) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -165,18 +226,15 @@ class _UnifiedRegistrationScreenState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // STEP INDICATOR
                 _buildStepIndicator(),
                 const SizedBox(height: 32),
 
-                // COMMON FIELDS SECTION
                 _buildSectionHeader('Account Information', Icons.person),
                 const SizedBox(height: 16),
                 _buildCommonFields(),
 
                 const SizedBox(height: 32),
 
-                // ROLE-SPECIFIC FIELDS SECTION
                 _buildSectionHeader(
                     _getRoleSpecificSectionTitle(), _getRoleSpecificIcon()),
                 const SizedBox(height: 16),
@@ -184,19 +242,16 @@ class _UnifiedRegistrationScreenState
 
                 const SizedBox(height: 32),
 
-                // PAYMENT SECTION
                 _buildSectionHeader('Payment Information', Icons.payment),
                 const SizedBox(height: 16),
                 _buildPaymentSection(),
 
                 const SizedBox(height: 32),
 
-                // SUBMIT BUTTON
                 _buildSubmitButton(),
 
                 const SizedBox(height: 16),
 
-                // LOGIN LINK
                 _buildLoginLink(),
               ],
             ),
@@ -205,6 +260,10 @@ class _UnifiedRegistrationScreenState
       ),
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // HEADER HELPERS
+  // ---------------------------------------------------------------------------
 
   String _getScreenTitle() {
     switch (widget.userType) {
@@ -239,11 +298,28 @@ class _UnifiedRegistrationScreenState
     }
   }
 
+  String _getCountryDisplayName() {
+    // Use MasterData name if available, otherwise fall back to code.
+    return _masterData?.countries[widget.countryCode]?.name ??
+        widget.countryCode;
+  }
+
+  String _getCityDisplayName() {
+    return _masterData
+            ?.citiesByCountry[widget.countryCode]?[widget.cityCode]
+            ?.name ??
+        widget.cityCode;
+  }
+
+  // ---------------------------------------------------------------------------
+  // WIDGETS
+  // ---------------------------------------------------------------------------
+
   Widget _buildStepIndicator() {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
+        color: Theme.of(context).primaryColor.withOpacity(0.1),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -266,7 +342,7 @@ class _UnifiedRegistrationScreenState
                   ),
                 ),
                 Text(
-                  'Location: ${widget.selectedCity}, ${_getCountryName()}',
+                  'Location: ${_getCityDisplayName()}, ${_getCountryDisplayName()}',
                   style: TextStyle(
                     fontSize: 13,
                     color: Colors.grey[600],
@@ -278,21 +354,6 @@ class _UnifiedRegistrationScreenState
         ],
       ),
     );
-  }
-
-  String _getCountryName() {
-    switch (widget.selectedCountry) {
-      case Country.cameroon:
-        return 'Cameroon';
-      case Country.kenya:
-        return 'Kenya';
-      case Country.tanzania:
-        return 'Tanzania';
-      case Country.uganda:
-        return 'Uganda';
-      case Country.nigeria:
-        return 'Nigeria';
-    }
   }
 
   Widget _buildSectionHeader(String title, IconData icon) {
@@ -312,7 +373,6 @@ class _UnifiedRegistrationScreenState
     );
   }
 
-  // COMMON FIELDS (all user types use these)
   Widget _buildCommonFields() {
     return Column(
       children: [
@@ -323,13 +383,12 @@ class _UnifiedRegistrationScreenState
             labelText: 'Email',
             hintText: 'Enter your email',
             prefixIcon: const Icon(Icons.email),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            border:
+                OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
           keyboardType: TextInputType.emailAddress,
           validator: (value) {
-            if (value == null || value.isEmpty) {
-              return 'Please enter your email';
-            }
+            if (value == null || value.isEmpty) return 'Please enter your email';
             if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
               return 'Please enter a valid email';
             }
@@ -351,7 +410,8 @@ class _UnifiedRegistrationScreenState
               onPressed: () =>
                   setState(() => _obscurePassword = !_obscurePassword),
             ),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            border:
+                OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
           obscureText: _obscurePassword,
           validator: (value) {
@@ -380,7 +440,8 @@ class _UnifiedRegistrationScreenState
               onPressed: () => setState(
                   () => _obscureConfirmPassword = !_obscureConfirmPassword),
             ),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            border:
+                OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
           obscureText: _obscureConfirmPassword,
           validator: (value) {
@@ -399,7 +460,8 @@ class _UnifiedRegistrationScreenState
             labelText: 'Phone Number',
             hintText: 'Enter your phone number',
             prefixIcon: const Icon(Icons.phone),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            border:
+                OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
           keyboardType: TextInputType.phone,
           validator: (value) {
@@ -413,7 +475,6 @@ class _UnifiedRegistrationScreenState
     );
   }
 
-  // ROLE-SPECIFIC FIELDS
   Widget _buildRoleSpecificFields() {
     switch (widget.userType) {
       case UserType.pharmacy:
@@ -428,14 +489,14 @@ class _UnifiedRegistrationScreenState
   Widget _buildPharmacyFields() {
     return Column(
       children: [
-        // Pharmacy Name
         TextFormField(
           controller: _pharmacyNameController,
           decoration: InputDecoration(
             labelText: 'Pharmacy Name',
             hintText: 'Enter pharmacy name',
             prefixIcon: const Icon(Icons.local_pharmacy),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            border:
+                OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
           validator: (value) {
             if (value == null || value.isEmpty) {
@@ -445,15 +506,14 @@ class _UnifiedRegistrationScreenState
           },
         ),
         const SizedBox(height: 16),
-
-        // Address
         TextFormField(
           controller: _addressController,
           decoration: InputDecoration(
             labelText: 'Address',
             hintText: 'Enter pharmacy address',
             prefixIcon: const Icon(Icons.location_on),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            border:
+                OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
           maxLines: 2,
           validator: (value) {
@@ -470,14 +530,14 @@ class _UnifiedRegistrationScreenState
   Widget _buildCourierFields() {
     return Column(
       children: [
-        // Full Name
         TextFormField(
           controller: _fullNameController,
           decoration: InputDecoration(
             labelText: 'Full Name',
             hintText: 'Enter your full name',
             prefixIcon: const Icon(Icons.person),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            border:
+                OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
           validator: (value) {
             if (value == null || value.isEmpty) {
@@ -487,37 +547,30 @@ class _UnifiedRegistrationScreenState
           },
         ),
         const SizedBox(height: 16),
-
-        // Vehicle Type
         DropdownButtonFormField<String>(
           initialValue: _selectedVehicleType,
           decoration: InputDecoration(
             labelText: 'Vehicle Type',
             prefixIcon: const Icon(Icons.directions_bike),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            border:
+                OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
           items: ['Motorcycle', 'Bicycle', 'Car', 'Scooter', 'Van', 'Other']
-              .map((vehicle) => DropdownMenuItem(
-                    value: vehicle,
-                    child: Text(vehicle),
-                  ))
+              .map((v) => DropdownMenuItem(value: v, child: Text(v)))
               .toList(),
           onChanged: (value) {
-            if (value != null) {
-              setState(() => _selectedVehicleType = value);
-            }
+            if (value != null) setState(() => _selectedVehicleType = value);
           },
         ),
         const SizedBox(height: 16),
-
-        // License Plate
         TextFormField(
           controller: _licensePlateController,
           decoration: InputDecoration(
             labelText: 'License Plate',
             hintText: 'Enter vehicle license plate',
             prefixIcon: const Icon(Icons.credit_card),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            border:
+                OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
           validator: (value) {
             if (value == null || value.isEmpty) {
@@ -533,14 +586,14 @@ class _UnifiedRegistrationScreenState
   Widget _buildAdminFields() {
     return Column(
       children: [
-        // Admin Name
         TextFormField(
           controller: _adminNameController,
           decoration: InputDecoration(
             labelText: 'Admin Name',
             hintText: 'Enter your name',
             prefixIcon: const Icon(Icons.admin_panel_settings),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            border:
+                OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
           validator: (value) {
             if (value == null || value.isEmpty) {
@@ -550,22 +603,24 @@ class _UnifiedRegistrationScreenState
           },
         ),
         const SizedBox(height: 16),
-
-        // Department
         TextFormField(
           controller: _departmentController,
           decoration: InputDecoration(
             labelText: 'Department',
             hintText: 'Enter your department',
             prefixIcon: const Icon(Icons.business),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            border:
+                OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
         ),
       ],
     );
   }
 
+  // ---------------------------------------------------------------------------
   // PAYMENT SECTION
+  // ---------------------------------------------------------------------------
+
   Widget _buildPaymentSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -576,59 +631,10 @@ class _UnifiedRegistrationScreenState
         ),
         const SizedBox(height: 16),
 
-        // Payment Operator Dropdown with manual deduplication
-        Builder(
-          builder: (context) {
-            // 🔧 FIX v3: Manual deduplication to prevent duplicate dropdown items
-            final operators = _getAvailableOperators();
-            debugPrint('🔍 DROPDOWN FIX v3: Got ${operators.length} operators from config');
-            final uniqueOperators = <PaymentOperator>[];
-            final seenOperators = <String>{};
+        _buildProviderDropdown(),
 
-            for (final op in operators) {
-              final key = op.toString();
-              if (!seenOperators.contains(key)) {
-                seenOperators.add(key);
-                uniqueOperators.add(op);
-              }
-            }
-            debugPrint('🔍 DROPDOWN FIX v3: After dedup: ${uniqueOperators.length} unique operators');
-
-            return DropdownButtonFormField<PaymentOperator>(
-              initialValue: _selectedPaymentOperator,
-              decoration: InputDecoration(
-                labelText: 'Payment Method',
-                hintText: 'Select payment operator',
-                prefixIcon: const Icon(Icons.account_balance_wallet),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              items: uniqueOperators
-                  .map((operator) => DropdownMenuItem(
-                        value: operator,
-                        child: Row(
-                          children: [
-                            Icon(_getOperatorIcon(operator), size: 20),
-                            const SizedBox(width: 8),
-                            Text(_getOperatorDisplayName(operator)),
-                          ],
-                        ),
-                      ))
-                  .toList(),
-              onChanged: (value) {
-                setState(() => _selectedPaymentOperator = value);
-              },
-              validator: (value) {
-                if (value == null) {
-                  return 'Please select a payment method';
-                }
-                return null;
-              },
-            );
-          },
-        ),
         const SizedBox(height: 16),
 
-        // Payment Phone Info
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
@@ -651,7 +657,6 @@ class _UnifiedRegistrationScreenState
         ),
         const SizedBox(height: 12),
 
-        // Optional: Different Payment Phone
         CheckboxListTile(
           contentPadding: EdgeInsets.zero,
           title: const Text('Use a different phone number for payments'),
@@ -669,8 +674,8 @@ class _UnifiedRegistrationScreenState
               labelText: 'Payment Phone Number',
               hintText: 'Enter phone for payments',
               prefixIcon: const Icon(Icons.phone),
-              border:
-                  OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12)),
             ),
             keyboardType: TextInputType.phone,
             validator: (value) {
@@ -686,6 +691,70 @@ class _UnifiedRegistrationScreenState
     );
   }
 
+  Widget _buildProviderDropdown() {
+    final providers = _masterData?.getEnabledProviders(widget.countryCode) ?? [];
+
+    if (providers.isEmpty) {
+      // Fallback message while master data loads or no providers configured.
+      return DropdownButtonFormField<String>(
+        initialValue: _selectedProviderId,
+        decoration: InputDecoration(
+          labelText: 'Payment Method',
+          hintText: 'Loading payment options…',
+          prefixIcon: const Icon(Icons.account_balance_wallet),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        items: const [],
+        onChanged: null,
+        validator: (value) {
+          if (value == null) return 'Please select a payment method';
+          return null;
+        },
+      );
+    }
+
+    // Deduplicate by id (safety guard against malformed config).
+    final seen = <String>{};
+    final unique = providers.where((p) => seen.add(p.id)).toList();
+
+    return DropdownButtonFormField<String>(
+      initialValue: _selectedProviderId,
+      decoration: InputDecoration(
+        labelText: 'Payment Method',
+        hintText: 'Select payment operator',
+        prefixIcon: const Icon(Icons.account_balance_wallet),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      items: unique
+          .map((p) => DropdownMenuItem<String>(
+                value: p.id,
+                child: Row(
+                  children: [
+                    Icon(_providerIcon(p.methodCode), size: 20),
+                    const SizedBox(width: 8),
+                    Text(p.name),
+                  ],
+                ),
+              ))
+          .toList(),
+      onChanged: (value) => setState(() => _selectedProviderId = value),
+      validator: (value) {
+        if (value == null) return 'Please select a payment method';
+        return null;
+      },
+    );
+  }
+
+  IconData _providerIcon(String methodCode) {
+    final code = methodCode.toLowerCase();
+    if (code.contains('mtn')) return Icons.phone_android;
+    if (code.contains('orange')) return Icons.phone_iphone;
+    if (code.contains('mpesa') || code.contains('airtel')) {
+      return Icons.account_balance_wallet;
+    }
+    return Icons.payment;
+  }
+
   String _getPaymentSectionDescription() {
     switch (widget.userType) {
       case UserType.pharmacy:
@@ -697,47 +766,9 @@ class _UnifiedRegistrationScreenState
     }
   }
 
-  // Payment helper methods
-  List<PaymentOperator> _getAvailableOperators() {
-    final config = _getCountryConfig();
-    return config?.availableOperators ?? [];
-  }
-
-  CountryConfig? _getCountryConfig() {
-    return Countries.getByCountry(widget.selectedCountry);
-  }
-
-  IconData _getOperatorIcon(PaymentOperator operator) {
-    switch (operator) {
-      case PaymentOperator.mtnCameroon:
-      case PaymentOperator.mtnUganda:
-      case PaymentOperator.mtnNigeria:
-        return Icons.phone_android;
-      case PaymentOperator.orangeCameroon:
-        return Icons.phone_iphone;
-      case PaymentOperator.mpesaKenya:
-      case PaymentOperator.mpesaTanzania:
-        return Icons.account_balance_wallet;
-      case PaymentOperator.airtelKenya:
-      case PaymentOperator.airtelTanzania:
-      case PaymentOperator.airtelUganda:
-      case PaymentOperator.airtelNigeria:
-        return Icons.mobile_friendly;
-      case PaymentOperator.tigoTanzania:
-        return Icons.payment;
-      case PaymentOperator.gloNigeria:
-      case PaymentOperator.nineMobile:
-        return Icons.smartphone;
-    }
-  }
-
-  String _getOperatorDisplayName(PaymentOperator operator) {
-    final config = _getCountryConfig();
-    if (config == null) return operator.toString();
-
-    final operatorConfig = config.getOperatorConfig(operator);
-    return operatorConfig?.displayName ?? operator.toString().split('.').last;
-  }
+  // ---------------------------------------------------------------------------
+  // FORM ACTIONS
+  // ---------------------------------------------------------------------------
 
   Widget _buildSubmitButton() {
     return ElevatedButton(
@@ -783,33 +814,49 @@ class _UnifiedRegistrationScreenState
     );
   }
 
+  // ---------------------------------------------------------------------------
   // REGISTRATION LOGIC
+  // ---------------------------------------------------------------------------
+
   Future<void> _handleRegistration() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+    if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
 
     try {
-      // Determine payment phone
+      // Resolve the selected provider to obtain methodCode.
+      // Fail closed: if the provider cannot be resolved or has no methodCode,
+      // block submission — never write an incoherent PaymentPreferences to Firestore.
+      final provider = _masterData?.providers[_selectedProviderId];
+      if (provider == null || provider.methodCode.trim().isEmpty) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'Payment method configuration unavailable. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
       final paymentPhone = _useDifferentPaymentPhone
           ? _paymentPhoneController.text.trim()
           : _phoneController.text.trim();
 
-      // Create payment preferences with encryption
       final paymentPreferences = PaymentPreferences.createSecure(
-        method: _selectedPaymentOperator!.toString().split('.').last,
+        // method = methodCode from the provider (the payment rail identifier),
+        // NOT the providerId.  providerId is the stable config key ("mtn_cm");
+        // methodCode is the payment method string ("mtn_cameroon", "mpesa_kenya"…).
+        method: provider.methodCode,
         phoneNumber: paymentPhone,
-        country: widget.selectedCountry,
-        operator: _selectedPaymentOperator,
+        countryCode: widget.countryCode,
+        providerId: _selectedProviderId,
         isSetupComplete: true,
       );
 
-      // Prepare role-specific profile data
       final profileData = _buildProfileData(paymentPreferences);
 
-      // Call unified auth service
       final userCredential = await UnifiedAuthService.signUp(
         email: _emailController.text.trim(),
         password: _passwordController.text,
@@ -817,11 +864,12 @@ class _UnifiedRegistrationScreenState
         profileData: profileData,
       );
 
-      // Create 30-day trial subscription for new pharmacies
+      // Create 30-day trial subscription for new pharmacies.
       if (widget.userType == UserType.pharmacy && userCredential?.user != null) {
-        // Get currency from selected country
-        final countryConfig = Countries.getByCountry(widget.selectedCountry);
-        final currency = countryConfig?.currency ?? 'XAF';
+        final currency =
+            _countryCurrencyMap[widget.countryCode] ??
+            _masterData?.countries[widget.countryCode]?.defaultCurrencyCode ??
+            'XAF';
 
         await SubscriptionCreationService.createTrialSubscription(
           userCredential!.user!.uid,
@@ -829,7 +877,6 @@ class _UnifiedRegistrationScreenState
         );
       }
 
-      // Sign in automatically after registration
       if (!mounted) return;
       context.read<UnifiedAuthBloc>().add(
             SignInRequested(
@@ -849,13 +896,13 @@ class _UnifiedRegistrationScreenState
     }
   }
 
-  Map<String, dynamic> _buildProfileData(
-      PaymentPreferences paymentPreferences) {
+  Map<String, dynamic> _buildProfileData(PaymentPreferences paymentPreferences) {
     return buildUnifiedRegistrationProfileData(
       userType: widget.userType,
       phoneNumber: _phoneController.text,
-      selectedCountry: widget.selectedCountry,
-      selectedCity: widget.selectedCity,
+      countryCode: widget.countryCode,
+      cityCode: widget.cityCode,
+      cityDisplayName: _getCityDisplayName(),
       paymentPreferences: paymentPreferences,
       pharmacyName: _pharmacyNameController.text,
       address: _addressController.text,
@@ -868,8 +915,7 @@ class _UnifiedRegistrationScreenState
   }
 
   void _navigateToDashboard(UserType userType) {
-    // Pop all registration screens to go back to root (AuthWrapper)
-    // AuthWrapper's BlocBuilder will automatically show DashboardScreen when it detects Authenticated state
+    // Pop all registration screens — AuthWrapper will navigate to dashboard.
     Navigator.of(context).popUntil((route) => route.isFirst);
   }
 }
