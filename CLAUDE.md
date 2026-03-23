@@ -38,26 +38,34 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **DO NOT waste time modifying obsolete `pharmacy_app` or `courier_app` directories!**
 
-## 🚀 **CURRENT PROJECT STATUS - 2026-03-23 (BLOC 2 SPRINT 2A VALIDÉ — MEDICINE REQUESTS BACKEND)**
+## 🚀 **CURRENT PROJECT STATUS - 2026-03-23 (BLOC 2 CLOS + CLEANUP — TOUT DÉPLOYÉ)**
 
 ### ✅ **Admin chantier freezé** — V1 + V2 (A→D) complétés et déployés
 
-### ✅ **Bloc 1 — Inventory Visibility MVP — VALIDÉ**
+### ✅ **Bloc 1 — Inventory Visibility MVP — VALIDÉ & DÉPLOYÉ**
 
 - Toggle Published/Private sur cartes inventaire
 - Rules `pharmacy_inventory` durcies (Private non lisible par autres pharmacies)
 - Snapshot inventaire dans `exchange_proposals`
 - Proposals UI découplée des lectures live
 
-### ✅ **Bloc 2 Sprint 2A — Medicine Requests Backend — VALIDÉ (23 mars 2026)**
+### ✅ **Bloc 2 — Medicine Requests — CLOS & DÉPLOYÉ (23 mars 2026)**
 
-**5 callables** : `createMedicineRequest`, `cancelMedicineRequest`, `submitMedicineRequestOffer`, `withdrawMedicineRequestOffer`, `acceptMedicineRequestOffer`
+**Sprint 2A (backend)** : 5 callables + helper transactionnel `acceptRequestOfferIntoCanonicalProposal`
+**Sprint 2B (UI)** : écran 3 tabs (Open Requests, My Requests, My Offers) + dialogs + CTA depuis Marketplace
 
-**Helper transactionnel** : `acceptRequestOfferIntoCanonicalProposal` — bridge atomique vers `exchange_proposals` + `deliveries`
+**Sécurité** : writes backend-only, scope géographique revalidé, trial expiry vérifié
 
-**Sécurité** : writes backend-only, scope géographique revalidé à l'acceptation, trial expiry vérifié
+### ✅ **Cleanup primaryCurrencyCode — CLOS (23 mars 2026)**
 
-**Prochain** : Sprint 2B = UI Requests (3 tabs + CTA + dialogs)
+- Champ supprimé du modèle, service, UI, runtime, migration
+- Source de vérité devise = `countries.{countryCode}.defaultCurrencyCode`
+- Champ supprimé de `system_config/main` en prod
+
+### **URLs en production**
+
+- Admin : https://mediexchange-76872.web.app
+- App : https://app-mediexchange.web.app
 
 ### ✅ **Contrat V1 `CONTRACT_ADMIN_MASTER_DATA_AND_TREASURY_V1.md` — COMPLÉTÉ**
 
