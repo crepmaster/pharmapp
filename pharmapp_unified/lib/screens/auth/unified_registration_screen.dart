@@ -180,6 +180,16 @@ class _UnifiedRegistrationScreenState
     final snapshot = await MasterDataService.load();
     if (!mounted) return;
     setState(() => _masterData = snapshot);
+
+    // Prefill phone field with international dial code of the selected country.
+    // Only prefill if the user hasn't typed anything yet.
+    final dialCode = snapshot.countries[widget.countryCode]?.dialCode ?? '';
+    if (dialCode.isNotEmpty && _phoneController.text.isEmpty) {
+      _phoneController.text = '+$dialCode ';
+      _phoneController.selection = TextSelection.fromPosition(
+        TextPosition(offset: _phoneController.text.length),
+      );
+    }
   }
 
   @override

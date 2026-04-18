@@ -567,74 +567,181 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen>
     );
   }
 
+  /// Ask the pharmacy how many units to publish on the Marketplace.
+  /// Returns null if the user cancels, otherwise an integer in [1, item.availableQuantity].
+  Future<int?> _askPublishQuantity(PharmacyInventoryItem item) async {
+    final controller = TextEditingController(text: item.availableQuantity.toString());
+    final formKey = GlobalKey<FormState>();
+    return showDialog<int>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Publish to Marketplace'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'You have ${item.availableQuantity} units of ${item.medicine?.name ?? "this medicine"} in stock.',
+                style: const TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'How many units do you want to offer on the Marketplace?',
+                style: TextStyle(
+                    fontSize: 12, color: Colors.grey.shade700),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: controller,
+                keyboardType: TextInputType.number,
+                autofocus: true,
+                decoration: InputDecoration(
+                  labelText: 'Quantity to publish',
+                  helperText: 'Max: ${item.availableQuantity}',
+                  border: const OutlineInputBorder(),
+                ),
+                validator: (v) {
+                  final n = int.tryParse(v?.trim() ?? '');
+                  if (n == null || n <= 0) return 'Enter a positive number';
+                  if (n > item.availableQuantity) {
+                    return 'Cannot exceed available stock (${item.availableQuantity})';
+                  }
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, null),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (formKey.currentState!.validate()) {
+                Navigator.pop(ctx, int.parse(controller.text.trim()));
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue.shade600,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Publish'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildVisibilityToggle(
       PharmacyInventoryItem item, bool isPublished) {
     final isToggling = _togglingItems.contains(item.id);
-    return InkWell(
-      borderRadius: BorderRadius.circular(10),
-      onTap: isToggling
-          ? null
-          : () async {
-              setState(() => _togglingItems.add(item.id));
-              try {
-                await InventoryService.toggleAvailability(
-                  inventoryId: item.id,
-                  available: !isPublished,
-                );
-              } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Failed to update: $e'),
-                      backgroundColor: Colors.red,
+    final label = isPublished ? 'Published — tap to unpublish' : 'Publish to Marketplace';
+    return Tooltip(
+      message: isPublished
+          ? 'This item is visible to other pharmacies. Tap to make it private.'
+          : 'This item is private. Tap to publish it on the Marketplace.',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: isToggling
+              ? null
+              : () async {
+                  // If publishing, ask the pharmacy how many units to offer.
+                  int? maxQty;
+                  if (!isPublished) {
+                    maxQty = await _askPublishQuantity(item);
+                    if (maxQty == null) return; // User cancelled
+                  }
+                  setState(() => _togglingItems.add(item.id));
+                  try {
+                    await InventoryService.toggleAvailability(
+                      inventoryId: item.id,
+                      available: !isPublished,
+                      maxExchangeQuantity: maxQty,
+                    );
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(!isPublished
+                              ? (maxQty == item.availableQuantity
+                                  ? 'Published on Marketplace (full stock)'
+                                  : 'Published on Marketplace ($maxQty units)')
+                              : 'Removed from Marketplace'),
+                          backgroundColor:
+                              !isPublished ? Colors.green : Colors.grey.shade700,
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Failed to update: $e'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  } finally {
+                    if (mounted) {
+                      setState(() => _togglingItems.remove(item.id));
+                    }
+                  }
+                },
+          child: Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: isPublished ? Colors.green.shade600 : Colors.blue.shade600,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: (isPublished ? Colors.green : Colors.blue)
+                      .withOpacity(0.25),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: isToggling
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor:
+                          AlwaysStoppedAnimation<Color>(Colors.white),
                     ),
-                  );
-                }
-              } finally {
-                if (mounted) {
-                  setState(() => _togglingItems.remove(item.id));
-                }
-              }
-            },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-          color: isPublished ? Colors.green.shade50 : Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isPublished ? Colors.green.shade300 : Colors.grey.shade300,
-            width: 1,
+                  )
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isPublished
+                            ? Icons.check_circle
+                            : Icons.publish,
+                        size: 14,
+                        color: Colors.white,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        label,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
           ),
         ),
-        child: isToggling
-            ? const SizedBox(
-                width: 12,
-                height: 12,
-                child: CircularProgressIndicator(strokeWidth: 1.5),
-              )
-            : Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    isPublished ? Icons.visibility : Icons.visibility_off,
-                    size: 12,
-                    color: isPublished
-                        ? Colors.green.shade700
-                        : Colors.grey.shade600,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    isPublished ? 'Published' : 'Private',
-                    style: TextStyle(
-                      color: isPublished
-                          ? Colors.green.shade700
-                          : Colors.grey.shade600,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
       ),
     );
   }

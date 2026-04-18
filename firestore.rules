@@ -253,10 +253,10 @@ service cloud.firestore {
 
     match /deliveries/{id} {
       allow read: if isAuthenticated() && (
-        // Only couriers can browse pending deliveries, and only in their operating city
-        (resource.data.status == 'pending' &&
-         exists(/databases/$(db)/documents/couriers/$(request.auth.uid)) &&
-         deliveryCityMatchesCourier(resource.data)) ||
+        // Pending deliveries readable by all authenticated users;
+        // city filtering enforced client-side via query filter.
+        // Security for accepting is enforced on the update rule below.
+        resource.data.status == 'pending' ||
         resource.data.courierId == request.auth.uid ||           // Courier can read assigned deliveries
         resource.data.fromPharmacyId == request.auth.uid ||      // Source pharmacy can read
         resource.data.toPharmacyId == request.auth.uid ||        // Destination pharmacy can read

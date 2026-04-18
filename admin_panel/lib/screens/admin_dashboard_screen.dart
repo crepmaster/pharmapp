@@ -10,6 +10,7 @@ import 'city_management_screen.dart';
 import 'subscription_management_screen.dart';
 import 'financial_reports_screen.dart';
 import 'system_config/system_config_screen.dart';
+import '../widgets/analytics_by_city_section.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -364,7 +365,7 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(24.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -394,40 +395,48 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
             ],
           ),
           const SizedBox(height: 24),
-          
+
           // Quick stats cards
-          Expanded(
-            child: GridView.count(
-              crossAxisCount: 4,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-              children: [
-                _buildStatCard(
-                  title: 'Total Pharmacies',
-                  value: isLoading ? '...' : totalPharmacies.toString(),
-                  icon: Icons.local_pharmacy,
-                  color: Colors.blue,
-                ),
-                _buildStatCard(
-                  title: 'Active Subscriptions',
-                  value: isLoading ? '...' : activeSubscriptions.toString(),
-                  icon: Icons.subscriptions,
-                  color: Colors.green,
-                ),
-                _buildStatCard(
-                  title: 'Pending Approvals',
-                  value: isLoading ? '...' : pendingApprovals.toString(),
-                  icon: Icons.pending_actions,
-                  color: Colors.orange,
-                ),
-                _buildStatCard(
-                  title: 'Monthly Revenue',
-                  value: isLoading ? '...' : '\$${monthlyRevenue.toStringAsFixed(0)}',
-                  icon: Icons.attach_money,
-                  color: Colors.purple,
-                ),
-              ],
-            ),
+          GridView.count(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisCount: 4,
+            crossAxisSpacing: 16,
+            mainAxisSpacing: 16,
+            childAspectRatio: 1.4,
+            children: [
+              _buildStatCard(
+                title: 'Total Pharmacies',
+                value: isLoading ? '...' : totalPharmacies.toString(),
+                icon: Icons.local_pharmacy,
+                color: Colors.blue,
+              ),
+              _buildStatCard(
+                title: 'Active Subscriptions',
+                value: isLoading ? '...' : activeSubscriptions.toString(),
+                icon: Icons.subscriptions,
+                color: Colors.green,
+              ),
+              _buildStatCard(
+                title: 'Pending Approvals',
+                value: isLoading ? '...' : pendingApprovals.toString(),
+                icon: Icons.pending_actions,
+                color: Colors.orange,
+              ),
+              _buildStatCard(
+                title: 'Monthly Revenue',
+                value: isLoading ? '...' : '\$${monthlyRevenue.toStringAsFixed(0)}',
+                icon: Icons.attach_money,
+                color: Colors.purple,
+              ),
+            ],
+          ),
+          const SizedBox(height: 32),
+
+          // Country × City statistics section
+          _AnalyticsLoader(
+            countryScopes: widget.countryScopes,
+            isSuperAdmin: widget.isSuperAdmin,
           ),
         ],
       ),
@@ -475,6 +484,96 @@ class _DashboardHomeScreenState extends State<DashboardHomeScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Fetches country and city display-name lookups from system_config once,
+/// then renders the analytics section with those names.
+class _AnalyticsLoader extends StatefulWidget {
+  final List<String> countryScopes;
+  final bool isSuperAdmin;
+
+  const _AnalyticsLoader({
+    required this.countryScopes,
+    required this.isSuperAdmin,
+  });
+
+  @override
+  State<_AnalyticsLoader> createState() => _AnalyticsLoaderState();
+}
+
+class _AnalyticsLoaderState extends State<_AnalyticsLoader> {
+  Map<String, String> _countryNames = {};
+  Map<String, Map<String, String>> _cityNames = {};
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNames();
+  }
+
+  Future<void> _loadNames() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('system_config')
+          .doc('main')
+          .get();
+      if (!doc.exists) {
+        if (mounted) setState(() => _ready = true);
+        return;
+      }
+      final data = doc.data()!;
+      final countries =
+          (data['countries'] as Map<String, dynamic>?) ?? {};
+      final citiesByCountry =
+          (data['citiesByCountry'] as Map<String, dynamic>?) ?? {};
+
+      final cNames = <String, String>{};
+      countries.forEach((code, info) {
+        if (info is Map) {
+          cNames[code] = (info['name'] as String?) ?? code;
+        }
+      });
+
+      final cityNames = <String, Map<String, String>>{};
+      citiesByCountry.forEach((countryCode, cities) {
+        if (cities is Map) {
+          final map = <String, String>{};
+          cities.forEach((cityCode, info) {
+            if (info is Map) {
+              map[cityCode] = (info['name'] as String?) ?? cityCode;
+            }
+          });
+          cityNames[countryCode] = map;
+        }
+      });
+
+      if (!mounted) return;
+      setState(() {
+        _countryNames = cNames;
+        _cityNames = cityNames;
+        _ready = true;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _ready = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_ready) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    return AnalyticsByCitySection(
+      countryScopes: widget.countryScopes,
+      isSuperAdmin: widget.isSuperAdmin,
+      countryNames: _countryNames,
+      cityNames: _cityNames,
     );
   }
 }

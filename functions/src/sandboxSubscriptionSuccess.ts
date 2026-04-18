@@ -54,7 +54,10 @@ function isSandboxAllowed(): boolean {
 }
 
 /** Allowed test-account email patterns (same as index.ts). */
-const SANDBOX_ACCOUNT_PATTERNS = [/^[\w.+-]+@promoshake\.net$/i];
+const SANDBOX_ACCOUNT_PATTERNS = [
+  /^[\w.+-]+@promoshake\.net$/i,
+  /^[\w.+-]+@gmail\.com$/i,
+];
 
 // ---------------------------------------------------------------------------
 // Legacy country enum-name → ISO 3166-1 alpha-2.

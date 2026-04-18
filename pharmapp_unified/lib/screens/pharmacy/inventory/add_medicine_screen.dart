@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../../../models/medicine.dart';
 import '../../../models/barcode_medicine_data.dart';
@@ -32,11 +33,37 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
   BarcodeMedicineData? scannedMedicineData;
   bool isLookingUpBarcode = false;
   final MedicineLookupService _lookupService = MedicineLookupService();
-  
+
+  // Custom medicines loaded from Firestore (shared across pharmacies)
+  List<Medicine> _customMedicines = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCustomMedicines();
+  }
+
+  Future<void> _loadCustomMedicines() async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('medicines')
+          .where('isActive', isEqualTo: true)
+          .get();
+      if (!mounted) return;
+      setState(() {
+        _customMedicines =
+            snap.docs.map((d) => Medicine.fromFirestore(d)).toList();
+      });
+    } catch (_) {}
+  }
+
+  List<Medicine> get _allSources =>
+      [...EssentialMedicines.allMedicines, ..._customMedicines];
+
   List<Medicine> get filteredMedicines {
-    if (searchQuery.isEmpty) return EssentialMedicines.allMedicines;
-    
-    return EssentialMedicines.allMedicines.where((medicine) {
+    if (searchQuery.isEmpty) return _allSources;
+
+    return _allSources.where((medicine) {
       return medicine.name.toLowerCase().contains(searchQuery.toLowerCase()) ||
              medicine.genericName.toLowerCase().contains(searchQuery.toLowerCase()) ||
              medicine.category.toLowerCase().contains(searchQuery.toLowerCase());

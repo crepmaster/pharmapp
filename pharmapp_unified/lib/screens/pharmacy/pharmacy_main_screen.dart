@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -34,6 +36,47 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
   bool _isPolling = false;
   bool _isWaitingForPayment = false;
   static const int _maxPollingAttempts = 20; // Poll for ~60 seconds
+
+  // Currency resolution from pharmacy country (runtime source of truth).
+  static const Map<String, String> _countryCurrency = {
+    'CM': 'XAF',
+    'GH': 'GHS',
+    'KE': 'KES',
+    'NG': 'NGN',
+    'TZ': 'TZS',
+    'UG': 'UGX',
+  };
+
+  String _resolvedCurrency = 'XAF';
+
+  String get _walletCurrency => _resolvedCurrency;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrency();
+  }
+
+  Future<void> _loadCurrency() async {
+    // Try userData first (fast path)
+    final ccFromUser = widget.userData['countryCode'] as String?;
+    if (ccFromUser != null && _countryCurrency.containsKey(ccFromUser)) {
+      setState(() => _resolvedCurrency = _countryCurrency[ccFromUser]!);
+      return;
+    }
+    // Fallback: read pharmacy doc from Firestore
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('pharmacies').doc(uid).get();
+      if (!doc.exists || !mounted) return;
+      final cc = doc.data()?['countryCode'] as String?;
+      if (cc != null && _countryCurrency.containsKey(cc)) {
+        setState(() => _resolvedCurrency = _countryCurrency[cc]!);
+      }
+    } catch (_) {}
+  }
 
   @override
   void dispose() {
@@ -397,7 +440,7 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
                                         children: [
                                           Text('Available',
                                                style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-                                          Text('${(available / 100).toStringAsFixed(0)} XAF',
+                                          Text('${(available / 100).toStringAsFixed(0)} $_walletCurrency',
                                                style: const TextStyle(fontWeight: FontWeight.bold)),
                                         ],
                                       ),
@@ -406,7 +449,7 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
                                         children: [
                                           Text('Held',
                                                style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-                                          Text('${(held / 100).toStringAsFixed(0)} XAF',
+                                          Text('${(held / 100).toStringAsFixed(0)} $_walletCurrency',
                                                style: TextStyle(color: Colors.orange[700],
                                                                 fontWeight: FontWeight.bold)),
                                         ],
@@ -483,14 +526,18 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
                         setState(() => _selectedIndex = 2); // Switch to Exchanges tab
                       },
                     ),
-                    _buildActionCard(
-                      'Sandbox Testing',
-                      Icons.science,
-                      Colors.orange,
-                      () {
-                        Navigator.push(context, MaterialPageRoute(builder: (context) => const SandboxTestingScreen()));
-                      },
-                    ),
+                    // Dev-only sandbox testing screen: hidden in release builds
+                    // so it does not appear in production demos. It remains a
+                    // fast path for local debugging of wallet/ledger flows.
+                    if (kDebugMode)
+                      _buildActionCard(
+                        'Sandbox Testing',
+                        Icons.science,
+                        Colors.orange,
+                        () {
+                          Navigator.push(context, MaterialPageRoute(builder: (context) => const SandboxTestingScreen()));
+                        },
+                      ),
                   ],
                 ),
 
@@ -592,6 +639,7 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
       context: context,
       builder: (BuildContext context) => _TopUpWalletDialog(
         onTopUpSuccess: _startWalletPolling,
+        currencyCode: _walletCurrency,
       ),
     );
   }
@@ -600,14 +648,16 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
 /// Enhanced Top-Up Dialog with Payment Preferences Integration
 class _TopUpWalletDialog extends StatefulWidget {
   final VoidCallback? onTopUpSuccess;
+  final String currencyCode;
 
-  const _TopUpWalletDialog({this.onTopUpSuccess});
+  const _TopUpWalletDialog({this.onTopUpSuccess, this.currencyCode = 'XAF'});
 
   @override
   State<_TopUpWalletDialog> createState() => _TopUpWalletDialogState();
 }
 
 class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
+  String get _walletCurrency => widget.currencyCode;
   final _formKey = GlobalKey<FormState>();
   final _amountController = TextEditingController();
   final _phoneController = TextEditingController();
@@ -617,7 +667,18 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
   PaymentPreferences? _savedPreferences;
 
   // Quick amount buttons
-  final List<int> _quickAmounts = [500, 1000, 2500, 5000, 10000, 25000];
+  static const Map<String, List<int>> _quickAmountsByCurrency = {
+    'XAF': [500, 1000, 2500, 5000, 10000, 25000],
+    'GHS': [5, 10, 25, 50, 100, 250],
+    'KES': [50, 100, 250, 500, 1000, 2500],
+    'NGN': [500, 1000, 2500, 5000, 10000, 25000],
+    'TZS': [1000, 2500, 5000, 10000, 25000, 50000],
+    'UGX': [1000, 2500, 5000, 10000, 25000, 50000],
+  };
+
+  List<int> get _quickAmounts =>
+      _quickAmountsByCurrency[_walletCurrency] ??
+      _quickAmountsByCurrency['XAF']!;
 
   @override
   void initState() {
@@ -762,11 +823,11 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
               // Custom amount input
               TextFormField(
                 controller: _amountController,
-                decoration: const InputDecoration(
-                  labelText: 'Amount (XAF)',
+                decoration: InputDecoration(
+                  labelText: 'Amount ($_walletCurrency)',
                   hintText: 'Enter amount or select above',
-                  prefixIcon: Icon(Icons.attach_money),
-                  border: OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.attach_money),
+                  border: const OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.number,
                 validator: (value) {
@@ -774,11 +835,8 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
                     return 'Please enter an amount';
                   }
                   final amount = int.tryParse(value!);
-                  if (amount == null || amount < 100) {
-                    return 'Minimum amount is 100 XAF';
-                  }
-                  if (amount > 500000) {
-                    return 'Maximum amount is 500,000 XAF';
+                  if (amount == null || amount <= 0) {
+                    return 'Please enter a valid amount';
                   }
                   return null;
                 },
@@ -809,33 +867,35 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
               ),
               const SizedBox(height: 16),
 
-              // Phone number input with validation
+              // Phone number input — validation relaxed for non-CM countries.
               TextFormField(
                 controller: _phoneController,
                 decoration: InputDecoration(
                   labelText: 'Phone Number',
-                  hintText: _getPhoneHint(),
+                  hintText: _walletCurrency == 'XAF'
+                      ? _getPhoneHint()
+                      : 'Enter your mobile money number',
                   prefixIcon: const Icon(Icons.phone),
                   border: const OutlineInputBorder(),
-                  helperText: _getMethodValidationText(),
+                  helperText: _walletCurrency == 'XAF'
+                      ? _getMethodValidationText()
+                      : null,
                 ),
                 keyboardType: TextInputType.phone,
                 validator: (value) {
                   if (value?.isEmpty ?? true) {
                     return 'Phone number is required';
                   }
-
-                  // LEGACY: top-up dialog is Cameroon-only (operator dropdown
-                  // is also hardcoded to MTN/Orange Cameroon). Refactor to
-                  // country-aware when multi-country top-up is introduced.
-                  if (!EncryptionService.isValidCameroonPhone(value!)) {
-                    return 'Please enter a valid Cameroon phone number';
+                  // Cameroon-specific validation only when currency is XAF.
+                  // Multi-country top-up provider integration is a future sprint.
+                  if (_walletCurrency == 'XAF') {
+                    if (!EncryptionService.isValidCameroonPhone(value!)) {
+                      return 'Please enter a valid Cameroon phone number';
+                    }
+                    if (!EncryptionService.validatePhoneWithMethod(value, _selectedMethod)) {
+                      return _getMethodValidationError();
+                    }
                   }
-
-                  if (!EncryptionService.validatePhoneWithMethod(value, _selectedMethod)) {
-                    return _getMethodValidationError();
-                  }
-
                   return null;
                 },
               ),
@@ -876,7 +936,7 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
       label: Text('${amount.toString().replaceAllMapped(
         RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
         (Match m) => '${m[1]},',
-      )} XAF'),
+      )} $_walletCurrency'),
       selected: isSelected,
       onSelected: (selected) {
         setState(() {
@@ -926,102 +986,115 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
 
     setState(() => _isLoading = true);
 
+    final amount = int.parse(_amountController.text);
+    final phone = _phoneController.text;
+
+    // Capture navigator and messenger from a root context BEFORE popping.
+    // The dialog's state gets disposed on pop, so we can't rely on `mounted`
+    // or the dialog's own `context` after this point.
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final messenger = ScaffoldMessenger.of(context);
+    final onSuccess = widget.onTopUpSuccess;
+
+    // Close the form dialog.
+    navigator.pop();
+
+    // Show a progress dialog using the root navigator's overlay context.
+    navigator.push(
+      DialogRoute<void>(
+        context: navigator.context,
+        barrierDismissible: false,
+        builder: (ctx) => const AlertDialog(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Waiting for MoMo approval...'),
+              SizedBox(height: 8),
+              Text(
+                'Check your phone for the payment prompt.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
     try {
-      final amount = int.parse(_amountController.text);
-      final phone = _phoneController.text;
-      final user = FirebaseAuth.instance.currentUser!;
+      // Step 1: Initiate MTN MoMo request.
+      final callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
+          .httpsCallable('mtnMomoTopupIntent');
+      final initResult = await callable.call<Map<String, dynamic>>({
+        'amount': amount,
+        'phoneNumber': phone,
+        'currency': _walletCurrency,
+      });
+      final referenceId = initResult.data['referenceId'] as String?;
+      if (referenceId == null) {
+        throw 'No reference ID returned';
+      }
 
-      // Show processing message
-      if (mounted) {
-        Navigator.pop(context); // Close dialog first
-        ScaffoldMessenger.of(context).showSnackBar(
+      // Step 2: Poll status every 3s for up to 60s.
+      final checkCallable = FirebaseFunctions.instanceFor(region: 'europe-west1')
+          .httpsCallable('mtnMomoCheckStatus');
+      String status = 'pending';
+      String? reason;
+      for (var i = 0; i < 20; i++) {
+        await Future.delayed(const Duration(seconds: 3));
+        final check = await checkCallable.call<Map<String, dynamic>>({
+          'referenceId': referenceId,
+        });
+        status = (check.data['status'] as String?) ?? 'pending';
+        reason = check.data['reason'] as String?;
+        if (status != 'pending') break;
+      }
+
+      // Close progress dialog — does not need `mounted` check since we use
+      // captured navigator reference from before the state dispose.
+      navigator.pop();
+
+      if (status == 'successful') {
+        messenger.showSnackBar(
           const SnackBar(
-            content: Row(
-              children: [
-                SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  ),
-                ),
-                SizedBox(width: 12),
-                Text('Processing payment request...'),
-              ],
-            ),
-            backgroundColor: Colors.orange,
-            duration: Duration(seconds: 3),
+            content: Text('Top-up successful! Wallet credited.'),
+            backgroundColor: Colors.green,
           ),
         );
-      }
-
-      // Create top-up through unified wallet service
-      final result = await UnifiedWalletService.createTopup(
-        userId: user.uid,
-        amountXAF: amount,
-        method: _selectedMethod,
-        phoneNumber: phone,
-        description: 'Pharmacy wallet top-up',
-      );
-
-      if (mounted) {
-        final success = result['status'] == 'success' ||
-                       result['status'] == 'pending' ||
-                       result.containsKey('payment_url');
-
-        ScaffoldMessenger.of(context).showSnackBar(
+        onSuccess?.call();
+      } else if (status == 'failed') {
+        messenger.showSnackBar(
           SnackBar(
-            content: Row(
-              children: [
-                Icon(
-                  success ? Icons.check_circle : Icons.error,
-                  color: Colors.white,
-                  size: 20,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    success
-                        ? 'Top-up request sent! Check your phone for payment prompt.'
-                        : 'Payment request failed: ${result['message'] ?? 'Unknown error'}',
-                  ),
-                ),
-              ],
-            ),
-            backgroundColor: success ? Colors.green : Colors.red,
-            duration: const Duration(seconds: 5),
-          ),
-        );
-
-        // Save payment preferences if successful
-        if (success) {
-          await _savePaymentPreferences();
-
-          // Start polling for wallet balance updates
-          if (mounted) {
-            widget.onTopUpSuccess?.call();
-          }
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.error, color: Colors.white, size: 20),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text('Network error: ${e.toString()}'),
-                ),
-              ],
-            ),
+            content: Text('Top-up failed: ${reason ?? "payment not approved"}'),
             backgroundColor: Colors.red,
-            duration: const Duration(seconds: 4),
+          ),
+        );
+      } else {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Top-up is still pending. Check your wallet shortly.'),
+            backgroundColor: Colors.orange,
           ),
         );
       }
+    } on FirebaseFunctionsException catch (e) {
+      navigator.pop();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Top-up error: ${e.message ?? e.code}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } catch (e) {
+      navigator.pop();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Top-up failed: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);

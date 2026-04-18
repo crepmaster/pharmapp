@@ -259,23 +259,33 @@ class InventoryService {
     }
   }
 
-  /// Toggle availability for exchange
+  /// Toggle availability for exchange.
+  ///
+  /// When publishing ([available] = true), an optional [maxExchangeQuantity]
+  /// can be provided to cap how many units are offered to other pharmacies.
+  /// If null, the caller signals "no explicit cap" and `maxExchangeQuantity`
+  /// is reset so the full inventory quantity is offered.
   static Future<void> toggleAvailability({
     required String inventoryId,
     required bool available,
+    int? maxExchangeQuantity,
   }) async {
     try {
+      final Map<String, dynamic> updates = {
+        'availabilitySettings.availableForExchange': available,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      if (available && maxExchangeQuantity != null) {
+        updates['availabilitySettings.maxExchangeQuantity'] =
+            maxExchangeQuantity;
+      } else if (available && maxExchangeQuantity == null) {
+        updates['availabilitySettings.maxExchangeQuantity'] = 0;
+      }
       await _firestore
           .collection('pharmacy_inventory')
           .doc(inventoryId)
-          .update({
-        'availabilitySettings.availableForExchange': available,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-      
-      // Debug statement removed for production security
+          .update(updates);
     } catch (e) {
-      // Debug statement removed for production security
       throw Exception('Failed to update availability: $e');
     }
   }
