@@ -45,6 +45,10 @@ export { setPharmacyActive } from "./setPharmacyActive.js";
 export { upsertCity } from "./upsertCity.js";
 export { setCourierActive } from "./setCourierActive.js";
 
+// ======================= MTN MoMo Collections (Wallet Top-up) =======================
+export { mtnMomoTopupIntent } from "./mtnMomoTopupIntent.js";
+export { mtnMomoCheckStatus } from "./mtnMomoCheckStatus.js";
+
 // --------- Admin init ---------
 if (getApps().length === 0) initializeApp();
 const db = getFirestore();
