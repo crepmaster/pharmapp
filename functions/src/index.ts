@@ -49,6 +49,16 @@ export { setCourierActive } from "./setCourierActive.js";
 export { mtnMomoTopupIntent } from "./mtnMomoTopupIntent.js";
 export { mtnMomoCheckStatus } from "./mtnMomoCheckStatus.js";
 
+// ======================= Paystack (Wallet Top-up via hosted checkout) =======================
+export { paystackTopupIntent } from "./paystackTopupIntent.js";
+export { paystackWebhook } from "./paystackWebhook.js";
+
+// ======================= Notifications (in-app inbox triggers) =======================
+export {
+  onDeliveryCreatedNotifyCouriers,
+  onDeliveryStatusChangedNotifyPharmacies,
+} from "./notifications.js";
+
 // --------- Admin init ---------
 if (getApps().length === 0) initializeApp();
 const db = getFirestore();

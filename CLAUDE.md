@@ -38,7 +38,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **DO NOT waste time modifying obsolete `pharmacy_app` or `courier_app` directories!**
 
-## 🚀 **CURRENT PROJECT STATUS - 2026-03-23 (BLOC 2 CLOS + CLEANUP — TOUT DÉPLOYÉ)**
+## 🚀 **CURRENT PROJECT STATUS - 2026-04-19 (DEMO READINESS — COMITÉ PHARMACIENS)**
+
+### ✅ **Session 19 avril 2026 — Demo polish**
+
+**Livré & déployé en prod :**
+- **Notifications N1 (in-app inbox)** : cloche + badge + écran `notifications/{uid}/inbox/{id}`, trigger Firestore sur events exchange/delivery/wallet. Front : `notification_bell.dart`, `notification_service.dart`. Backend : `functions/src/notifications.ts`.
+- **Paystack hosted checkout (Ghana GHS)** : intent `paystackTopupIntent` + webhook HMAC-SHA512 `paystackWebhook`, popup-safe launch via dialog+user-gesture pour éviter les blocks navigateur.
+- **Money schema V1** : `amountMinor` canonique écrit sur tous les nouveaux top-ups (ADR-001 Phase 1a). Adapter `toLegacyWalletUnits` côté crédit pour compat wallets legacy (major × 100).
+- **Ghana multi-country** : flag GH ajouté au country picker, `SANDBOX_PLAN_AMOUNTS.GHS` ({basic:50, professional:150, enterprise:300}), fee courier 3/5 GHS par city.
+- **Courier wallet display fix** : `_fmt` divise par 100 pour afficher legacy units correctement (250.06 GHS au lieu de 25,006 GHS). Backfill wallets Ghana + `completeExchangeDelivery` force currency au crédit.
+- **Delivery history réelle** : `_CourierDeliveryHistory` StreamBuilder sur `deliveries` filtré `courierId + orderBy createdAt desc`.
+- **Unknown Medicine fix** : dénormalisation `medicineName/Dosage/Form` à la création inventory ([inventory_service.dart:73-76](pharmapp_unified/lib/services/inventory_service.dart#L73-L76)) + fallback backend dans `acceptExchangeProposal` (lookup `medicines/{medicineId}` → reconstruction depuis kebab-id → "Unknown Medicine"). Nouvelles livraisons OK, anciennes restent figées.
+- **Dashboard cards responsive** : 2 cols mobile / 4 cols desktop (≥600px), aspect 2.2 (courier) / 1.2 (pharmacy). Icons 32 (courier) / 28 (pharmacy).
+- **Cleanup 3 pharmacies legacy** : `testpharmacy1`, `pharmacytest2`, `pharmacytest3` entièrement supprimées (auth + Firestore) via `functions/scripts/cleanup-pharmacies.cjs`.
+
+**Roadmap post-démo (non bloquant) :**
+- **FCM push (N2)** — backend-ready trigger à ajouter (~2h), activation client plus tard
+- **ADR-001 Phase 1b** — migration wallets/ledger/exchanges vers `amountMinor` canonique + retrait adapter
+- **Check balance avant création proposal** (totalPrice + courierFee/2)
+
+### URLs production
+- Admin : https://mediexchange-76872.web.app
+- App : https://app-mediexchange.web.app
+
+---
+
+## 📦 **HISTORIQUE — 2026-03-23 (BLOC 2 CLOS + CLEANUP)**
 
 ### ✅ **Admin chantier freezé** — V1 + V2 (A→D) complétés et déployés
 

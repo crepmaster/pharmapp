@@ -383,6 +383,8 @@ class _CountryPaymentSelectionScreenState
     switch (code) {
       case 'CM':
         return '🇨🇲';
+      case 'GH':
+        return '🇬🇭';
       case 'KE':
         return '🇰🇪';
       case 'TZ':

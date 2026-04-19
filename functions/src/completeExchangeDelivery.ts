@@ -230,7 +230,8 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
           updatedAt: FieldValue.serverTimestamp(),
         });
 
-        // Credit courier wallet (create if needed)
+        // Credit courier wallet (create if needed). Always (re)set currency
+        // so legacy wallets created with the wrong default are corrected.
         if (courierFee > 0) {
           if (!courierWalletSnap.exists) {
             transaction.set(courierWalletRef, {
@@ -243,6 +244,7 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
           } else {
             transaction.update(courierWalletRef, {
               available: FieldValue.increment(courierFee),
+              currency,
               updatedAt: FieldValue.serverTimestamp(),
             });
           }

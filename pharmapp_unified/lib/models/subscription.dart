@@ -137,16 +137,43 @@ class Subscription extends Equatable {
     }
   }
 
-  /// Get plan price per month
-  static double getPlanPrice(SubscriptionPlan plan) {
-    switch (plan) {
-      case SubscriptionPlan.basic:
-        return 10.0;
-      case SubscriptionPlan.professional:
-        return 25.0;
-      case SubscriptionPlan.enterprise:
-        return 50.0;
-    }
+  /// Plan prices per currency, per month.
+  /// Mirrors the defaults seeded by `SystemConfigService.createDefaultPlans()`.
+  /// When a currency is missing from the table, XAF values are used as fallback.
+  static const Map<String, Map<SubscriptionPlan, double>> _planPriceByCurrency = {
+    'XAF': {
+      SubscriptionPlan.basic: 6000,
+      SubscriptionPlan.professional: 15000,
+      SubscriptionPlan.enterprise: 30000,
+    },
+    'GHS': {
+      SubscriptionPlan.basic: 50,
+      SubscriptionPlan.professional: 150,
+      SubscriptionPlan.enterprise: 300,
+    },
+    'KES': {
+      SubscriptionPlan.basic: 1500,
+      SubscriptionPlan.professional: 3750,
+      SubscriptionPlan.enterprise: 7500,
+    },
+    'NGN': {
+      SubscriptionPlan.basic: 8000,
+      SubscriptionPlan.professional: 20000,
+      SubscriptionPlan.enterprise: 40000,
+    },
+    'USD': {
+      SubscriptionPlan.basic: 10,
+      SubscriptionPlan.professional: 25,
+      SubscriptionPlan.enterprise: 50,
+    },
+  };
+
+  /// Get plan price per month for the given currency.
+  /// Defaults to XAF pricing if the currency is unknown.
+  static double getPlanPrice(SubscriptionPlan plan, {String currencyCode = 'XAF'}) {
+    final table = _planPriceByCurrency[currencyCode] ??
+        _planPriceByCurrency['XAF']!;
+    return table[plan] ?? 0;
   }
 
   /// Get plan features

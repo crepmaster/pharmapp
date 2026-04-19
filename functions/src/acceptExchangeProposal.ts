@@ -130,10 +130,14 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
         .doc(proposal.fromPharmacyId);
       const toPharmacyRef = db.collection("pharmacies").doc(proposal.toPharmacyId);
 
-      const [fromPharmacySnapshot, toPharmacySnapshot] = await Promise.all([
-        transaction.get(fromPharmacyRef),
-        transaction.get(toPharmacyRef),
-      ]);
+      // Also read system_config/main to resolve the per-city courier fee.
+      const systemConfigRef = db.collection("system_config").doc("main");
+      const [fromPharmacySnapshot, toPharmacySnapshot, systemConfigSnapshot] =
+        await Promise.all([
+          transaction.get(fromPharmacyRef),
+          transaction.get(toPharmacyRef),
+          transaction.get(systemConfigRef),
+        ]);
 
       if (!fromPharmacySnapshot.exists || !toPharmacySnapshot.exists) {
         throw new HttpsError("not-found", "Pharmacy data not found");
@@ -141,6 +145,108 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
 
       const fromPharmacy = fromPharmacySnapshot.data();
       const toPharmacy = toPharmacySnapshot.data();
+
+      // Resolve courier fee from system_config/main → citiesByCountry → city.
+      //  - Purchase proposals use `deliveryFee`
+      //  - Exchange proposals use `exchangeFee`, with fallback to
+      //    deliveryFee * 1.2 (exchanges require an additional trip).
+      // Fallback for markets without per-city config: 12% of totalPrice,
+      // which preserves the legacy Cameroon behavior.
+      const proposalType = (proposal.details?.type as string) || "exchange";
+      const totalPrice = (proposal.details?.totalPrice as number) || 0;
+      const deliveryCountry: string =
+        (fromPharmacy?.countryCode as string) ||
+        (toPharmacy?.countryCode as string) ||
+        "";
+      const deliveryCity: string =
+        (fromPharmacy?.cityCode as string) ||
+        (toPharmacy?.cityCode as string) ||
+        "";
+      let courierFee = 0;
+      try {
+        const cfg = systemConfigSnapshot.exists
+          ? systemConfigSnapshot.data() ?? {}
+          : {};
+        const cities = (cfg.citiesByCountry as Record<string, any>) ?? {};
+        const cityCfg =
+          cities[deliveryCountry]?.[deliveryCity] ?? null;
+        const baseFee = Number(cityCfg?.deliveryFee);
+        const explicitExchangeFee = Number(cityCfg?.exchangeFee);
+        if (proposalType === "purchase" && Number.isFinite(baseFee) && baseFee > 0) {
+          courierFee = Math.round(baseFee);
+        } else if (proposalType === "exchange") {
+          if (Number.isFinite(explicitExchangeFee) && explicitExchangeFee > 0) {
+            courierFee = Math.round(explicitExchangeFee);
+          } else if (Number.isFinite(baseFee) && baseFee > 0) {
+            courierFee = Math.round(baseFee * 1.2);
+          }
+        }
+        // Legacy fallback: no per-city config found → 12% of totalPrice.
+        if (courierFee === 0 && totalPrice > 0) {
+          courierFee = Math.round(totalPrice * 0.12);
+        }
+      } catch {
+        courierFee = Math.round(totalPrice * 0.12);
+      }
+      logger.info("acceptExchangeProposal: resolved courier fee", {
+        proposalType,
+        deliveryCountry,
+        deliveryCity,
+        courierFee,
+      });
+
+      // Resolve the medicine display name for the delivery item. Priority:
+      // 1. Denormalized `medicineName` on the inventory doc (new write path)
+      // 2. `medicines/{medicineId}` document (custom medicines created via UI)
+      // 3. Generic fallback.
+      let resolvedMedicineName =
+        (inventoryData?.medicineName as string) || "";
+      const resolvedDosage =
+        (inventoryData?.medicineDosage as string) ||
+        (inventoryData?.dosage as string) ||
+        "";
+      const resolvedForm =
+        (inventoryData?.medicineForm as string) ||
+        (inventoryData?.form as string) ||
+        "";
+      if (!resolvedMedicineName) {
+        const medicineId = (inventoryData?.medicineId as string) || "";
+        if (medicineId) {
+          try {
+            const medDoc = await transaction.get(
+              db.collection("medicines").doc(medicineId)
+            );
+            if (medDoc.exists) {
+              const m = medDoc.data()!;
+              const names = m.names as
+                | { commonName?: string; brandNames?: string[] }
+                | undefined;
+              resolvedMedicineName =
+                names?.brandNames?.[0] ||
+                names?.commonName ||
+                (m.name as string) ||
+                "Unknown Medicine";
+            }
+          } catch (e) {
+            logger.warn("acceptExchangeProposal: medicines lookup failed", {
+              medicineId,
+              error: e instanceof Error ? e.message : String(e),
+            });
+          }
+        }
+        // Last-resort: derive a readable name from the kebab-case medicineId
+        // (e.g. "artemether-lumefantrine-20-120" → "Artemether Lumefantrine 20 120").
+        // Client-side catalogues (EssentialAfricanMedicines) use human-readable
+        // ids, so this yields a usable label without a migration.
+        if (!resolvedMedicineName && medicineId) {
+          resolvedMedicineName = medicineId
+            .split("-")
+            .map((p) => p.length ? p[0].toUpperCase() + p.slice(1) : p)
+            .join(" ")
+            .trim();
+        }
+        if (!resolvedMedicineName) resolvedMedicineName = "Unknown Medicine";
+      }
 
       // ===== PHASE 4: UPDATE WALLET BALANCE (held → deducted) =====
 
@@ -221,9 +327,9 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
         items: [
           {
             medicineId: inventoryData?.medicineId || "",
-            medicineName: inventoryData?.medicineName || "Unknown Medicine",
-            dosage: inventoryData?.dosage || "",
-            form: inventoryData?.form || "",
+            medicineName: resolvedMedicineName,
+            dosage: resolvedDosage,
+            form: resolvedForm,
             quantity: proposal.details?.quantity || 0,
             packaging: inventoryData?.packaging || "",
           },
@@ -245,9 +351,12 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
         proposalType: proposal.details?.type || "exchange",
         totalPrice: proposal.details?.totalPrice || 0,
         currency: proposal.details?.currency || "XAF",
-        // Courier fee: 12% of medicine price, split 50/50 between buyer and seller
-        // Paid at delivery completion by completeExchangeDelivery
-        courierFee: Math.round((proposal.details?.totalPrice || 0) * 0.12),
+        // Courier fee resolved from system_config/main per city (purchase:
+        // deliveryFee; exchange: exchangeFee or deliveryFee × 1.2). Split 50/50
+        // between buyer and seller at delivery completion by
+        // completeExchangeDelivery. Falls back to 12% of totalPrice for legacy
+        // markets without per-city config.
+        courierFee,
         paymentStatus: "pending", // pending → paid
 
         // Timestamps

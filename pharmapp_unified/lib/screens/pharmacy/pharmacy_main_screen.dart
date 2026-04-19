@@ -1,14 +1,16 @@
 import 'dart:async';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:pharmapp_shared/pharmapp_shared.dart';
 import '../../blocs/unified_auth_bloc.dart';
 import '../../navigation/role_router.dart';
 import 'sandbox_testing_screen.dart';
+import '../../widgets/notification_bell.dart';
 import 'inventory/inventory_browser_screen.dart';
 import 'exchanges/proposals_screen.dart';
 import 'profile/profile_screen.dart';
@@ -190,6 +192,7 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
         backgroundColor: const Color(0xFF1976D2),
         foregroundColor: Colors.white,
         actions: [
+          const NotificationBell(),
           BlocBuilder<UnifiedAuthBloc, UnifiedAuthState>(
             builder: (context, state) {
               if (state is Authenticated && state.availableRoles.length > 1) {
@@ -497,10 +500,10 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
                 GridView.count(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  crossAxisCount: 4,
+                  crossAxisCount: MediaQuery.of(context).size.width >= 600 ? 4 : 2,
                   crossAxisSpacing: 8,
                   mainAxisSpacing: 8,
-                  childAspectRatio: 1.2,
+                  childAspectRatio: MediaQuery.of(context).size.width >= 600 ? 1.2 : 2.2,
                   children: [
                     _buildActionCard(
                       'Inventory',
@@ -613,10 +616,10 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
             children: [
               Icon(
                 icon,
-                size: 20,
+                size: 28,
                 color: color,
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 6),
               Text(
                 title,
                 style: const TextStyle(
@@ -826,7 +829,21 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
                 decoration: InputDecoration(
                   labelText: 'Amount ($_walletCurrency)',
                   hintText: 'Enter amount or select above',
-                  prefixIcon: const Icon(Icons.attach_money),
+                  prefixIcon: Container(
+                    padding: const EdgeInsets.all(12),
+                    alignment: Alignment.center,
+                    child: Text(
+                      _walletCurrency,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                  prefixIconConstraints: const BoxConstraints(
+                    minWidth: 48,
+                    minHeight: 48,
+                  ),
                   border: const OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.number,
@@ -852,7 +869,11 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
                   border: OutlineInputBorder(),
                 ),
                 items: const [
-                  DropdownMenuItem(value: 'mtn', child: Text('MTN Mobile Money')),
+                  DropdownMenuItem(
+                    value: 'paystack',
+                    child: Text('Paystack (cards + mobile money)'),
+                  ),
+                  DropdownMenuItem(value: 'mtn', child: Text('MTN Mobile Money (direct)')),
                   DropdownMenuItem(value: 'orange', child: Text('Orange Money')),
                 ],
                 onChanged: (value) {
@@ -867,7 +888,9 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
               ),
               const SizedBox(height: 16),
 
-              // Phone number input — validation relaxed for non-CM countries.
+              // Phone number input — not shown for Paystack (hosted page
+              // collects what it needs directly: card details or MSISDN).
+              if (_selectedMethod != 'paystack')
               TextFormField(
                 controller: _phoneController,
                 decoration: InputDecoration(
@@ -883,6 +906,7 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
                 ),
                 keyboardType: TextInputType.phone,
                 validator: (value) {
+                  if (_selectedMethod == 'paystack') return null;
                   if (value?.isEmpty ?? true) {
                     return 'Phone number is required';
                   }
@@ -981,6 +1005,21 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
     }
   }
 
+  /// Opens a URL in the browser — web-only via url_launcher, otherwise noop.
+  Future<void> _openPaystackUrl(String url) async {
+    try {
+      // Use url_launcher (already a dependency) for cross-platform.
+      // We don't import at top to keep this branch optional — done here
+      // inline to avoid touching shared paths.
+      // ignore: avoid_dynamic_calls
+      final uri = Uri.parse(url);
+      // `launchUrl` from url_launcher opens in a new tab on web by default.
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      debugPrint('openPaystackUrl failed: $e');
+    }
+  }
+
   Future<void> _processTopUp() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -999,6 +1038,90 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
     // Close the form dialog.
     navigator.pop();
 
+    // ---- Paystack branch ----
+    if (_selectedMethod == 'paystack') {
+      try {
+        final callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
+            .httpsCallable('paystackTopupIntent');
+        final result = await callable.call<Map<String, dynamic>>({
+          'amount': amount,
+          'currency': _walletCurrency,
+          'callbackUrl': 'https://app-mediexchange.web.app',
+        });
+        final url = result.data['authorizationUrl'] as String?;
+        if (url == null || url.isEmpty) {
+          throw 'No authorization URL returned';
+        }
+        // Show a dialog with a button — the user's tap on the button is a
+        // direct user gesture, which avoids popup blockers on web.
+        await navigator.push(
+          DialogRoute<void>(
+            context: navigator.context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Complete your payment'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Amount: $amount $_walletCurrency'),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'You will be redirected to a secure Paystack page to complete the payment. '
+                    'Your wallet will be credited automatically after the payment is confirmed.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.open_in_new),
+                  label: const Text('Pay with Paystack'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00C3F7),
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: () async {
+                    Navigator.of(ctx).pop();
+                    await launchUrl(
+                      Uri.parse(url),
+                      mode: LaunchMode.externalApplication,
+                      webOnlyWindowName: '_blank',
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+        // After the user pays, the webhook credits the wallet.
+        Future.delayed(const Duration(seconds: 3), () {
+          onSuccess?.call();
+        });
+      } on FirebaseFunctionsException catch (e) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Paystack error: ${e.message ?? e.code}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      } catch (e) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Paystack failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
+      }
+      return;
+    }
+
+    // ---- MTN MoMo direct branch ----
     // Show a progress dialog using the root navigator's overlay context.
     navigator.push(
       DialogRoute<void>(

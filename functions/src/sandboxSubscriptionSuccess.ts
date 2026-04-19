@@ -78,6 +78,7 @@ const LEGACY_COUNTRY_TO_ISO: Record<string, string> = {
 // ---------------------------------------------------------------------------
 const SANDBOX_PLAN_AMOUNTS: Record<string, Record<string, number>> = {
   XAF: { basic: 6000, professional: 15000, enterprise: 30000 },
+  GHS: { basic: 50, professional: 150, enterprise: 300 },
   KES: { basic: 1500, professional: 3750, enterprise: 7500 },
   TZS: { basic: 25000, professional: 62500, enterprise: 125000 },
   UGX: { basic: 37000, professional: 92000, enterprise: 184000 },

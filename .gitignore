@@ -104,3 +104,8 @@ serviceAccount*.json
 scripts/run-with-firebase-keys.bat
 scripts/run-with-firebase-keys.sh
 firebase-keys.*
+
+# Firebase Auth exports — contain password hashes, NEVER COMMIT
+auth_check.csv
+auth_export.csv
+auth_export_temp.json

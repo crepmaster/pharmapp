@@ -10,7 +10,15 @@ class InventoryService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  /// Add medicine to pharmacy inventory
+  /// Add medicine to pharmacy inventory.
+  ///
+  /// If an existing inventory line matches on (pharmacyId, medicineId,
+  /// batch.lotNumber), the quantity is incremented atomically on that line
+  /// instead of creating a new row. This preserves pharmaceutical traceability
+  /// — different batch numbers remain separate lines (regulatory requirement)
+  /// — while avoiding duplicate rows for the same batch.
+  ///
+  /// Returns the id of the line (existing or newly created).
   static Future<String> addMedicineToInventory({
     required Medicine medicine,
     required int quantity,
@@ -24,27 +32,54 @@ class InventoryService {
       throw Exception('User not authenticated');
     }
 
-    // Debug statement removed for production security
-
-    final inventoryItem = PharmacyInventoryItem.create(
-      pharmacyId: user.uid,
-      medicine: medicine,
-      totalQuantity: quantity,
-      expirationDate: expirationDate,
-      packaging: packaging, // Store packaging in dedicated field
-      batchNumber: batchNumber,
-      notes: notes, // Keep notes clean
-    );
-
     try {
+      // Merge rule: same medicine + same batch lot number → increment.
+      // Empty batchNumber is still a valid key — two "no-batch" additions of
+      // the same medicine merge together. If the pharmacy wants them distinct,
+      // they must provide a batch number.
+      final existing = await _firestore
+          .collection('pharmacy_inventory')
+          .where('pharmacyId', isEqualTo: user.uid)
+          .where('medicineId', isEqualTo: medicine.id)
+          .where('batch.lotNumber', isEqualTo: batchNumber)
+          .limit(1)
+          .get();
+
+      if (existing.docs.isNotEmpty) {
+        final doc = existing.docs.first;
+        await doc.reference.update({
+          'availableQuantity': FieldValue.increment(quantity),
+          if (packaging.isNotEmpty) 'packaging': packaging,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        return doc.id;
+      }
+
+      // No matching line → create a new one.
+      final inventoryItem = PharmacyInventoryItem.create(
+        pharmacyId: user.uid,
+        medicine: medicine,
+        totalQuantity: quantity,
+        expirationDate: expirationDate,
+        packaging: packaging,
+        batchNumber: batchNumber,
+        notes: notes,
+      );
+
+      // Enrich the Firestore doc with denormalized display fields so backend
+      // flows (delivery creation, notifications) can show the medicine name
+      // without client-side catalogue resolution.
+      final data = inventoryItem.toFirestore();
+      data['medicineName'] = medicine.name;
+      data['medicineGenericName'] = medicine.genericName;
+      data['medicineDosage'] = medicine.strength;
+      data['medicineForm'] = medicine.form;
+
       final docRef = await _firestore
           .collection('pharmacy_inventory')
-          .add(inventoryItem.toFirestore());
-      
-      // Debug statement removed for production security
+          .add(data);
       return docRef.id;
     } catch (e) {
-      // Debug statement removed for production security
       throw Exception('Failed to add medicine to inventory: $e');
     }
   }

@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:pharmapp_shared/services/unified_wallet_service.dart';
@@ -15,11 +16,67 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
   Map<String, dynamic>? _walletData;
   bool _loading = true;
   String? _error;
+  String _currency = 'XAF';
+  int _minWithdrawal = 1000;
+
+  static const Map<String, String> _countryCurrency = {
+    'CM': 'XAF',
+    'GH': 'GHS',
+    'KE': 'KES',
+    'NG': 'NGN',
+    'TZ': 'TZS',
+    'UG': 'UGX',
+  };
+
+  static const Map<String, int> _minWithdrawalByCurrency = {
+    'XAF': 1000,
+    'GHS': 10,
+    'KES': 100,
+    'NGN': 1000,
+    'TZS': 2000,
+    'UGX': 4000,
+  };
+
+  /// Legacy wallet units are stored as (major × 100). Display divides by 100
+  /// to get the actual amount in major units. Matches the pharmacy wallet
+  /// display convention.
+  String _fmt(num value) {
+    final double major = value / 100;
+    final int decimals = _currency == 'XAF' || _currency == 'XOF' ? 0 : 2;
+    final formatted = major
+        .toStringAsFixed(decimals)
+        .replaceAllMapped(
+          RegExp(r'(\d)(?=(\d{3})+(?:\.|\$))'),
+          (m) => '${m[1]},',
+        );
+    return '$formatted $_currency';
+  }
 
   @override
   void initState() {
     super.initState();
+    _loadCurrency();
     _loadWalletData();
+  }
+
+  Future<void> _loadCurrency() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('couriers')
+          .doc(uid)
+          .get();
+      if (!doc.exists || !mounted) return;
+      final cc = doc.data()?['countryCode'] as String?;
+      final currency = cc == null ? null : _countryCurrency[cc];
+      if (currency != null) {
+        setState(() {
+          _currency = currency;
+          _minWithdrawal = _minWithdrawalByCurrency[currency] ?? 1000;
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadWalletData() async {
@@ -72,7 +129,7 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    'Available: ${UnifiedWalletService.formatXAF(_walletData?['available'] ?? 0)}',
+                    'Available: ${_fmt(_walletData?['available'] ?? 0)}',
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       color: Color(0xFF4CAF50),
@@ -121,10 +178,10 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
                   TextField(
                     controller: amountController,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Withdrawal Amount (XAF)',
-                      border: OutlineInputBorder(),
-                      helperText: 'Minimum: 1,000 XAF',
+                    decoration: InputDecoration(
+                      labelText: 'Withdrawal Amount ($_currency)',
+                      border: const OutlineInputBorder(),
+                      helperText: 'Minimum: ${_fmt(_minWithdrawal)}',
                     ),
                   ),
                 ],
@@ -143,10 +200,10 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
               ),
               onPressed: () async {
                 final amount = int.tryParse(amountController.text);
-                if (amount == null || amount < 1000) {
+                if (amount == null || amount < _minWithdrawal) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Please enter a valid amount (min: 1,000 XAF)'),
+                    SnackBar(
+                      content: Text('Please enter a valid amount (min: ${_fmt(_minWithdrawal)})'),
                       backgroundColor: Colors.red,
                     ),
                   );
@@ -300,7 +357,7 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    UnifiedWalletService.formatXAF(available),
+                    _fmt(available),
                     style: const TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
@@ -310,7 +367,7 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
                   if (held > 0) ...[
                     const SizedBox(height: 8),
                     Text(
-                      'Held: ${UnifiedWalletService.formatXAF(held)}',
+                      'Held: ${_fmt(held)}',
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.grey[600],
@@ -361,8 +418,8 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
             const SizedBox(height: 12),
             Text(
               canWithdraw 
-                  ? '✅ Ready for withdrawal (min: 1,000 XAF)'
-                  : '⏳ Minimum withdrawal: 1,000 XAF',
+                  ? '✅ Ready for withdrawal (min: ${_fmt(_minWithdrawal)})'
+                  : '⏳ Minimum withdrawal: ${_fmt(_minWithdrawal)}',
               style: TextStyle(
                 fontSize: 12,
                 color: canWithdraw ? const Color(0xFF4CAF50) : Colors.grey[600],

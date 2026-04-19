@@ -19,16 +19,18 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   bool _isLoading = true;
   SubscriptionPlan _selectedPlan = SubscriptionPlan.basic;
   String _currencySymbol = 'FCFA'; // Default to XAF
+  String _currencyCode = 'XAF'; // Canonical ISO currency for plan lookup
 
-  /// Maps ISO 3166-1 alpha-2 country codes to currency display symbols.
+  /// Maps ISO 3166-1 alpha-2 country codes to (currencyCode, displaySymbol).
   /// Used when the pharmacy document has the canonical `countryCode` field
   /// (Sprint 2A+), avoiding an async MasterDataService call in this screen.
-  static const _isoToCurrencySymbol = {
-    'CM': 'FCFA',
-    'KE': 'KSh',
-    'TZ': 'TSh',
-    'UG': 'USh',
-    'NG': '₦',
+  static const _isoToCurrency = {
+    'CM': ('XAF', 'FCFA'),
+    'GH': ('GHS', 'GH₵'),
+    'KE': ('KES', 'KSh'),
+    'TZ': ('TZS', 'TSh'),
+    'UG': ('UGX', 'USh'),
+    'NG': ('NGN', '₦'),
   };
 
   @override
@@ -54,7 +56,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         // Fall back to the legacy country enum-name string for older profiles.
         final isoCode = data['countryCode'] as String?;
         if (isoCode != null && isoCode.isNotEmpty) {
-          _currencySymbol = _isoToCurrencySymbol[isoCode] ?? 'FCFA';
+          final entry = _isoToCurrency[isoCode];
+          if (entry != null) {
+            _currencyCode = entry.$1;
+            _currencySymbol = entry.$2;
+          }
         } else if (data.containsKey('country')) {
           final countryStr = data['country'] as String;
           final country = Country.values.firstWhere(
@@ -269,7 +275,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   Widget _buildPlanCard(SubscriptionPlan plan) {
     final isSelected = _selectedPlan == plan;
-    final price = Subscription.getPlanPrice(plan);
+    final price = Subscription.getPlanPrice(plan, currencyCode: _currencyCode);
     final features = Subscription.getPlanFeatures(plan);
 
     return Card(
@@ -422,7 +428,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           children: [
             Text('Selected Plan: ${_getPlanDisplayName(_selectedPlan)}'),
             const SizedBox(height: 8),
-            Text('Amount: \$${Subscription.getPlanPrice(_selectedPlan).toStringAsFixed(2)}/month'),
+            Text('Amount: ${Subscription.getPlanPrice(_selectedPlan, currencyCode: _currencyCode).toStringAsFixed(0)} $_currencySymbol/month'),
             const SizedBox(height: 16),
             const Text(
               'This is a sandbox environment. Payment will be simulated.',

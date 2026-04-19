@@ -425,6 +425,18 @@ service cloud.firestore {
       allow read, write: if isAuthenticated() && isSuperAdmin(request.auth.uid);
     }
 
+    // In-app notification inbox. Path: notifications/{userId}/inbox/{notifId}.
+    // The recipient (userId) may read their own inbox and mark items as read.
+    // All creates happen server-side via Cloud Function triggers (Admin SDK).
+    match /notifications/{userId}/inbox/{notifId} {
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      // Client can flip `read` to true/false but not mutate other fields.
+      allow update: if isAuthenticated() &&
+        request.auth.uid == userId &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow create, delete: if false; // Backend-only create; client cannot delete
+    }
+
     // ========== DEFAULT DENY ALL ==========
     match /{document=**} {
       allow read, write: if false;
