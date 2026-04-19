@@ -112,45 +112,9 @@ class UnifiedWalletService {
     return wallet;
   }
 
-  /// Creates withdrawal request for couriers.
-  /// Calls the courierWithdrawal backend endpoint.
-  /// Throws if the endpoint is not deployed or if balance is insufficient.
-  static Future<Map<String, dynamic>> createCourierWithdrawal({
-    required String courierId,
-    required int amountXAF,
-    required String method,
-    required String phoneNumber,
-  }) async {
-    if (courierId.isEmpty) throw ArgumentError('courierId must not be empty');
-    if (amountXAF < 1000) throw ArgumentError('Minimum withdrawal is 1,000 XAF');
-    if (method.isEmpty) throw ArgumentError('method must not be empty');
-    if (phoneNumber.isEmpty) throw ArgumentError('phoneNumber must not be empty');
-
-    final response = await AuthenticatedHttpService.post(
-      Uri.parse('$_baseUrl/courierWithdrawal'),
-      {
-        'userId': courierId,
-        'method': method,
-        'amount': amountXAF,
-        'currency': 'XAF',
-        'msisdn': phoneNumber,
-        'description': 'Courier earnings withdrawal',
-      },
-    );
-
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      return jsonDecode(response.body) as Map<String, dynamic>;
-    } else if (response.statusCode == 401) {
-      throw Exception('Authentication required – please log in again');
-    } else if (response.statusCode == 404) {
-      throw Exception(
-        'Withdrawal service not available yet. Contact support for manual withdrawal.',
-      );
-    } else {
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      throw Exception(body['message'] ?? 'Withdrawal failed (${response.statusCode})');
-    }
-  }
+  // NOTE: Legacy `createCourierWithdrawal` removed. Withdrawals now go
+  // through `WithdrawalService` (pharmapp_unified) which calls the
+  // `createWithdrawalRequest` callable directly. See ADR-001.
 
   // ======================= ADMIN OPERATIONS =======================
 
