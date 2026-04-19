@@ -425,6 +425,16 @@ service cloud.firestore {
       allow read, write: if isAuthenticated() && isSuperAdmin(request.auth.uid);
     }
 
+    // Withdrawal requests — generic wallet payouts for pharmacies AND couriers.
+    // Created by `createWithdrawalRequest` callable and mutated only by
+    // backend callables (e.g. sandboxAdvanceWithdrawal, future PSP webhooks).
+    // Read: owner only. Write: backend-only (client writes denied).
+    match /withdrawal_requests/{requestId} {
+      allow read: if request.auth != null &&
+        resource.data.ownerId == request.auth.uid;
+      allow write: if false; // Backend-only — Cloud Functions use Admin SDK
+    }
+
     // In-app notification inbox. Path: notifications/{userId}/inbox/{notifId}.
     // The recipient (userId) may read their own inbox and mark items as read.
     // All creates happen server-side via Cloud Function triggers (Admin SDK).

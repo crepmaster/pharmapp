@@ -53,6 +53,10 @@ export { mtnMomoCheckStatus } from "./mtnMomoCheckStatus.js";
 export { paystackTopupIntent } from "./paystackTopupIntent.js";
 export { paystackWebhook } from "./paystackWebhook.js";
 
+// ======================= Wallet Withdrawals (generic, pharmacy + courier) =======================
+export { createWithdrawalRequest } from "./createWithdrawalRequest.js";
+export { sandboxAdvanceWithdrawal } from "./sandboxAdvanceWithdrawal.js";
+
 // ======================= Notifications (in-app inbox triggers) =======================
 export {
   onDeliveryCreatedNotifyCouriers,
