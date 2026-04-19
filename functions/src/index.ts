@@ -1070,21 +1070,37 @@ export const sandboxCredit = onRequest({
     // Get user document from pharmacies or couriers collection
     let userDoc = await db.collection("pharmacies").doc(userId).get();
     let userData = null;
-    
+    let isCourierAccount = false;
+
     if (!userDoc.exists) {
       userDoc = await db.collection("couriers").doc(userId).get();
+      if (userDoc.exists) {
+        isCourierAccount = true;
+      }
     }
-    
+
     if (!userDoc.exists) {
-      res.status(404).json({ 
+      res.status(404).json({
         error: "User not found in pharmacies or couriers collection",
-        code: "USER_NOT_FOUND" 
+        code: "USER_NOT_FOUND"
       });
       return;
     }
 
     userData = userDoc.data();
     const userEmail = String(userData?.email ?? "").trim();
+
+    // F1b: reject courier accounts — sandboxCredit is pharmacy-only.
+    // Couriers must use dedicated courier testing flows.
+    // This guard runs BEFORE the test-account email check so that any courier
+    // (test or not) deterministically receives COURIER_NOT_ALLOWED.
+    if (isCourierAccount) {
+      res.status(400).json({
+        error: "sandboxCredit is not allowed for courier accounts. Use dedicated courier testing flows.",
+        code: "COURIER_NOT_ALLOWED"
+      });
+      return;
+    }
 
     // Check if email matches test patterns
     const isTestAccount = testAccountPatterns.some(pattern => pattern.test(userEmail));

@@ -17,6 +17,7 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
   bool _loading = true;
   String? _error;
   String _currency = 'XAF';
+  String? _countryCode;
   int _minWithdrawal = 1000;
 
   static const Map<String, String> _countryCurrency = {
@@ -37,11 +38,12 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
     'UGX': 4000,
   };
 
-  /// Legacy wallet units are stored as (major × 100). Display divides by 100
-  /// to get the actual amount in major units. Matches the pharmacy wallet
-  /// display convention.
+  /// Courier wallet values are stored directly in major units (e.g. XAF 1000
+  /// means 1000 XAF). The legacy ×100 convention was incorrect for courier
+  /// earnings and caused off-by-100 display bugs. Format the raw value with
+  /// locale-style grouping and currency-appropriate decimals.
   String _fmt(num value) {
-    final double major = value / 100;
+    final double major = value.toDouble();
     final int decimals = _currency == 'XAF' || _currency == 'XOF' ? 0 : 2;
     final formatted = major
         .toStringAsFixed(decimals)
@@ -70,12 +72,13 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
       if (!doc.exists || !mounted) return;
       final cc = doc.data()?['countryCode'] as String?;
       final currency = cc == null ? null : _countryCurrency[cc];
-      if (currency != null) {
-        setState(() {
+      setState(() {
+        _countryCode = cc;
+        if (currency != null) {
           _currency = currency;
           _minWithdrawal = _minWithdrawalByCurrency[currency] ?? 1000;
-        });
-      }
+        }
+      });
     } catch (_) {}
   }
 
@@ -302,6 +305,13 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
     final available = _walletData?['available'] ?? 0;
     final held = _walletData?['held'] ?? 0;
     final canWithdraw = _walletData?['canWithdraw'] ?? false;
+    // F1b: withdrawal flow is currently Cameroon-only. Gate on countryCode
+    // directly (not currency proxy) since currency can be shared across
+    // countries (XAF = Cameroon + other CEMAC states). Other countries will
+    // be enabled once country-aware payout rails are implemented.
+    final bool _payoutsSupported = _countryCode == 'CM';
+    final bool payoutsSupported = _payoutsSupported;
+    final bool withdrawButtonEnabled = canWithdraw && payoutsSupported;
 
     return Card(
       elevation: 2,
@@ -384,15 +394,32 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
             Row(
               children: [
                 Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: canWithdraw ? _showWithdrawalDialog : null,
-                    icon: const Icon(Icons.money_off),
-                    label: const Text('Withdraw'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: canWithdraw 
-                          ? const Color(0xFF4CAF50) 
-                          : Colors.grey,
-                      foregroundColor: Colors.white,
+                  child: Tooltip(
+                    message: payoutsSupported
+                        ? ''
+                        : 'Payouts are currently available for Cameroon only. Other countries coming soon.',
+                    child: ElevatedButton.icon(
+                      onPressed: withdrawButtonEnabled
+                          ? _showWithdrawalDialog
+                          : (payoutsSupported
+                              ? null
+                              : () {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Payouts are currently available for Cameroon only. Other countries coming soon.',
+                                      ),
+                                    ),
+                                  );
+                                }),
+                      icon: const Icon(Icons.money_off),
+                      label: const Text('Withdraw'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: withdrawButtonEnabled
+                            ? const Color(0xFF4CAF50)
+                            : Colors.grey,
+                        foregroundColor: Colors.white,
+                      ),
                     ),
                   ),
                 ),
@@ -417,12 +444,16 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
             // Status Info
             const SizedBox(height: 12),
             Text(
-              canWithdraw 
-                  ? '✅ Ready for withdrawal (min: ${_fmt(_minWithdrawal)})'
-                  : '⏳ Minimum withdrawal: ${_fmt(_minWithdrawal)}',
+              !payoutsSupported
+                  ? 'Payouts are currently available for Cameroon only. Other countries coming soon.'
+                  : canWithdraw
+                      ? '✅ Ready for withdrawal (min: ${_fmt(_minWithdrawal)})'
+                      : '⏳ Minimum withdrawal: ${_fmt(_minWithdrawal)}',
               style: TextStyle(
                 fontSize: 12,
-                color: canWithdraw ? const Color(0xFF4CAF50) : Colors.grey[600],
+                color: withdrawButtonEnabled
+                    ? const Color(0xFF4CAF50)
+                    : Colors.grey[600],
               ),
             ),
           ],
