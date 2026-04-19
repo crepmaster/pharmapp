@@ -46,7 +46,6 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
   String? _preselectedProviderId;
   int _currencyDecimals = 0;
   String _dialCode = '';
-  String _defaultMsisdn = '';
 
   /// Parent-owned idempotency key for the withdrawal callable.
   ///
@@ -77,13 +76,19 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
     'UGX': 4000,
   };
 
+  /// Single client source of truth for currency decimals. Used both by
+  /// [_fmt] (display) and by the `amountMinor` conversion in the dialog
+  /// (payload to the callable) so the two can never diverge.
+  int _decimalsForCurrency(String currency) =>
+      _currencyDecimalsFallback[currency] ?? 2;
+
   /// Courier wallet values are stored directly in major units (e.g. XAF 1000
   /// means 1000 XAF). The legacy ×100 convention was incorrect for courier
   /// earnings and caused off-by-100 display bugs. Format the raw value with
   /// locale-style grouping and currency-appropriate decimals.
   String _fmt(num value) {
     final double major = value.toDouble();
-    final int decimals = _currency == 'XAF' || _currency == 'XOF' ? 0 : 2;
+    final int decimals = _decimalsForCurrency(_currency);
     final formatted = major.toStringAsFixed(decimals).replaceAllMapped(
           RegExp(r'(\d)(?=(\d{3})+(?:\.|\$))'),
           (m) => '${m[1]},',
@@ -128,18 +133,21 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
               .toList();
           dialCode = snapshot.countries[cc]?.dialCode ?? '';
           final currencyCodeForDecimals = currency ?? 'XAF';
-          decimals = _currencyDecimalsFallback[currencyCodeForDecimals] ?? 0;
+          decimals = _decimalsForCurrency(currencyCodeForDecimals);
         } catch (_) {
           // Snapshot unavailable → withdrawal button disabled by empty
           // provider list. Don't crash.
         }
       }
 
-      // Try to read saved payment preferences to pre-select provider + phone.
-      // Reuse courier doc already loaded above — paymentPreferences lives on
-      // couriers/{uid}.paymentPreferences (written by UnifiedAuthService.signUp).
+      // Try to read saved payment preferences to pre-select provider ONLY.
+      // NOTE: we deliberately do NOT prefill the MSISDN field. The stored
+      // `defaultPhone` on paymentPreferences is a MASKED representation
+      // (e.g. "677****56") persisted via `PaymentPreferences.toMap()`, and
+      // the underlying plaintext is HMAC-one-way so we cannot recover it.
+      // Prefilling would inject a fake/unusable number into the payout
+      // request. The user must re-enter the full number at withdrawal time.
       String? preselectedId;
-      String defaultMsisdn = '';
       final prefsRaw = courierData?['paymentPreferences'];
       if (prefsRaw is Map) {
         try {
@@ -150,7 +158,6 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
               providers.any((p) => p.id == prefProviderId)) {
             preselectedId = prefProviderId;
           }
-          defaultMsisdn = prefs.defaultPhone;
         } catch (e) {
           debugPrint('paymentPreferences parse failed: $e');
         }
@@ -167,7 +174,6 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
         _preselectedProviderId = preselectedId;
         _currencyDecimals = decimals;
         _dialCode = dialCode;
-        _defaultMsisdn = defaultMsisdn;
       });
     } catch (_) {}
   }
@@ -225,7 +231,7 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
         walletBalanceMajor: (_walletData?['available'] ?? 0) as num,
         formattedBalance: _fmt((_walletData?['available'] ?? 0) as num),
         dialCode: _dialCode,
-        defaultMsisdn: _defaultMsisdn,
+        minWithdrawalMajor: _minWithdrawal,
       ),
     );
 
@@ -284,13 +290,18 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
 
     final available = _walletData?['available'] ?? 0;
     final held = _walletData?['held'] ?? 0;
-    final canWithdraw = _walletData?['canWithdraw'] ?? false;
+    // Withdraw eligibility is computed locally from the courier's
+    // country-specific minimum (see `_minWithdrawalByCurrency`). The
+    // previous hardcoded 1000 XAF floor baked into UnifiedWalletService
+    // blocked non-XAF couriers whose local min is below 1000 (e.g. GHS 10).
+    final num availableMajor = (available as num);
+    final bool meetsMinimum = availableMajor >= _minWithdrawal;
     // Payouts are enabled when at least one MasterData provider in the
     // courier's country supports payouts. Country gating by hardcoded CM
     // has been removed — multi-country support is driven entirely by
     // system_config/main.mobileMoneyProviders.
     final bool payoutsSupported = _eligibleProviders.isNotEmpty;
-    final bool withdrawButtonEnabled = canWithdraw && payoutsSupported;
+    final bool withdrawButtonEnabled = meetsMinimum && payoutsSupported;
 
     final String payoutsUnavailableMsg = _countryCode == null
         ? 'Informations pays indisponibles. Réessayez plus tard.'
@@ -425,7 +436,7 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
             Text(
               !payoutsSupported
                   ? payoutsUnavailableMsg
-                  : canWithdraw
+                  : meetsMinimum
                       ? 'Ready for withdrawal (min: ${_fmt(_minWithdrawal)})'
                       : 'Minimum withdrawal: ${_fmt(_minWithdrawal)}',
               style: TextStyle(
@@ -455,7 +466,7 @@ Widget debugBuildWithdrawalDialog({
   num walletBalanceMajor = 0,
   String? formattedBalance,
   String dialCode = '',
-  String defaultMsisdn = '',
+  num minWithdrawalMajor = 0,
 }) {
   return _WithdrawalDialog(
     clientRequestId: clientRequestId,
@@ -467,7 +478,7 @@ Widget debugBuildWithdrawalDialog({
     formattedBalance:
         formattedBalance ?? '$walletBalanceMajor $currencyCode',
     dialCode: dialCode,
-    defaultMsisdn: defaultMsisdn,
+    minWithdrawalMajor: minWithdrawalMajor,
   );
 }
 
@@ -484,7 +495,7 @@ class _WithdrawalDialog extends StatefulWidget {
   final num walletBalanceMajor;
   final String formattedBalance;
   final String dialCode;
-  final String defaultMsisdn;
+  final num minWithdrawalMajor;
 
   const _WithdrawalDialog({
     required this.clientRequestId,
@@ -495,7 +506,7 @@ class _WithdrawalDialog extends StatefulWidget {
     required this.walletBalanceMajor,
     required this.formattedBalance,
     required this.dialCode,
-    required this.defaultMsisdn,
+    required this.minWithdrawalMajor,
   });
 
   @override
@@ -506,8 +517,10 @@ class _WithdrawalDialogState extends State<_WithdrawalDialog> {
   final _formKey = GlobalKey<FormState>();
   late String? _selectedProviderId = widget.preselectedProviderId;
   final _amountController = TextEditingController();
-  late final TextEditingController _msisdnController =
-      TextEditingController(text: widget.defaultMsisdn);
+  // MSISDN starts empty. We deliberately do not prefill from
+  // paymentPreferences.defaultPhone because that value is stored masked
+  // (e.g. "677****56") and the plaintext is HMAC one-way.
+  final _msisdnController = TextEditingController();
   bool _isSubmitting = false;
   String? _error;
 
@@ -647,6 +660,10 @@ class _WithdrawalDialogState extends State<_WithdrawalDialog> {
                   final parsed = double.tryParse(v.replaceAll(',', '.'));
                   if (parsed == null || parsed <= 0) {
                     return 'Montant invalide';
+                  }
+                  final minMajor = widget.minWithdrawalMajor.toDouble();
+                  if (minMajor > 0 && parsed < minMajor) {
+                    return 'Montant minimum : ${widget.minWithdrawalMajor} ${widget.currencyCode}';
                   }
                   if (parsed > widget.walletBalanceMajor.toDouble()) {
                     return 'Solde insuffisant';

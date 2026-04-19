@@ -102,13 +102,18 @@ class UnifiedWalletService {
   // ======================= COURIER-SPECIFIC OPERATIONS =======================
 
   /// Gets courier wallet with earnings breakdown.
+  ///
+  /// NOTE: withdraw eligibility is no longer computed here. The UI
+  /// (`courier_wallet_widget.dart`) owns this logic because the minimum
+  /// threshold depends on the courier's country/currency (see
+  /// `_minWithdrawalByCurrency`). Hardcoding a 1000 XAF floor at this
+  /// layer blocked non-XAF couriers whose local minimum is lower.
   static Future<Map<String, dynamic>> getCourierEarnings({
     required String courierId,
   }) async {
     final wallet = await getWalletBalance(userId: courierId);
     wallet['type'] = 'courier';
     wallet['totalEarnings'] = wallet['available'] ?? 0;
-    wallet['canWithdraw'] = (wallet['available'] ?? 0) >= 1000;
     return wallet;
   }
 

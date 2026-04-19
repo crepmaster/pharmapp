@@ -168,6 +168,52 @@ void main() {
       expect(find.text('Numéro invalide pour cet opérateur'), findsOneWidget);
     });
 
+    testWidgets('amount < minWithdrawalMajor → FR minimum error (3.2a Fix 2)',
+        (tester) async {
+      await tester.pumpWidget(_harness(debugBuildWithdrawalDialog(
+        clientRequestId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        eligibleProviders: [_provider('mtn_gh',
+            country: 'GH', currency: 'GHS', methodCode: 'mtn_ghana')],
+        preselectedProviderId: 'mtn_gh',
+        currencyCode: 'GHS',
+        currencyDecimals: 2,
+        walletBalanceMajor: 50,
+        minWithdrawalMajor: 10,
+        dialCode: '233',
+      )));
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Montant (GHS)'), '5');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Numéro mobile'), '240123456');
+
+      await tester.tap(find.text('Confirmer le retrait'));
+      await tester.pump();
+
+      expect(find.text('Montant minimum : 10 GHS'), findsOneWidget);
+    });
+
+    testWidgets('msisdn field starts empty (3.2a Fix 4 — no fake prefill)',
+        (tester) async {
+      await tester.pumpWidget(_harness(debugBuildWithdrawalDialog(
+        clientRequestId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+        eligibleProviders: [_provider('mtn_cm')],
+        preselectedProviderId: 'mtn_cm',
+        currencyCode: 'XAF',
+        currencyDecimals: 0,
+        walletBalanceMajor: 5000,
+        dialCode: '237',
+        // minWithdrawalMajor defaults to 0 in debugBuildWithdrawalDialog
+      )));
+
+      // Find the msisdn field and assert its controller text is empty.
+      final msisdnFieldFinder =
+          find.widgetWithText(TextFormField, 'Numéro mobile');
+      expect(msisdnFieldFinder, findsOneWidget);
+      final msisdnField = tester.widget<TextFormField>(msisdnFieldFinder);
+      expect(msisdnField.controller?.text ?? '', isEmpty);
+    });
+
     testWidgets('empty amount → "Saisissez un montant"', (tester) async {
       await tester.pumpWidget(_harness(debugBuildWithdrawalDialog(
         clientRequestId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
