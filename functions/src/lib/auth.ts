@@ -1,4 +1,6 @@
 import { getAuth } from "firebase-admin/auth";
+import { HttpsError } from "firebase-functions/v2/https";
+import type { Firestore, DocumentSnapshot } from "firebase-admin/firestore";
 
 /**
  * Verify Firebase ID token from Authorization header.
@@ -42,4 +44,27 @@ export async function requireAuth(
   }
 
   return uid;
+}
+
+/**
+ * Ensures the caller owns a pharmacy account. Returns the pharmacy snapshot
+ * so callers can reuse its data without a second read. Throws
+ * HttpsError("permission-denied") if no pharmacy doc exists for the uid.
+ *
+ * Used as an explicit pharmacy-only guard for top-up callables; couriers and
+ * other authenticated non-pharmacy accounts are rejected before any payment
+ * doc is created.
+ */
+export async function requirePharmacyOwner(
+  db: Firestore,
+  uid: string
+): Promise<DocumentSnapshot> {
+  const snap = await db.collection("pharmacies").doc(uid).get();
+  if (!snap.exists) {
+    throw new HttpsError(
+      "permission-denied",
+      "Top-up is available to pharmacy accounts only."
+    );
+  }
+  return snap;
 }

@@ -82,7 +82,11 @@ export const mtnMomoCheckStatus = onCall<CheckStatusData>(
     }
 
     // Already settled — return cached status.
-    if (payment.status === "successful" || payment.status === "failed") {
+    if (
+      payment.status === "successful" ||
+      payment.status === "failed" ||
+      payment.status === "settlement_blocked"
+    ) {
       return { status: payment.status, amount: payment.amount };
     }
 
@@ -125,9 +129,66 @@ export const mtnMomoCheckStatus = onCall<CheckStatusData>(
     }
 
     if (normalizedStatus === "SUCCESSFUL") {
+      // Owner-type guard: legacy payments (no ownerType) settle as before
+      // for backward compat, but an explicit non-pharmacy ownerType must
+      // not credit the wallet — a courier account must never receive a
+      // wallet credit via a top-up flow.
+      const ownerType = payment.ownerType as string | undefined;
+      if (ownerType !== undefined && ownerType !== "pharmacy") {
+        logger.warn("mtnMomoCheckStatus: settlement blocked", {
+          referenceId,
+          ownerType,
+          reason: "non-pharmacy ownerType",
+        });
+        await paymentRef.update({
+          status: "settlement_blocked",
+          settlementBlockedReason: `non-pharmacy ownerType: ${ownerType}`,
+          financialTransactionId: mtnStatus.financialTransactionId ?? null,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        return {
+          status: "settlement_blocked",
+          reason: "non-pharmacy ownerType",
+        };
+      }
+
+      // Resolve credit target: ownerId when owner-explicit, else legacy userId.
+      const ownerId = payment.ownerId as string | undefined;
+      const legacyUserId = payment.userId as string;
+      let creditTargetUid: string;
+      if (ownerType === "pharmacy") {
+        if (!ownerId || ownerId !== legacyUserId) {
+          const reason = ownerId
+            ? `ownerId mismatch (ownerId=${ownerId}, userId=${legacyUserId})`
+            : "ownerType=pharmacy but ownerId missing";
+          logger.warn("mtnMomoCheckStatus: settlement blocked", {
+            referenceId,
+            ownerType,
+            reason,
+          });
+          await paymentRef.update({
+            status: "settlement_blocked",
+            settlementBlockedReason: reason,
+            financialTransactionId: mtnStatus.financialTransactionId ?? null,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+          return { status: "settlement_blocked", reason };
+        }
+        creditTargetUid = ownerId;
+      } else if (ownerType === undefined) {
+        // Legacy payment — pre-owner-explicit schema. Keep legacy behavior.
+        creditTargetUid = legacyUserId;
+      } else {
+        // Defensive-only: the non-pharmacy ownerType branch is handled above.
+        return {
+          status: "settlement_blocked",
+          reason: "non-pharmacy ownerType",
+        };
+      }
+
       // Settlement is idempotent and uses the payment snapshot captured at
       // intent time (ADR-001 guard #2: no live system_config re-read).
-      const walletRef = db.collection("wallets").doc(userId);
+      const walletRef = db.collection("wallets").doc(creditTargetUid);
       const displayCurrency =
         payment.displayCurrency || payment.currency || "XAF";
 
@@ -185,7 +246,7 @@ export const mtnMomoCheckStatus = onCall<CheckStatusData>(
         tx.set(ledgerRef, {
           type: "wallet_topup",
           referenceId,
-          userId,
+          userId: creditTargetUid,
           amountMinor,
           currencyDecimals: snapshottedDecimals,
           moneySchemaVersion: MONEY_SCHEMA_VERSION,

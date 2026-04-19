@@ -26,6 +26,7 @@ import {
   resolveDecimals,
   toMinor,
 } from "./lib/moneyUnits.js";
+import { requirePharmacyOwner } from "./lib/auth.js";
 
 const db = getFirestore();
 
@@ -94,6 +95,10 @@ export const mtnMomoTopupIntent = onCall<TopupIntentData>(
     if (msisdn.length < 9) {
       throw new HttpsError("invalid-argument", "phoneNumber is invalid.");
     }
+
+    // Pharmacy-only guard: explicit, intentional check before any payment
+    // doc is created. Couriers and other non-pharmacy accounts are rejected.
+    await requirePharmacyOwner(db, userId);
 
     const subscriptionKey = MTN_MOMO_SUBSCRIPTION_KEY.value();
     const apiUser = MTN_MOMO_API_USER.value();
@@ -180,6 +185,10 @@ export const mtnMomoTopupIntent = onCall<TopupIntentData>(
       // field; `amount` is kept for legacy readers and marked @deprecated.
       await db.collection("payments").doc(referenceId).set({
         referenceId,
+        // ownerType is the canonical owner field for new top-ups;
+        // `userId` is retained for legacy readers.
+        ownerType: "pharmacy",
+        ownerId: userId,
         userId,
         // --- ADR-001 canonical fields (D1, D3) ---
         amountMinor,

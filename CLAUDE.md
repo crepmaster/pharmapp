@@ -38,6 +38,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **DO NOT waste time modifying obsolete `pharmacy_app` or `courier_app` directories!**
 
+## 🧭 **ORCHESTRATOR CONTEXT**
+
+- **Orchestrator repo path**: `C:\Users\aebon\projects\ai-dev-orchestrator`
+- **Check this repo first** when a task was executed via the orchestrator or when a previous run must be reviewed before doing more work.
+- **Preferred locations to inspect for run artifacts**:
+  - `C:\Users\aebon\projects\ai-dev-orchestrator\runs\`
+  - `C:\Users\aebon\projects\ai-dev-orchestrator\tasks\`
+  - `C:\Users\aebon\projects\ai-dev-orchestrator\orchestrator\`
+- **For orchestrator prompts, use a rigid contract**:
+  - allowed scope
+  - forbidden scope
+  - stop conditions
+  - done criteria
+  - mandatory output format
+- **Canonical field rule for orchestrated tasks**:
+  - any newly introduced canonical or source-of-truth field must be verified on both the write path and the read/consumption path
+  - writing the field without switching the runtime-critical read path (for example settlement, target selection, or authorization) is not considered complete
+  - if legacy compatibility is retained, the contract must state explicitly which path remains legacy and why
+- **If an orchestrated run reports `SAFE TO PROCEED = NO`**, do not start implementation directly in the main thread.
+- **If a stop verdict was produced without real data inspection while read-only access was possible**, re-dispatch an explorer with an explicit data-audit requirement before escalating.
+
 ## 🚀 **CURRENT PROJECT STATUS - 2026-04-19 (DEMO READINESS — COMITÉ PHARMACIENS)**
 
 ### ✅ **Session 19 avril 2026 — Demo polish**

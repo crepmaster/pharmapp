@@ -19,6 +19,7 @@ import {
   resolveDecimals,
   toMinor,
 } from "./lib/moneyUnits.js";
+import { requirePharmacyOwner } from "./lib/auth.js";
 
 const db = getFirestore();
 
@@ -53,11 +54,10 @@ export const paystackTopupIntent = onCall<PaystackTopupData>(
       );
     }
 
-    // Paystack requires a customer email. Read it from the pharmacy profile.
-    const pharmacySnap = await db
-      .collection("pharmacies")
-      .doc(userId)
-      .get();
+    // Pharmacy-only guard: explicit, intentional check before any payment
+    // doc is created. Reuses the pharmacy snapshot to read the email
+    // required by Paystack (single read).
+    const pharmacySnap = await requirePharmacyOwner(db, userId);
     const email: string =
       (pharmacySnap.data()?.email as string) || "";
     if (!email) {
@@ -145,6 +145,10 @@ export const paystackTopupIntent = onCall<PaystackTopupData>(
       // Persist a payment intent doc aligned with ADR-001 semantics.
       await db.collection("payments").doc(reference).set({
         referenceId: reference,
+        // ownerType is the canonical owner field for new top-ups;
+        // `userId` is retained for legacy readers.
+        ownerType: "pharmacy",
+        ownerId: userId,
         userId,
         // Canonical ADR-001 fields
         amountMinor,

@@ -82,8 +82,58 @@ export const paystackWebhook = onRequest(
         if (payment.status === "successful") {
           return { status: "already_successful" as const };
         }
+        if (payment.status === "settlement_blocked") {
+          return { status: "already_settlement_blocked" as const };
+        }
 
-        const userId = payment.userId as string;
+        // Owner-type guard: legacy payments (no ownerType) are allowed
+        // through for backward compat, but an explicit non-pharmacy
+        // ownerType must be refused — a courier or other non-pharmacy
+        // account must never have its wallet credited via a top-up flow.
+        const ownerType = payment.ownerType as string | undefined;
+        if (ownerType !== undefined && ownerType !== "pharmacy") {
+          tx.update(paymentRef, {
+            status: "settlement_blocked",
+            settlementBlockedReason:
+              `non-pharmacy ownerType: ${ownerType}`,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+          return {
+            status: "settlement_blocked" as const,
+            ownerType,
+          };
+        }
+
+        const ownerId = payment.ownerId as string | undefined;
+        const legacyUserId = payment.userId as string;
+
+        // Canonical target: ownerId when the doc is owner-explicit
+        // (ownerType="pharmacy"). Legacy compat: fall back to userId when
+        // ownerType is absent.
+        let creditTargetUid: string;
+        if (ownerType === "pharmacy") {
+          // Defensive: ownerType explicit but ownerId missing or mismatched -> block.
+          if (!ownerId || ownerId !== legacyUserId) {
+            tx.update(paymentRef, {
+              status: "settlement_blocked",
+              settlementBlockedReason: ownerId
+                ? `ownerId mismatch (ownerId=${ownerId}, userId=${legacyUserId})`
+                : "ownerType=pharmacy but ownerId missing",
+              updatedAt: FieldValue.serverTimestamp(),
+            });
+            return { status: "settlement_blocked" as const, ownerType };
+          }
+          creditTargetUid = ownerId;
+        } else if (ownerType === undefined) {
+          // Legacy payment — pre-owner-explicit schema. Keep legacy behavior.
+          creditTargetUid = legacyUserId;
+        } else {
+          // This branch is already handled earlier in the code (the existing
+          // "non-pharmacy ownerType" guard). Defensive-only.
+          return { status: "settlement_blocked" as const, ownerType };
+        }
+
+        const userId = creditTargetUid;
         const displayCurrency = (payment.displayCurrency as string) || "GHS";
         const snappedDecimals =
           typeof payment.currencyDecimals === "number"
@@ -147,6 +197,13 @@ export const paystackWebhook = onRequest(
         };
       });
 
+      if (result.status === "settlement_blocked") {
+        logger.warn("paystackWebhook: settlement blocked", {
+          reference,
+          ownerType: result.ownerType,
+          reason: "non-pharmacy ownerType",
+        });
+      }
       logger.info("paystackWebhook: processed", {
         reference,
         outcome: result.status,
