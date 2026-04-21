@@ -47,6 +47,81 @@ const KNOWN_CURRENCIES = new Set([
   "USD",
 ]);
 
+/**
+ * Hotfix 3.2b — Fix 2: Minimum withdrawal amounts per currency, in MINOR units.
+ * Values mirror the client-side `_minWithdrawalByCurrency` (major units) in
+ * `pharmapp_unified/lib/widgets/courier/courier_wallet_widget.dart`, converted
+ * to minor using each currency's canonical decimals (XAF/UGX = 0 decimals,
+ * GHS/KES/NGN/TZS = 2 decimals). An admin override is supported via
+ * `system_config/main.currencies[code].minWithdrawalMinor`.
+ */
+const MIN_WITHDRAWAL_MINOR_BY_CURRENCY: Readonly<Record<string, number>> =
+  Object.freeze({
+    XAF: 1000, // 1000 XAF (0 decimals)
+    GHS: 1000, // 10 GHS × 100 (2 decimals)
+    KES: 10000, // 100 KES × 100 (2 decimals)
+    NGN: 100000, // 1000 NGN × 100 (2 decimals)
+    TZS: 200000, // 2000 TZS × 100 (2 decimals)
+    UGX: 4000, // 4000 UGX (0 decimals)
+  });
+
+/**
+ * Hotfix 3.2b — Fix 5: Defence-in-depth MSISDN validator per provider method.
+ * Mirrors the client validator in `shared/lib/services/encryption_service.dart`
+ * (`EncryptionService.validatePhoneWithMethod`, lines 135-219). The Dart
+ * validator remains the source of truth; this backend table is a minimal
+ * subset covering the method codes configured in production
+ * `system_config/main.mobileMoneyProviders`.
+ *
+ * Keep in sync with the Dart file above when adding new markets.
+ * Unknown method codes fall back to the legacy `len >= 9` check.
+ */
+const MSISDN_PATTERNS_BY_METHOD: Readonly<Record<string, RegExp>> =
+  Object.freeze({
+    // Cameroon
+    mtn: /^(65[0-9]|67[0-9]|68[0-9])\d{6}$/,
+    mtn_cm: /^(65[0-9]|67[0-9]|68[0-9])\d{6}$/,
+    mtn_cameroon: /^(65[0-9]|67[0-9]|68[0-9])\d{6}$/,
+    mtn_momo: /^(65[0-9]|67[0-9]|68[0-9])\d{6}$/,
+    orange: /^69[0-9]\d{6}$/,
+    orange_cm: /^69[0-9]\d{6}$/,
+    orange_cameroon: /^69[0-9]\d{6}$/,
+    orange_money: /^69[0-9]\d{6}$/,
+    camtel: /^62[0-9]\d{6}$/,
+    camtel_cm: /^62[0-9]\d{6}$/,
+    camtel_mobile: /^62[0-9]\d{6}$/,
+    // Kenya
+    mpesa: /^7[0-2][0-9]\d{6}$/,
+    mpesa_kenya: /^7[0-2][0-9]\d{6}$/,
+    airtel_kenya: /^73[0-9]\d{6}$/,
+    // Tanzania
+    mpesa_tanzania: /^7[4-6]\d{7}$/,
+    tigo: /^(71|65|67)\d{7}$/,
+    tigo_tanzania: /^(71|65|67)\d{7}$/,
+    airtel_tanzania: /^(68|69|78)\d{7}$/,
+    // Ghana — 3.2b Fix 1 (mirror shared/lib/services/encryption_service.dart)
+    mtn_gh: /^(24|54|55|59)\d{7}$/,
+    mtn_ghana: /^(24|54|55|59)\d{7}$/,
+    vodafone_gh: /^(20|50)\d{7}$/,
+    vodafone_ghana: /^(20|50)\d{7}$/,
+    airteltigo_gh: /^(26|27|56|57)\d{7}$/,
+    airteltigo_ghana: /^(26|27|56|57)\d{7}$/,
+    tigo_gh: /^(26|27|56|57)\d{7}$/,
+    glo_gh: /^23\d{7}$/,
+    glo_ghana: /^23\d{7}$/,
+    // Uganda
+    mtn_uganda: /^7[7-8]\d{7}$/,
+    airtel_uganda: /^(70|75)\d{7}$/,
+    // Nigeria (10 digits after country code strip)
+    mtn_nigeria: /^(703|706|803|806|810|813|814|816|903|906)\d{7}$/,
+    airtel: /^(701|708|802|808|812|901|902|904|907|912)\d{7}$/,
+    airtel_nigeria: /^(701|708|802|808|812|901|902|904|907|912)\d{7}$/,
+    glo: /^(705|805|807|811|815|905)\d{7}$/,
+    glo_nigeria: /^(705|805|807|811|815|905)\d{7}$/,
+    "9mobile": /^(809|817|818|909|908)\d{7}$/,
+    nine_mobile: /^(809|817|818|909|908)\d{7}$/,
+  });
+
 interface CreateWithdrawalInput {
   amountMinor: number;
   currencyCode: string;
@@ -62,6 +137,42 @@ interface CreateWithdrawalInput {
  */
 function normalizeMsisdn(raw: string): string {
   return raw.replace(/\D/g, "");
+}
+
+/**
+ * Strip leading country codes the client may send (237/254/255/256/234) to
+ * match the Dart validator's normalisation (see EncryptionService.validatePhoneWithMethod).
+ */
+function stripLeadingCountryCode(digits: string): string {
+  if (
+    digits.startsWith("237") ||
+    digits.startsWith("254") ||
+    digits.startsWith("255") ||
+    digits.startsWith("256") ||
+    digits.startsWith("234") ||
+    digits.startsWith("233") // Ghana — 3.2b Fix 1
+  ) {
+    return digits.substring(3);
+  }
+  return digits;
+}
+
+/**
+ * Per-method MSISDN validation. Unknown method → legacy `len >= 9` fallback
+ * so providers added to system_config without a matching backend pattern
+ * don't hard-fail payout creation (graceful degradation; client-side validator
+ * still blocks at submit time).
+ */
+function isValidMsisdnForMethod(
+  normalizedDigits: string,
+  methodCode: string | undefined | null
+): boolean {
+  if (normalizedDigits.length < 9) return false;
+  if (!methodCode) return true;
+  const key = methodCode.toLowerCase().replace(/\s/g, "_");
+  const pattern = MSISDN_PATTERNS_BY_METHOD[key];
+  if (!pattern) return true; // unknown → graceful fallback
+  return pattern.test(stripLeadingCountryCode(normalizedDigits));
 }
 
 export const createWithdrawalRequest = onCall<CreateWithdrawalInput>(
@@ -179,9 +290,13 @@ export const createWithdrawalRequest = onCall<CreateWithdrawalInput>(
           supportsPayouts?: boolean;
           countryCode?: string;
           currencyCode?: string;
+          methodCode?: string;
         }
       >;
-      currencies?: Record<string, { decimals?: number }>;
+      currencies?: Record<
+        string,
+        { decimals?: number; minWithdrawalMinor?: number }
+      >;
     };
     const provider = sysConfig.mobileMoneyProviders?.[providerId];
     if (!provider) {
@@ -217,6 +332,29 @@ export const createWithdrawalRequest = onCall<CreateWithdrawalInput>(
       );
     }
 
+    // ---- 8b. Hotfix 3.2b Fix 2: enforce minimum withdrawal amount ----
+    // Admin override via system_config/main.currencies[code].minWithdrawalMinor
+    // takes precedence over the hardcoded table. Fail-fast before the
+    // transaction so no wallet reads are wasted.
+    const configuredMin =
+      sysConfig.currencies?.[currencyCode]?.minWithdrawalMinor;
+    const minimumMinor =
+      typeof configuredMin === "number" && Number.isFinite(configuredMin)
+        ? configuredMin
+        : MIN_WITHDRAWAL_MINOR_BY_CURRENCY[currencyCode] ?? 0;
+    if (minimumMinor > 0 && amountMinor < minimumMinor) {
+      logger.info("createWithdrawalRequest: below minimum", {
+        currencyCode,
+        minimumMinor,
+        amountMinor,
+        ownerType,
+      });
+      throw new HttpsError(
+        "failed-precondition",
+        `Amount below minimum withdrawal for ${currencyCode} (min ${minimumMinor} minor, got ${amountMinor}).`
+      );
+    }
+
     // ---- 9. Wallet read + currency match ----
     const walletRef = db.collection("wallets").doc(ownerId);
     const walletSnap = await walletRef.get();
@@ -232,13 +370,22 @@ export const createWithdrawalRequest = onCall<CreateWithdrawalInput>(
       );
     }
 
-    // ---- 10. Msisdn valid (reuse strict normalizeMsisdn semantics) ----
+    // ---- 10. Msisdn valid (per-method regex; Hotfix 3.2b Fix 5) ----
+    // Defence-in-depth: validate against the provider's methodCode pattern
+    // so wrong-operator numbers (e.g. an Orange number sent with MTN) are
+    // rejected at the backend boundary. Source of truth is the Dart
+    // `EncryptionService.validatePhoneWithMethod`; unknown methodCodes fall
+    // back gracefully to the legacy `len >= 9` check so newly added
+    // providers without a matching backend pattern don't hard-fail payouts.
     if (typeof rawMsisdn !== "string") {
       throw new HttpsError("invalid-argument", "msisdn is required.");
     }
     const normalizedMsisdn = normalizeMsisdn(rawMsisdn);
-    if (normalizedMsisdn.length < 9) {
-      throw new HttpsError("invalid-argument", "msisdn is invalid.");
+    if (!isValidMsisdnForMethod(normalizedMsisdn, provider.methodCode)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "msisdn is invalid for the selected provider."
+      );
     }
 
     // ---- 11. Sufficient balance (dual money convention) ----

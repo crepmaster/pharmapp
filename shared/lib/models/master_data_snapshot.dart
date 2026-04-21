@@ -90,12 +90,21 @@ class MasterDataCurrency {
   final bool enabled;
   final int sortOrder;
 
+  /// ISO 4217 minor-unit exponent (e.g. 0 for XAF/UGX, 2 for GHS/KES/NGN).
+  /// Hotfix 3.2b Fix 3: sourced from `system_config/main.currencies[code].decimals`
+  /// so client-side money math aligns with the backend canonical table in
+  /// `functions/src/lib/moneyUnits.ts` (FALLBACK_DECIMALS). Nullable so a
+  /// missing Firestore field does NOT break parsing; consumers are expected
+  /// to fall back to a local table when null.
+  final int? decimals;
+
   const MasterDataCurrency({
     required this.code,
     required this.name,
     required this.symbol,
     required this.enabled,
     required this.sortOrder,
+    this.decimals,
   });
 }
 

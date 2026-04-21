@@ -101,12 +101,16 @@ class MasterDataService {
     final currencies = <String, MasterDataCurrency>{};
     for (final entry in currenciesRaw.entries) {
       final m = entry.value as Map<String, dynamic>? ?? {};
+      // Hotfix 3.2b Fix 3: read optional `decimals` (ISO 4217 minor-unit
+      // exponent) — canonical source for money formatting. If absent,
+      // consumers fall back to a local table.
       currencies[entry.key] = MasterDataCurrency(
         code: m['code'] as String? ?? entry.key,
         name: m['name'] as String? ?? entry.key,
         symbol: m['symbol'] as String? ?? entry.key,
         enabled: m['enabled'] as bool? ?? false,
         sortOrder: m['sortOrder'] as int? ?? 0,
+        decimals: (m['decimals'] as num?)?.toInt(),
       );
     }
 
@@ -230,6 +234,11 @@ class MasterDataService {
           symbol: config.currencySymbol,
           enabled: true,
           sortOrder: currencies.length,
+          // Mirror backend `FALLBACK_DECIMALS` in
+          // `functions/src/lib/moneyUnits.ts` so the static fallback path
+          // stays consistent with the canonical Firestore source-of-truth
+          // when it exposes `decimals`.
+          decimals: _fallbackCurrencyDecimals[config.currency],
         );
       }
 
@@ -283,6 +292,22 @@ class MasterDataService {
         .replaceAll('ü', 'u')
         .replaceAll('ö', 'o');
   }
+
+  /// Hotfix 3.2b Fix 3: static mirror of the backend `FALLBACK_DECIMALS`
+  /// table in `functions/src/lib/moneyUnits.ts`. Used only by the static
+  /// fallback snapshot (when Firestore is unreachable) so client-side money
+  /// math aligns with the backend canonical rules.
+  static const _fallbackCurrencyDecimals = <String, int>{
+    'XAF': 0,
+    'XOF': 0,
+    'GHS': 2,
+    'KES': 2,
+    'NGN': 2,
+    'TZS': 2,
+    'UGX': 0,
+    'EUR': 2,
+    'USD': 2,
+  };
 
   static String _currencyName(String code) {
     const names = {

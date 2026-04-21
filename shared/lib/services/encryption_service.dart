@@ -136,10 +136,11 @@ class EncryptionService {
     final phone = phoneNumber.replaceAll(RegExp(r'[\s\+\-\(\)]'), '');
 
     // ✅ FIX CRIT-003: Remove country codes properly (3-digit codes first)
+    // 3.2b Fix 1: Ghana (233) added for courier payout validation.
     String normalizedPhone = phone;
     if (normalizedPhone.startsWith('237') || normalizedPhone.startsWith('254') ||
         normalizedPhone.startsWith('255') || normalizedPhone.startsWith('256') ||
-        normalizedPhone.startsWith('234')) {
+        normalizedPhone.startsWith('234') || normalizedPhone.startsWith('233')) {
       normalizedPhone = normalizedPhone.substring(3);
     }
 
@@ -187,6 +188,26 @@ class EncryptionService {
       case 'airtel_tanzania':
         // Airtel Tanzania: 68, 69, 78
         return RegExp(r'^(68|69|78)\d{7}$').hasMatch(normalizedPhone);
+
+      // Ghana operators (9 digits after stripping 233)
+      // 3.2b Fix 1: Ghana payout support for courier withdrawals.
+      case 'mtn_gh':
+      case 'mtn_ghana':
+        // MTN Ghana: 24x, 54x, 55x, 59x
+        return RegExp(r'^(24|54|55|59)\d{7}$').hasMatch(normalizedPhone);
+      case 'vodafone_gh':
+      case 'vodafone_ghana':
+        // Vodafone Ghana: 20x, 50x
+        return RegExp(r'^(20|50)\d{7}$').hasMatch(normalizedPhone);
+      case 'airteltigo_gh':
+      case 'airteltigo_ghana':
+      case 'tigo_gh':
+        // AirtelTigo Ghana: 26x, 27x, 56x, 57x
+        return RegExp(r'^(26|27|56|57)\d{7}$').hasMatch(normalizedPhone);
+      case 'glo_gh':
+      case 'glo_ghana':
+        // Glo Ghana: 23x
+        return RegExp(r'^23\d{7}$').hasMatch(normalizedPhone);
 
       // Uganda operators
       case 'mtn_uganda':

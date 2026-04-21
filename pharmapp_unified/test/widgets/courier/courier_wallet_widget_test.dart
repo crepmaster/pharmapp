@@ -193,6 +193,63 @@ void main() {
       expect(find.text('Montant minimum : 10 GHS'), findsOneWidget);
     });
 
+    testWidgets(
+        'Ghana MSISDN validation (3.2b Fix 1) — invalid GH number → FR error',
+        (tester) async {
+      await tester.pumpWidget(_harness(debugBuildWithdrawalDialog(
+        clientRequestId: '11111111-1111-4111-8111-111111111111',
+        eligibleProviders: [_provider('mtn_gh',
+            country: 'GH', currency: 'GHS', methodCode: 'mtn_ghana')],
+        preselectedProviderId: 'mtn_gh',
+        currencyCode: 'GHS',
+        currencyDecimals: 2,
+        walletBalanceMajor: 500,
+        minWithdrawalMajor: 10,
+        dialCode: '233',
+      )));
+
+      // Valid amount. Invalid Ghana number: 99xxxxxxx is NOT in MTN GH
+      // (24/54/55/59), Vodafone (20/50), AirtelTigo (26/27/56/57) or Glo (23).
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Montant (GHS)'), '50');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Numéro mobile'), '991234567');
+
+      await tester.tap(find.text('Confirmer le retrait'));
+      await tester.pump();
+
+      expect(find.text('Numéro invalide pour cet opérateur'), findsOneWidget);
+    });
+
+    testWidgets(
+        'Ghana MSISDN validation (3.2b Fix 1) — valid MTN GH number passes regex',
+        (tester) async {
+      await tester.pumpWidget(_harness(debugBuildWithdrawalDialog(
+        clientRequestId: '22222222-2222-4222-8222-222222222222',
+        eligibleProviders: [_provider('mtn_gh',
+            country: 'GH', currency: 'GHS', methodCode: 'mtn_ghana')],
+        preselectedProviderId: 'mtn_gh',
+        currencyCode: 'GHS',
+        currencyDecimals: 2,
+        walletBalanceMajor: 500,
+        minWithdrawalMajor: 10,
+        dialCode: '233',
+      )));
+
+      // Valid MTN Ghana prefix (24x). 241234567 → matches /^(24|54|55|59)\d{7}$/
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Montant (GHS)'), '50');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Numéro mobile'), '241234567');
+
+      await tester.tap(find.text('Confirmer le retrait'));
+      await tester.pump();
+
+      // Phone validator passed — no "Numéro invalide" in the UI. The
+      // callable may error later (no mock) but that's orthogonal.
+      expect(find.text('Numéro invalide pour cet opérateur'), findsNothing);
+    });
+
     testWidgets('msisdn field starts empty (3.2a Fix 4 — no fake prefill)',
         (tester) async {
       await tester.pumpWidget(_harness(debugBuildWithdrawalDialog(

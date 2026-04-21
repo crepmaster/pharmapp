@@ -105,6 +105,11 @@ class WithdrawalException implements Exception {
         if (serverMsg.contains('Insufficient balance')) {
           return 'Solde insuffisant.';
         }
+        // 3.2b Fix 3 (LOW review finding): dedicated FR message for the
+        // backend minimum-withdrawal guard.
+        if (serverMsg.contains('below minimum')) {
+          return 'Montant inférieur au minimum autorisé pour cette devise.';
+        }
         if (serverMsg.contains('not eligible for payouts')) {
           return 'Cet opérateur ne supporte pas les retraits.';
         }

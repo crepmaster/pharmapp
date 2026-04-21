@@ -46,6 +46,7 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
   String? _preselectedProviderId;
   int _currencyDecimals = 0;
   String _dialCode = '';
+  MasterDataSnapshot? _masterData;
 
   /// Parent-owned idempotency key for the withdrawal callable.
   ///
@@ -76,11 +77,17 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
     'UGX': 4000,
   };
 
-  /// Single client source of truth for currency decimals. Used both by
-  /// [_fmt] (display) and by the `amountMinor` conversion in the dialog
-  /// (payload to the callable) so the two can never diverge.
-  int _decimalsForCurrency(String currency) =>
-      _currencyDecimalsFallback[currency] ?? 2;
+  /// Currency decimals resolver. Hotfix 3.2b Fix 3: prefer the
+  /// `MasterDataCurrency.decimals` exposed by the shared snapshot
+  /// (system_config source-of-truth). Fall back to the local table if the
+  /// snapshot isn't loaded yet, or if the Firestore entry doesn't carry
+  /// the field. Used by both [_fmt] (display) and the dialog's amountMinor
+  /// conversion so they can never diverge.
+  int _decimalsForCurrency(String currency) {
+    final fromSnapshot = _masterData?.getCurrency(currency)?.decimals;
+    if (fromSnapshot != null) return fromSnapshot;
+    return _currencyDecimalsFallback[currency] ?? 2;
+  }
 
   /// Courier wallet values are stored directly in major units (e.g. XAF 1000
   /// means 1000 XAF). The legacy ×100 convention was incorrect for courier
@@ -124,16 +131,24 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
       List<MasterDataProvider> providers = const [];
       String dialCode = '';
       int decimals = 0;
+      MasterDataSnapshot? loadedSnapshot;
       if (cc != null) {
         try {
-          final snapshot = await MasterDataService.load();
-          providers = snapshot
+          loadedSnapshot = await MasterDataService.load();
+          providers = loadedSnapshot
               .getEnabledProviders(cc)
               .where((p) => p.supportsPayouts)
               .toList();
-          dialCode = snapshot.countries[cc]?.dialCode ?? '';
+          dialCode = loadedSnapshot.countries[cc]?.dialCode ?? '';
           final currencyCodeForDecimals = currency ?? 'XAF';
-          decimals = _decimalsForCurrency(currencyCodeForDecimals);
+          // Prefer snapshot's MasterDataCurrency.decimals if populated;
+          // otherwise fall back to the local table via _decimalsForCurrency.
+          // Note: _masterData is set in the final setState below, so we
+          // resolve decimals explicitly here instead of calling the helper.
+          final fromSnapshot =
+              loadedSnapshot.getCurrency(currencyCodeForDecimals)?.decimals;
+          decimals = fromSnapshot ??
+              (_currencyDecimalsFallback[currencyCodeForDecimals] ?? 2);
         } catch (_) {
           // Snapshot unavailable → withdrawal button disabled by empty
           // provider list. Don't crash.
@@ -174,6 +189,7 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
         _preselectedProviderId = preselectedId;
         _currencyDecimals = decimals;
         _dialCode = dialCode;
+        _masterData = loadedSnapshot;
       });
     } catch (_) {}
   }
