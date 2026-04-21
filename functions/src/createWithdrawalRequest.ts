@@ -55,7 +55,7 @@ const KNOWN_CURRENCIES = new Set([
  * GHS/KES/NGN/TZS = 2 decimals). An admin override is supported via
  * `system_config/main.currencies[code].minWithdrawalMinor`.
  */
-const MIN_WITHDRAWAL_MINOR_BY_CURRENCY: Readonly<Record<string, number>> =
+export const MIN_WITHDRAWAL_MINOR_BY_CURRENCY: Readonly<Record<string, number>> =
   Object.freeze({
     XAF: 1000, // 1000 XAF (0 decimals)
     GHS: 1000, // 10 GHS × 100 (2 decimals)
@@ -64,6 +64,60 @@ const MIN_WITHDRAWAL_MINOR_BY_CURRENCY: Readonly<Record<string, number>> =
     TZS: 200000, // 2000 TZS × 100 (2 decimals)
     UGX: 4000, // 4000 UGX (0 decimals)
   });
+
+/**
+ * Sprint 3.2c-α.1 — minWithdrawalMinor Zero Semantics.
+ *
+ * Resolves the effective minimum withdrawal (in minor units) for a currency,
+ * honouring the admin override in `system_config/main.currencies[code]
+ * .minWithdrawalMinor` with fail-safe fallback to MIN_WITHDRAWAL_MINOR_BY_CURRENCY.
+ *
+ * Contract:
+ *   - null / absent     → fallback to MIN_WITHDRAWAL_MINOR_BY_CURRENCY, no warn
+ *   - > 0               → explicit valid override, applied as-is, no warn
+ *   - 0, < 0            → warn reason "invalid_non_positive" + fallback
+ *   - NaN, ±Infinity    → warn reason "non_finite" + fallback
+ *   - non-numeric type  → warn reason "invalid_type" + fallback
+ *
+ * Invalid configured values MUST NOT reject a withdrawal. The callable
+ * degrades safely so a bad admin write cannot cause a payout outage.
+ *
+ * Exported for unit testing. Keep pure — no Firestore, no logger imports.
+ * Caller supplies a `warn` fn so test doubles can capture emitted warnings.
+ */
+export function resolveMinimumMinor(
+  configuredMin: unknown,
+  currencyCode: string,
+  warn: (message: string, payload: Record<string, unknown>) => void
+): number {
+  // null/absent → silent fallback.
+  if (configuredMin !== null && configuredMin !== undefined) {
+    if (typeof configuredMin !== "number") {
+      warn("createWithdrawalRequest: invalid minWithdrawalMinor config", {
+        currencyCode,
+        configuredValue: configuredMin,
+        reason: "invalid_type",
+      });
+    } else if (!Number.isFinite(configuredMin)) {
+      warn("createWithdrawalRequest: invalid minWithdrawalMinor config", {
+        currencyCode,
+        configuredValue: configuredMin,
+        reason: "non_finite",
+      });
+    } else if (configuredMin <= 0) {
+      warn("createWithdrawalRequest: invalid minWithdrawalMinor config", {
+        currencyCode,
+        configuredValue: configuredMin,
+        reason: "invalid_non_positive",
+      });
+    }
+  }
+  return typeof configuredMin === "number" &&
+    Number.isFinite(configuredMin) &&
+    configuredMin > 0
+    ? configuredMin
+    : MIN_WITHDRAWAL_MINOR_BY_CURRENCY[currencyCode] ?? 0;
+}
 
 /**
  * Hotfix 3.2b — Fix 5: Defence-in-depth MSISDN validator per provider method.
@@ -336,12 +390,18 @@ export const createWithdrawalRequest = onCall<CreateWithdrawalInput>(
     // Admin override via system_config/main.currencies[code].minWithdrawalMinor
     // takes precedence over the hardcoded table. Fail-fast before the
     // transaction so no wallet reads are wasted.
+    //
+    // Sprint 3.2c-α.1 — minWithdrawalMinor Zero Semantics:
+    // resolveMinimumMinor warns on invalid config and falls back to the
+    // hardcoded table so a bad admin write cannot cause a payout outage.
+    // See the resolveMinimumMinor contract above for all cases.
     const configuredMin =
       sysConfig.currencies?.[currencyCode]?.minWithdrawalMinor;
-    const minimumMinor =
-      typeof configuredMin === "number" && Number.isFinite(configuredMin)
-        ? configuredMin
-        : MIN_WITHDRAWAL_MINOR_BY_CURRENCY[currencyCode] ?? 0;
+    const minimumMinor = resolveMinimumMinor(
+      configuredMin,
+      currencyCode,
+      (message, payload) => logger.warn(message, payload)
+    );
     if (minimumMinor > 0 && amountMinor < minimumMinor) {
       logger.info("createWithdrawalRequest: below minimum", {
         currencyCode,
