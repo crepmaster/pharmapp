@@ -59,7 +59,74 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **If an orchestrated run reports `SAFE TO PROCEED = NO`**, do not start implementation directly in the main thread.
 - **If a stop verdict was produced without real data inspection while read-only access was possible**, re-dispatch an explorer with an explicit data-audit requirement before escalating.
 
-## 🚀 **CURRENT PROJECT STATUS - 2026-04-19 (DEMO READINESS — COMITÉ PHARMACIENS)**
+## 🚀 **CURRENT PROJECT STATUS - 2026-04-21 (WITHDRAWAL SYMMETRY THREAD CLOSED — 3.2b → 3.2c-α → 3.2c-α.1)**
+
+### ✅ **Session 21 avril 2026 — Sprint 3.2c-α.1 (minWithdrawalMinor zero semantics)**
+
+**Livré & déployé en prod (commit `ed04ec1`) :**
+- **Backend contract locked** sur `system_config/main.currencies[code].minWithdrawalMinor` :
+  - `null/absent` → fallback canonique silencieux
+  - `> 0` → override valide
+  - `0`, `< 0`, `NaN`, `±Infinity`, non-numeric → **invalid config**, `logger.warn` structuré + fallback
+  - **Principe architectural** : invalid config dégrade en warn+fallback, jamais en outage.
+- **Helper pur `resolveMinimumMinor`** extrait + exporté depuis [createWithdrawalRequest.ts:88-121](functions/src/createWithdrawalRequest.ts#L88-L121) pour testabilité directe (pas de mock firebase-admin ni logger).
+- **13 nouveaux tests** unitaires couvrant T1-T9 + variants : `functions/src/__tests__/createWithdrawalRequest-min-resolution.test.ts`. Full suite backend : **82/82 pass**, zero regression.
+- **Audit pré-deploy exécuté** : `system_config/main.currencies` en prod = {XAF: absent, GHS: absent} → aucune devise invalide → deploy safe.
+- **Deploy** : `createWithdrawalRequest(europe-west1)` sur `mediexchange`.
+
+**Thread `minWithdrawalMinor` fermé** :
+- Sprint 3.2c-α (commit `f40fa85`) : widget consomme `MasterDataCurrency.minWithdrawalMinor` du snapshot shared avec fallback legacy explicite
+- Sprint 3.2c-α.1 (commit `ed04ec1`) : backend aligne sur la sémantique déjà en vigueur côté widget (`minor != null && minor > 0`)
+- Symétrie canonique UI ↔ backend verrouillée
+
+**Monitoring post-deploy (24h) :**
+```bash
+gcloud logging read 'severity=WARNING
+  AND resource.type="cloud_run_revision"
+  AND resource.labels.service_name="createwithdrawalrequest"
+  AND jsonPayload.message:"invalid minWithdrawalMinor config"' \
+  --project=mediexchange --freshness=24h
+```
+Baseline T0 = 0 warn (conforme audit clean).
+
+**Prochain sprint à ordonnancer : 3.2c-β — MSISDN hardening**, toujours gated par l'audit methodCode actif (cf. prompt finalisé avec ajouts A+B+C).
+
+---
+
+### ✅ **Session 21 avril 2026 — Sprint 3.2c-α (widget consumes minWithdrawalMinor from shared snapshot)**
+
+**Livré & déployé** (commit `f40fa85`, no backend deploy nécessaire) :
+- **`MasterDataCurrency.minWithdrawalMinor`** exposé dans le snapshot shared, parsé depuis `system_config/main.currencies[code].minWithdrawalMinor`
+- **Widget courier** consomme `_masterData?.getCurrency(currency)?.minWithdrawalMinor` avec `.ceil()` pour conversion minor→major (jamais under-report)
+- **Legacy `_minWithdrawalByCurrency` table** retenue comme fallback explicite documenté (snapshot null, field absent, ou <= 0)
+- **Static fallback** `_fallbackMinWithdrawalMinorByCurrency` ajouté dans `MasterDataService` pour offline parity backend
+- **Tests widget** : 17/17 pass (11 anciens + 6 nouveaux : snapshot-driven, null fallback, decimals=0 XAF, ceil() rounding, gating consistency)
+
+**Orchestrator run :** 2 agents linéaires (explorer → writer), zéro itération, ~5 min total.
+
+**Follow-ups ouverts post-revue :**
+- Admin panel `CurrencyOption` ne expose pas `minWithdrawalMinor` → operational debt
+- Test hook `debugResolveMinWithdrawalMajor` duplique la logique privée → drift risk MEDIUM
+- Refactor UX polish `.ceil()` boundary (affiche +1 unité majeure au pire)
+
+---
+
+### ✅ **Session 21 avril 2026 — Patch 3.2b (Courier Withdrawal config gap)**
+
+**Livré & déployé en prod (commit `ea61eb0`) :**
+- **Ghana MSISDN validation symétrique** : client ([encryption_service.dart:189](shared/lib/services/encryption_service.dart#L189)) + backend ([createWithdrawalRequest.ts:97](functions/src/createWithdrawalRequest.ts#L97) / [:138](functions/src/createWithdrawalRequest.ts#L138)), stripping `233`.
+- **Below-minimum FR localization** : traduction dédiée ajoutée dans [withdrawal_service.dart:108](pharmapp_unified/lib/services/withdrawal_service.dart#L108).
+- **Shared snapshot `decimals`** : `MasterDataCurrency.decimals` parsé dans [master_data_service.dart:104](shared/lib/services/master_data_service.dart#L104) + [master_data_snapshot.dart:94](shared/lib/models/master_data_snapshot.dart#L94), consommé par [courier_wallet_widget.dart:80](pharmapp_unified/lib/widgets/courier/courier_wallet_widget.dart#L80) pour le formatage monétaire.
+- **Deploy** : `createWithdrawalRequest(europe-west1)` sur `mediexchange`.
+
+**Follow-up flagué MEDIUM (non bloquant, à adresser dans sprint 3.2c) :**
+- `minWithdrawalMinor` reste backend-only ([createWithdrawalRequest.ts:324](functions/src/createWithdrawalRequest.ts#L324)), UI widget encore hardcodée — asymétrie UI/backend à fermer via exposition au snapshot shared.
+
+**⚠️ Warning runtime Firebase Functions :**
+- Node.js 20 **deprecation 2026-04-30** / décommissioning 2026-10-30
+- `firebase-functions` package à upgrade (`npm install --save firebase-functions@latest`) — **breaking changes attendus**, à prévoir en sprint dédié avant octobre.
+
+---
 
 ### ✅ **Session 19 avril 2026 — Demo polish**
 
