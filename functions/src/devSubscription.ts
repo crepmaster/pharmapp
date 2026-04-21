@@ -6,27 +6,26 @@
  * Body: { "pharmacyId": "..." }
  */
 
-import * as functions from 'firebase-functions';
-import * as admin from 'firebase-admin';
+import { onRequest } from 'firebase-functions/v2/https';
+import * as logger from 'firebase-functions/logger';
+import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { getApps, initializeApp } from 'firebase-admin/app';
 
 // Initialize admin if not already done
-if (!admin.apps.length) {
-  admin.initializeApp();
+if (getApps().length === 0) {
+  initializeApp();
 }
 
-const db = admin.firestore();
+const db = getFirestore();
 
-export const devSubscription = functions.https.onRequest(async (req, res) => {
+export const devSubscription = onRequest({ region: 'europe-west1', cors: true }, async (req, res) => {
   // 🔒 Block in production unless explicitly enabled
   if (process.env.FUNCTIONS_EMULATOR !== "true" && process.env.SANDBOX_ENABLED !== "true") {
     res.status(403).json({ error: "Dev functions are disabled in production", code: "DEV_DISABLED" });
     return;
   }
 
-  // Enable CORS
-  res.set('Access-Control-Allow-Origin', '*');
-  res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type');
+  // CORS already handled by onRequest() options
 
   if (req.method === 'OPTIONS') {
     res.status(204).send('');
@@ -77,7 +76,7 @@ export const devSubscription = functions.https.onRequest(async (req, res) => {
     }
 
     // Create 30-day trial subscription
-    const now = admin.firestore.Timestamp.now();
+    const now = Timestamp.now();
     const trialEndDate = new Date();
     trialEndDate.setDate(trialEndDate.getDate() + 30);
 
@@ -86,7 +85,7 @@ export const devSubscription = functions.https.onRequest(async (req, res) => {
       planName: 'Trial Plan',
       status: 'active',
       startDate: now,
-      endDate: admin.firestore.Timestamp.fromDate(trialEndDate),
+      endDate: Timestamp.fromDate(trialEndDate),
       isTrial: true,
       currency: 'XAF',
       amount: 0,
@@ -102,11 +101,11 @@ export const devSubscription = functions.https.onRequest(async (req, res) => {
       subscription: trialSubscription,
       subscriptionStatus: 'trial',
       subscriptionPlan: 'trial',
-      subscriptionEndDate: admin.firestore.Timestamp.fromDate(trialEndDate),
+      subscriptionEndDate: Timestamp.fromDate(trialEndDate),
       updatedAt: now,
     });
 
-    functions.logger.info(`Trial subscription granted to ${email} (${pharmacyId})`);
+    logger.info(`Trial subscription granted to ${email} (${pharmacyId})`);
 
     res.status(200).json({
       success: true,
@@ -118,7 +117,7 @@ export const devSubscription = functions.https.onRequest(async (req, res) => {
     });
 
   } catch (error: any) {
-    functions.logger.error('Error granting trial subscription:', error);
+    logger.error('Error granting trial subscription:', error);
     res.status(500).json({
       error: 'Failed to grant trial subscription',
       details: error.message,
