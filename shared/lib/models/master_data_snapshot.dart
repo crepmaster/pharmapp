@@ -98,6 +98,16 @@ class MasterDataCurrency {
   /// to fall back to a local table when null.
   final int? decimals;
 
+  /// Minimum withdrawal amount, expressed in MINOR units of this currency.
+  /// Sprint 3.2c-α: sourced from
+  /// `system_config/main.currencies[code].minWithdrawalMinor` so client-side
+  /// gating mirrors the backend hardcoded table in
+  /// `functions/src/createWithdrawalRequest.ts`
+  /// (`MIN_WITHDRAWAL_MINOR_BY_CURRENCY`). Nullable so a missing Firestore
+  /// field does NOT break parsing; consumers fall back to a local legacy
+  /// table when null.
+  final int? minWithdrawalMinor;
+
   const MasterDataCurrency({
     required this.code,
     required this.name,
@@ -105,6 +115,7 @@ class MasterDataCurrency {
     required this.enabled,
     required this.sortOrder,
     this.decimals,
+    this.minWithdrawalMinor,
   });
 }
 

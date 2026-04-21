@@ -290,6 +290,124 @@ void main() {
     });
   });
 
+  group('minWithdrawalMinor from shared snapshot (3.2c-α)', () {
+    // Builds a minimal MasterDataSnapshot with a single currency entry for
+    // the target [code], overriding [decimals] and [minWithdrawalMinor].
+    MasterDataSnapshot snapshotWithCurrency({
+      required String code,
+      int? decimals,
+      int? minWithdrawalMinor,
+    }) {
+      return MasterDataSnapshot(
+        source: MasterDataSource.remote,
+        primaryCountryCode: 'CM',
+        countries: const {},
+        citiesByCountry: const {},
+        currencies: {
+          code: MasterDataCurrency(
+            code: code,
+            name: code,
+            symbol: code,
+            enabled: true,
+            sortOrder: 0,
+            decimals: decimals,
+            minWithdrawalMinor: minWithdrawalMinor,
+          ),
+        },
+        providers: const {},
+      );
+    }
+
+    test('(a) snapshot-driven GHS: minor=2500, decimals=2 → major=25', () {
+      final snap = snapshotWithCurrency(
+        code: 'GHS',
+        decimals: 2,
+        minWithdrawalMinor: 2500,
+      );
+      expect(debugResolveMinWithdrawalMajor('GHS', snap), 25);
+    });
+
+    test('(b) GHS: minWithdrawalMinor=null → falls back to legacy table (10)',
+        () {
+      final snap = snapshotWithCurrency(
+        code: 'GHS',
+        decimals: 2,
+        minWithdrawalMinor: null,
+      );
+      expect(debugResolveMinWithdrawalMajor('GHS', snap), 10);
+    });
+
+    test('(c) snapshot null entirely → legacy table used (GHS=10)', () {
+      expect(debugResolveMinWithdrawalMajor('GHS', null), 10);
+    });
+
+    test('(d) XAF: minor=1000, decimals=0 → major=1000 (no divide-by-100)',
+        () {
+      final snap = snapshotWithCurrency(
+        code: 'XAF',
+        decimals: 0,
+        minWithdrawalMinor: 1000,
+      );
+      expect(debugResolveMinWithdrawalMajor('XAF', snap), 1000);
+    });
+
+    test('(d-bonus) ceil() rounds up partial-unit minimums (2501/100 → 26)',
+        () {
+      final snap = snapshotWithCurrency(
+        code: 'GHS',
+        decimals: 2,
+        minWithdrawalMinor: 2501,
+      );
+      // 2501 / 100 = 25.01 → must ceil to 26, not floor to 25. Otherwise
+      // the UI would advertise 25 GHS as the minimum but the backend
+      // would reject it.
+      expect(debugResolveMinWithdrawalMajor('GHS', snap), 26);
+    });
+
+    testWidgets(
+        '(e) gating consistency: dialog rejects amounts below resolved min',
+        (tester) async {
+      // Snapshot-resolved minimum for GHS = 25 (minor=2500, decimals=2).
+      final snap = snapshotWithCurrency(
+        code: 'GHS',
+        decimals: 2,
+        minWithdrawalMinor: 2500,
+      );
+      final resolvedMin = debugResolveMinWithdrawalMajor('GHS', snap);
+      expect(resolvedMin, 25);
+
+      // Build the dialog with that SAME resolved value — this is exactly
+      // what the parent widget would pass (minWithdrawalMajor: _minWithdrawal
+      // after _loadContext sets it via _minWithdrawalMajorForCurrency).
+      await tester.pumpWidget(_harness(debugBuildWithdrawalDialog(
+        clientRequestId: '55555555-5555-4555-8555-555555555555',
+        eligibleProviders: [
+          _provider('mtn_gh',
+              country: 'GH', currency: 'GHS', methodCode: 'mtn_ghana'),
+        ],
+        preselectedProviderId: 'mtn_gh',
+        currencyCode: 'GHS',
+        currencyDecimals: 2,
+        walletBalanceMajor: 100,
+        minWithdrawalMajor: resolvedMin,
+        dialCode: '233',
+      )));
+
+      // Enter an amount BELOW the resolved minimum (20 < 25).
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Montant (GHS)'), '20');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Numéro mobile'), '241234567');
+
+      await tester.tap(find.text('Confirmer le retrait'));
+      await tester.pump();
+
+      // The dialog's validator must reject with the SAME minimum value
+      // that the parent widget would use for its button-gate check.
+      expect(find.text('Montant minimum : 25 GHS'), findsOneWidget);
+    });
+  });
+
   group('_WithdrawalDialog — clientRequestId is parent-owned', () {
     testWidgets(
         'dialog exposes the UUID provided by the parent via constructor',

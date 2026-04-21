@@ -68,6 +68,17 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
     'UG': 'UGX',
   };
 
+  /// Legacy compatibility fallback for the per-currency minimum withdrawal
+  /// (major units). Sprint 3.2c-α: PRIMARY source of truth is now
+  /// `MasterDataCurrency.minWithdrawalMinor` from the shared snapshot
+  /// (system_config/main.currencies[code].minWithdrawalMinor), which
+  /// mirrors the backend hardcoded table in
+  /// `functions/src/createWithdrawalRequest.ts`
+  /// (MIN_WITHDRAWAL_MINOR_BY_CURRENCY). This table is retained ONLY as a
+  /// last-chance fallback when the snapshot is unloaded or the Firestore
+  /// entry doesn't carry the field. Values here are major-unit
+  /// approximations and MAY differ from the authoritative backend values —
+  /// prefer the snapshot whenever available.
   static const Map<String, int> _minWithdrawalByCurrency = {
     'XAF': 1000,
     'GHS': 10,
@@ -87,6 +98,27 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
     final fromSnapshot = _masterData?.getCurrency(currency)?.decimals;
     if (fromSnapshot != null) return fromSnapshot;
     return _currencyDecimalsFallback[currency] ?? 2;
+  }
+
+  /// Minimum withdrawal resolver (major units). Sprint 3.2c-α: PRIMARY
+  /// source is `MasterDataCurrency.minWithdrawalMinor` from the shared
+  /// snapshot, which mirrors the backend hardcoded table in
+  /// `functions/src/createWithdrawalRequest.ts`
+  /// (MIN_WITHDRAWAL_MINOR_BY_CURRENCY). Converts minor → major using
+  /// `_decimalsForCurrency`, rounding UP (`.ceil()`) to avoid
+  /// under-reporting the minimum (e.g. 2501 minor with decimals=2 must
+  /// display as 26, not 25, so the UI never lets the user submit an
+  /// amount that the backend will reject). Falls back to the legacy
+  /// `_minWithdrawalByCurrency` major-units table when the snapshot is
+  /// unloaded or the Firestore field is absent/zero.
+  int _minWithdrawalMajorForCurrency(String currency) {
+    final minor = _masterData?.getCurrency(currency)?.minWithdrawalMinor;
+    if (minor != null && minor > 0) {
+      final decimals = _decimalsForCurrency(currency);
+      final factor = math.pow(10, decimals).toInt();
+      return (minor / factor).ceil();
+    }
+    return _minWithdrawalByCurrency[currency] ?? 1000;
   }
 
   /// Courier wallet values are stored directly in major units (e.g. XAF 1000
@@ -181,15 +213,18 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
       if (!mounted) return;
       setState(() {
         _countryCode = cc;
+        // Assign _masterData first so the resolver below can read it.
+        _masterData = loadedSnapshot;
         if (currency != null) {
           _currency = currency;
-          _minWithdrawal = _minWithdrawalByCurrency[currency] ?? 1000;
+          // Sprint 3.2c-α: primary source is shared snapshot; helper
+          // transparently falls back to legacy table when absent.
+          _minWithdrawal = _minWithdrawalMajorForCurrency(currency);
         }
         _eligibleProviders = providers;
         _preselectedProviderId = preselectedId;
         _currencyDecimals = decimals;
         _dialCode = dialCode;
-        _masterData = loadedSnapshot;
       });
     } catch (_) {}
   }
@@ -467,6 +502,28 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
       ),
     );
   }
+}
+
+/// Test-only mirror of `_CourierWalletWidgetState._minWithdrawalMajorForCurrency`
+/// that operates on any `MasterDataSnapshot?` without requiring Firebase
+/// or a mounted widget. Sprint 3.2c-α: primary source is
+/// `MasterDataCurrency.minWithdrawalMinor`, fallback is the legacy
+/// `_minWithdrawalByCurrency` major-units table (or hardcoded 1000 when
+/// both the snapshot and legacy table miss). Conversion rounds UP via
+/// `.ceil()` — must stay in lock-step with the private runtime helper.
+@visibleForTesting
+int debugResolveMinWithdrawalMajor(
+  String currency,
+  MasterDataSnapshot? snapshot,
+) {
+  final minor = snapshot?.getCurrency(currency)?.minWithdrawalMinor;
+  if (minor != null && minor > 0) {
+    final fromSnapshot = snapshot?.getCurrency(currency)?.decimals;
+    final decimals = fromSnapshot ?? (_currencyDecimalsFallback[currency] ?? 2);
+    final factor = math.pow(10, decimals).toInt();
+    return (minor / factor).ceil();
+  }
+  return _CourierWalletWidgetState._minWithdrawalByCurrency[currency] ?? 1000;
 }
 
 /// Test-only builder that materialises the private withdrawal dialog

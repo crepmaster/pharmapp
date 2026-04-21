@@ -104,6 +104,9 @@ class MasterDataService {
       // Hotfix 3.2b Fix 3: read optional `decimals` (ISO 4217 minor-unit
       // exponent) — canonical source for money formatting. If absent,
       // consumers fall back to a local table.
+      // Sprint 3.2c-α: also read optional `minWithdrawalMinor` so the
+      // courier wallet UI gating mirrors the backend hardcoded table in
+      // `functions/src/createWithdrawalRequest.ts`.
       currencies[entry.key] = MasterDataCurrency(
         code: m['code'] as String? ?? entry.key,
         name: m['name'] as String? ?? entry.key,
@@ -111,6 +114,7 @@ class MasterDataService {
         enabled: m['enabled'] as bool? ?? false,
         sortOrder: m['sortOrder'] as int? ?? 0,
         decimals: (m['decimals'] as num?)?.toInt(),
+        minWithdrawalMinor: (m['minWithdrawalMinor'] as num?)?.toInt(),
       );
     }
 
@@ -239,6 +243,12 @@ class MasterDataService {
           // stays consistent with the canonical Firestore source-of-truth
           // when it exposes `decimals`.
           decimals: _fallbackCurrencyDecimals[config.currency],
+          // Sprint 3.2c-α: mirror backend `MIN_WITHDRAWAL_MINOR_BY_CURRENCY`
+          // in `functions/src/createWithdrawalRequest.ts` so the static
+          // fallback snapshot (used when Firestore is unreachable) still
+          // advertises a plausible minimum withdrawal.
+          minWithdrawalMinor:
+              _fallbackMinWithdrawalMinorByCurrency[config.currency],
         );
       }
 
@@ -307,6 +317,22 @@ class MasterDataService {
     'UGX': 0,
     'EUR': 2,
     'USD': 2,
+  };
+
+  /// Sprint 3.2c-α: static mirror of the backend
+  /// `MIN_WITHDRAWAL_MINOR_BY_CURRENCY` hardcoded table in
+  /// `functions/src/createWithdrawalRequest.ts`. Used only by the static
+  /// fallback snapshot (when Firestore is unreachable) so the courier
+  /// wallet UI's minimum-withdrawal gating stays consistent with the
+  /// backend authority when this field is absent from Firestore.
+  /// Values are expressed in MINOR units of each currency.
+  static const _fallbackMinWithdrawalMinorByCurrency = <String, int>{
+    'XAF': 1000,
+    'GHS': 1000,
+    'KES': 10000,
+    'NGN': 100000,
+    'TZS': 200000,
+    'UGX': 4000,
   };
 
   static String _currencyName(String code) {
