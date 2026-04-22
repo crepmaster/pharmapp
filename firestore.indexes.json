@@ -125,12 +125,14 @@
     {
       "collectionGroup": "idempotency",
       "fieldPath": "at",
-      "ttl": true
+      "ttl": true,
+      "indexes": []
     },
     {
       "collectionGroup": "webhook_logs",
       "fieldPath": "expireAt",
-      "ttl": true
+      "ttl": true,
+      "indexes": []
     }
   ]
 }
