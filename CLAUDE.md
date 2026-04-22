@@ -59,7 +59,40 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **If an orchestrated run reports `SAFE TO PROCEED = NO`**, do not start implementation directly in the main thread.
 - **If a stop verdict was produced without real data inspection while read-only access was possible**, re-dispatch an explorer with an explicit data-audit requirement before escalating.
 
-## 🚀 **CURRENT PROJECT STATUS - 2026-04-21 (WITHDRAWAL THREAD CLOSED + FIREBASE FUNCTIONS UPGRADED)**
+## 🚀 **CURRENT PROJECT STATUS - 2026-04-22 (BACKEND OPS CLEAN — WITHDRAWAL + FIREBASE FUNCTIONS + FIRESTORE INDEXES ALIGNED)**
+
+### ✅ **Session 22 avril 2026 — Sprint A+B (Remote Drift Audit + Firestore Indexes Wiring)**
+
+**Commits :**
+- `3df4704` : wire `firestore.indexes.json` in `firebase.json` + add audit script
+- `98a714d` : fix schema CLI v14 (add `indexes: []` to TTL fieldOverrides)
+
+**Status :** ✅ code closed · ✅ deployed · ✅ validated post-tick scheduler
+
+**Livré :**
+- **Patch B — Firestore indexes wiring fix** : `firebase.json` ajoute `"indexes": "firestore.indexes.json"` dans l'objet `firestore` existant. Root cause prouvée Cause 2 (wiring missing, pas index absent). `firestore.indexes.json` contenait déjà l'index correct `exchanges(status ASC + createdAt ASC)` mais il n'était jamais déployé → `firebase deploy --only firestore:indexes` silencieusement no-op auparavant.
+- **Patch schema CLI v14** : `firestore.indexes.json` fieldOverrides TTL entries (`idempotency.at`, `webhook_logs.expireAt`) ont reçu `indexes: []` requis par le CLI v14. Bug latent révélé par l'activation du wiring.
+- **Patch A — Remote drift audit script** : nouveau `functions/scripts/audit-remote-drift.mjs` (~280 lignes, read-only ESM). Compare exports `src/index.ts` vs `gcloud functions list` output JSON. Rapporte `remote_only` / `local_only` / `intersection` avec enrichissement runtime (CP1 borné best-effort).
+- **Deploy `firebase deploy --only firestore:indexes`** ✅
+- **Index `exchanges(status+createdAt)`** passé `CREATING` → `READY`
+- **Tick scheduler 01:17 UTC 2026-04-22** ✅ silencieux : 0 FAILED_PRECONDITION service log, 0 consequence log scheduler
+
+**Known noise `expireExchangeHolds` FULLY CLOSED** : thread 30-min FAILED_PRECONDITION stoppé définitivement.
+
+**Découverte majeure invalidant l'ancien framing :**
+- Audit live `audit-remote-drift.mjs` montre **0 drift** en prod (42 local exports = 42 remote deployed, tous sur nodejs22)
+- L'hypothèse documentée dans [docs/testing/PILOT_EXECUTION_REPORT_V1.md:188](docs/testing/PILOT_EXECUTION_REPORT_V1.md#L188) que `devSubscription` + `cleanupTestUser` étaient des remote orphans → **INVALIDÉE** (ils n'existent pas en remote actuel, ou ont été cleanupés avant qu'on se penche dessus)
+- Doc historique laissée telle quelle (vérité historique préservée) ; invalidation notée uniquement ici et en memory
+
+**Follow-up mineur identifié (non urgent) :**
+- 3 orphan Firestore composite indexes en prod (collections `deliveries`, `pharmacy_inventory`, `subscriptions`) non présents dans `firestore.indexes.json`
+- Warning émis par le CLI lors du deploy, CLI n'a PAS supprimé (non-destructive par défaut, `--force` requis)
+- À traiter dans un sprint dédié quand confort : soit re-add au source, soit `--force` delete si obsolète
+- Aucun impact fonctionnel ; juste du stockage / CPU d'indexation
+
+---
+
+## 🚀 **PREVIOUS STATUS — 2026-04-21 (WITHDRAWAL THREAD CLOSED + FIREBASE FUNCTIONS UPGRADED)**
 
 ### ✅ **Session 21 avril 2026 — Sprint 3.3-β (Node 22 runtime bump)**
 
