@@ -59,7 +59,77 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **If an orchestrated run reports `SAFE TO PROCEED = NO`**, do not start implementation directly in the main thread.
 - **If a stop verdict was produced without real data inspection while read-only access was possible**, re-dispatch an explorer with an explicit data-audit requirement before escalating.
 
-## 🚀 **CURRENT PROJECT STATUS - 2026-04-21 (WITHDRAWAL SYMMETRY THREAD CLOSED — 3.2b → 3.2c-α → 3.2c-α.1)**
+## 🚀 **CURRENT PROJECT STATUS - 2026-04-21 (WITHDRAWAL THREAD CLOSED + FIREBASE FUNCTIONS UPGRADED)**
+
+### ✅ **Session 21 avril 2026 — Sprint 3.3-β (Node 22 runtime bump)**
+
+**Commit :** `73f8456` (pushé sur `main`)
+**Status :** ✅ code closed · ✅ deployed · ✅ validated post-deploy
+
+**Livré :**
+- `functions/package.json` : `engines.node: "20" → "22"` (1 ligne)
+- `functions/package-lock.json` : régénéré par `npm install`, zéro dep transitive bump
+- 37 deployed functions upgraded in prod to `nodejs22` runtime
+- Canary `cancelMedicineRequest` sans auth → `UNAUTHENTICATED` retourné, pas de 500/timeout
+- Runtime confirmé : `gcloud functions describe ... buildConfig.runtime` = `nodejs22` sur sample
+
+**Validation :**
+- Local Node v22.20.0 → `npm test` (82/82) valide la compatibilité runtime (pas juste non-régression)
+- `npm run build` : tsc clean
+- Post-deploy logs (fenêtre immédiate, hors known noise) : 0 ERROR, 0 WARN
+- ✅ Rescan post-tick scheduler confirmé : 0 erreur hors known noise (filtre strict excluant `cloud_scheduler_job` pour `firebase-schedule-expireExchangeHolds-europe-west1`), `expireExchangeHolds` reste isolé avec FAILED_PRECONDITION (pas de runtime error)
+- `firebase-tools@14.20.0` (≥13.x requis Node 22) ✓
+
+**Deadline Firebase 2026-04-30 (Node 20 deprecation) sécurisée 9 jours en avance.**
+
+**Known noise préservé comme tel (hors scope, démontré pré-existant + isolé) :**
+- `expireExchangeHolds` → `FAILED_PRECONDITION` sur query `exchanges(status + createdAt)` par manque d'index Firestore composite
+- Prouvé pré-existant : erreurs sur > 24h avant deploy
+- Prouvé isolé : seule function concernée, aucun autre callable affecté
+- Prouvé non-bloquant : pas de crash container, autres functions observées OK
+- **NOT addressed in this sprint** (index creation = separate data/index sprint)
+
+---
+
+### ✅ **Session 21 avril 2026 — Sprint 3.3-α (Firebase SDK upgrade)**
+
+**Commit :** `50acda1` (pushé sur `main`)
+**Status :** ✅ code closed · ✅ deployed · ✅ validated post-deploy
+
+**Livré :**
+- `firebase-functions`: `^6.4.0 → ^7.2.5`
+- `firebase-admin`: `^12.5.0 → ^13.8.0`
+- `firebase-functions-test`: inchangé `^3.4.1` (déjà compatible v7)
+- `engines.node`: inchangé à `"20"` (bumped séparément en 3.3-β)
+- `functions/src/devSubscription.ts` : v1 → v2 API (dead code local, non exporté depuis `src/index.ts` → migration cosmétique, zéro effet sur la surface prod locale)
+- Active deployed functions upgraded to the new SDK in prod (runtime Node 20 à ce stade)
+- Canary `cancelMedicineRequest` → `UNAUTHENTICATED` ✓
+
+**Validation :**
+- Suite backend : 82/82 pass (no regression)
+- Transitive major bumps inventoriés (4) : `@firebase/database-compat 1→2`, `fast-xml-parser 4→5`, `strnum 1→2`, `uuid 10→11` — tous non utilisés directement dans ce codebase
+- Explorer breaking-changes audit : zéro impact applicable
+
+**Framing important (architectural truthfulness) :**
+- `devSubscription.ts` migration = hygiène de code local, **pas** "last v1 holdout migrated en deploy surface"
+- `devSubscription` et `cleanupTestUser` restent des **remote orphans** (existent en remote mais non exportés depuis `src/index.ts`) — hors scope, cleanup backlog
+- Documenté explicitement dans [docs/testing/PILOT_EXECUTION_REPORT_V1.md:188](docs/testing/PILOT_EXECUTION_REPORT_V1.md#L188)
+
+---
+
+### 📋 **Follow-ups backlog — Session 21 avril 2026**
+
+- **Remote orphan cleanup** : `devSubscription` et `cleanupTestUser` existent en remote mais ne sont plus exportés depuis `src/index.ts` — décider re-wire vs delete + `firebase functions:delete`
+- **Décision produit** sur `devSubscription` et `cleanupTestUser` : utilité réelle en prod, ou dead code à purger des deux côtés
+- **Firestore composite index manquant** sur `exchanges(status + createdAt)` → fait échouer le scheduled `expireExchangeHolds` toutes les 30 min (pré-existant, bruit connu, à créer via `firestore.indexes.json` + deploy rules)
+- **Audit périodique automatisé** : script `firebase functions:list` vs exports `src/index.ts` pour détecter drift avant qu'il grandisse
+
+**Reporté de sessions précédentes (toujours ouverts) :**
+- **FCM push (N2)** — backend-ready trigger à ajouter (~2h), activation client plus tard
+- **ADR-001 Phase 1b** — migration wallets/ledger/exchanges vers `amountMinor` canonique + retrait adapter
+- **Check balance avant création proposal** (totalPrice + courierFee/2)
+
+---
 
 ### ✅ **Session 21 avril 2026 — Sprint 3.2c-α.1 (minWithdrawalMinor zero semantics)**
 
