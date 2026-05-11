@@ -14,7 +14,6 @@ import { validateFields, validators, sendValidationError, sendError, BusinessErr
 import { requireAuth } from "./lib/auth.js";
 // 👉 expose aussi la tâche planifiée
 export { expireExchangeHolds } from "./scheduled.js";
-// export { cleanupTestUser } from "./cleanup.js";  // Commented out - file missing
 
 // ======================= Exchange Proposal Callable Functions =======================
 export { createExchangeProposal } from "./createExchangeProposal.js";

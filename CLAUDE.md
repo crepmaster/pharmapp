@@ -1,1086 +1,287 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guide de référence pour Claude Code sur ce dépôt. **Source de vérité unique** sur l'état du projet, les objectifs, et le backlog vivant.
 
-## 🚨 **CRITICAL: MASTER APPLICATION IS pharmapp_unified**
-
-**⚠️ READ THIS FIRST:** [`docs/FILE_STRUCTURE_ACTIVE_VS_OBSOLETE.md`](docs/FILE_STRUCTURE_ACTIVE_VS_OBSOLETE.md)
-
-**CRITICAL DECISION (2025-10-24)**: `pharmapp_unified` is now the **MASTER APPLICATION**
-
-### **Before Making ANY Changes:**
-
-1. **CHECK** the file structure document above
-2. **VERIFY** you're modifying the MASTER app (pharmapp_unified), NOT obsolete standalone apps
-3. **CONFIRM** via git logs and console output
-
-### **Master Application Structure:**
-
-**✅ ACTIVE - MODIFY THESE:**
-- **Master App**: `pharmapp_unified/` (ALL pharmacy AND courier features)
-- **Pharmacy Dashboard**: `pharmapp_unified/lib/screens/pharmacy/pharmacy_main_screen.dart`
-- **Courier Dashboard**: `pharmapp_unified/lib/screens/courier/courier_main_screen.dart`
-- **Pharmacy Services**: `pharmapp_unified/lib/services/*` (payment_service.dart, etc.)
-- **Courier Services**: `pharmapp_unified/lib/services/delivery_service.dart`, `courier_location_service.dart`
-- **BLoCs**: `pharmapp_unified/lib/blocs/unified_auth_bloc.dart`, `delivery_bloc.dart`
-- **Pharmacy Widgets**: `pharmapp_unified/lib/widgets/pharmacy/*`
-- **Courier Widgets**: `pharmapp_unified/lib/widgets/courier/*`
-- **Pharmacy Screens**: `pharmapp_unified/lib/screens/pharmacy/*`
-- **Courier Screens**: `pharmapp_unified/lib/screens/courier/*`
-- **Auth System**: `pharmapp_unified/lib/blocs/unified_auth_bloc.dart`
-- **Shared Services**: `shared/lib/services/unified_auth_service.dart`
-
-**❌ OBSOLETE - DO NOT MODIFY:**
-- **Old Pharmacy App**: `pharmacy_app/` (ENTIRE DIRECTORY IS OBSOLETE)
-- **Old Courier App**: `courier_app/` (ENTIRE DIRECTORY IS OBSOLETE)
-- **Old Dashboards**: `pharmacy_app/lib/screens/main/*`, `courier_app/lib/screens/main/*`
-- **Old Services**: `pharmacy_app/lib/services/*`, `courier_app/lib/services/*`
-
-**DO NOT waste time modifying obsolete `pharmacy_app` or `courier_app` directories!**
-
-## 🧭 **ORCHESTRATOR CONTEXT**
-
-- **Orchestrator repo path**: `C:\Users\aebon\projects\ai-dev-orchestrator`
-- **Check this repo first** when a task was executed via the orchestrator or when a previous run must be reviewed before doing more work.
-- **Preferred locations to inspect for run artifacts**:
-  - `C:\Users\aebon\projects\ai-dev-orchestrator\runs\`
-  - `C:\Users\aebon\projects\ai-dev-orchestrator\tasks\`
-  - `C:\Users\aebon\projects\ai-dev-orchestrator\orchestrator\`
-- **For orchestrator prompts, use a rigid contract**:
-  - allowed scope
-  - forbidden scope
-  - stop conditions
-  - done criteria
-  - mandatory output format
-- **Canonical field rule for orchestrated tasks**:
-  - any newly introduced canonical or source-of-truth field must be verified on both the write path and the read/consumption path
-  - writing the field without switching the runtime-critical read path (for example settlement, target selection, or authorization) is not considered complete
-  - if legacy compatibility is retained, the contract must state explicitly which path remains legacy and why
-- **If an orchestrated run reports `SAFE TO PROCEED = NO`**, do not start implementation directly in the main thread.
-- **If a stop verdict was produced without real data inspection while read-only access was possible**, re-dispatch an explorer with an explicit data-audit requirement before escalating.
-
-## 🚀 **CURRENT PROJECT STATUS - 2026-04-22 (BACKEND OPS CLEAN — WITHDRAWAL + FIREBASE FUNCTIONS + FIRESTORE INDEXES ALIGNED)**
-
-### ✅ **Session 22 avril 2026 — Sprint A+B (Remote Drift Audit + Firestore Indexes Wiring)**
-
-**Commits :**
-- `3df4704` : wire `firestore.indexes.json` in `firebase.json` + add audit script
-- `98a714d` : fix schema CLI v14 (add `indexes: []` to TTL fieldOverrides)
-
-**Status :** ✅ code closed · ✅ deployed · ✅ validated post-tick scheduler
-
-**Livré :**
-- **Patch B — Firestore indexes wiring fix** : `firebase.json` ajoute `"indexes": "firestore.indexes.json"` dans l'objet `firestore` existant. Root cause prouvée Cause 2 (wiring missing, pas index absent). `firestore.indexes.json` contenait déjà l'index correct `exchanges(status ASC + createdAt ASC)` mais il n'était jamais déployé → `firebase deploy --only firestore:indexes` silencieusement no-op auparavant.
-- **Patch schema CLI v14** : `firestore.indexes.json` fieldOverrides TTL entries (`idempotency.at`, `webhook_logs.expireAt`) ont reçu `indexes: []` requis par le CLI v14. Bug latent révélé par l'activation du wiring.
-- **Patch A — Remote drift audit script** : nouveau `functions/scripts/audit-remote-drift.mjs` (~280 lignes, read-only ESM). Compare exports `src/index.ts` vs `gcloud functions list` output JSON. Rapporte `remote_only` / `local_only` / `intersection` avec enrichissement runtime (CP1 borné best-effort).
-- **Deploy `firebase deploy --only firestore:indexes`** ✅
-- **Index `exchanges(status+createdAt)`** passé `CREATING` → `READY`
-- **Tick scheduler 01:17 UTC 2026-04-22** ✅ silencieux : 0 FAILED_PRECONDITION service log, 0 consequence log scheduler
-
-**Known noise `expireExchangeHolds` FULLY CLOSED** : thread 30-min FAILED_PRECONDITION stoppé définitivement.
-
-**Découverte majeure invalidant l'ancien framing :**
-- Audit live `audit-remote-drift.mjs` montre **0 drift** en prod (42 local exports = 42 remote deployed, tous sur nodejs22)
-- L'hypothèse documentée dans [docs/testing/PILOT_EXECUTION_REPORT_V1.md:188](docs/testing/PILOT_EXECUTION_REPORT_V1.md#L188) que `devSubscription` + `cleanupTestUser` étaient des remote orphans → **INVALIDÉE** (ils n'existent pas en remote actuel, ou ont été cleanupés avant qu'on se penche dessus)
-- Doc historique laissée telle quelle (vérité historique préservée) ; invalidation notée uniquement ici et en memory
-
-**Follow-up mineur identifié (non urgent) :**
-- 3 orphan Firestore composite indexes en prod (collections `deliveries`, `pharmacy_inventory`, `subscriptions`) non présents dans `firestore.indexes.json`
-- Warning émis par le CLI lors du deploy, CLI n'a PAS supprimé (non-destructive par défaut, `--force` requis)
-- À traiter dans un sprint dédié quand confort : soit re-add au source, soit `--force` delete si obsolète
-- Aucun impact fonctionnel ; juste du stockage / CPU d'indexation
+> Dernière refonte : **2026-05-12**. Sessions antérieures à avril 2026 → [CLAUDE-ARCHIVE.md](CLAUDE-ARCHIVE.md).
 
 ---
 
-## 🚀 **PREVIOUS STATUS — 2026-04-21 (WITHDRAWAL THREAD CLOSED + FIREBASE FUNCTIONS UPGRADED)**
+## 🚨 RÈGLE 0 — Structure réelle du dépôt (2026-05-12)
 
-### ✅ **Session 21 avril 2026 — Sprint 3.3-β (Node 22 runtime bump)**
+**Dossiers actifs (présents sur disque) :**
 
-**Commit :** `73f8456` (pushé sur `main`)
-**Status :** ✅ code closed · ✅ deployed · ✅ validated post-deploy
+| Dossier | Rôle | Statut |
+|---|---|---|
+| `pharmapp_unified/` | **Master app Flutter** — pharmacy + courier sous un même binaire | ✅ actif |
+| `admin_panel/` | Back-office web Flutter (admin, super_admin) | ✅ actif |
+| `shared/` | Code partagé Dart (models, services, encryption, master data) | ✅ actif |
+| `functions/` | Firebase Functions (Node 22, TypeScript) — 42 functions déployées | ✅ actif |
+| `docs/` | Documentation contrats, runbooks, post-mortems | ✅ actif |
 
-**Livré :**
-- `functions/package.json` : `engines.node: "20" → "22"` (1 ligne)
-- `functions/package-lock.json` : régénéré par `npm install`, zéro dep transitive bump
-- 37 deployed functions upgraded in prod to `nodejs22` runtime
-- Canary `cancelMedicineRequest` sans auth → `UNAUTHENTICATED` retourné, pas de 500/timeout
-- Runtime confirmé : `gcloud functions describe ... buildConfig.runtime` = `nodejs22` sur sample
+**Dossiers supprimés (ne plus en parler) :**
 
-**Validation :**
-- Local Node v22.20.0 → `npm test` (82/82) valide la compatibilité runtime (pas juste non-régression)
-- `npm run build` : tsc clean
-- Post-deploy logs (fenêtre immédiate, hors known noise) : 0 ERROR, 0 WARN
-- ✅ Rescan post-tick scheduler confirmé : 0 erreur hors known noise (filtre strict excluant `cloud_scheduler_job` pour `firebase-schedule-expireExchangeHolds-europe-west1`), `expireExchangeHolds` reste isolé avec FAILED_PRECONDITION (pas de runtime error)
-- `firebase-tools@14.20.0` (≥13.x requis Node 22) ✓
+- `pharmacy_app/` — supprimé. Tout le code utile a été migré dans `pharmapp_unified/` entre oct. 2025 et avril 2026.
+- `courier_app/` — supprimé. Idem.
 
-**Deadline Firebase 2026-04-30 (Node 20 deprecation) sécurisée 9 jours en avance.**
-
-**Known noise préservé comme tel (hors scope, démontré pré-existant + isolé) :**
-- `expireExchangeHolds` → `FAILED_PRECONDITION` sur query `exchanges(status + createdAt)` par manque d'index Firestore composite
-- Prouvé pré-existant : erreurs sur > 24h avant deploy
-- Prouvé isolé : seule function concernée, aucun autre callable affecté
-- Prouvé non-bloquant : pas de crash container, autres functions observées OK
-- **NOT addressed in this sprint** (index creation = separate data/index sprint)
+Si un document interne (ou une mémoire stale) mentionne `pharmacy_app/` ou `courier_app/` comme étant à modifier ou à éviter : c'est **caduc**. Ne pas perdre de temps à les chercher.
 
 ---
 
-### ✅ **Session 21 avril 2026 — Sprint 3.3-α (Firebase SDK upgrade)**
+## 🧭 Orchestrator context
 
-**Commit :** `50acda1` (pushé sur `main`)
-**Status :** ✅ code closed · ✅ deployed · ✅ validated post-deploy
-
-**Livré :**
-- `firebase-functions`: `^6.4.0 → ^7.2.5`
-- `firebase-admin`: `^12.5.0 → ^13.8.0`
-- `firebase-functions-test`: inchangé `^3.4.1` (déjà compatible v7)
-- `engines.node`: inchangé à `"20"` (bumped séparément en 3.3-β)
-- `functions/src/devSubscription.ts` : v1 → v2 API (dead code local, non exporté depuis `src/index.ts` → migration cosmétique, zéro effet sur la surface prod locale)
-- Active deployed functions upgraded to the new SDK in prod (runtime Node 20 à ce stade)
-- Canary `cancelMedicineRequest` → `UNAUTHENTICATED` ✓
-
-**Validation :**
-- Suite backend : 82/82 pass (no regression)
-- Transitive major bumps inventoriés (4) : `@firebase/database-compat 1→2`, `fast-xml-parser 4→5`, `strnum 1→2`, `uuid 10→11` — tous non utilisés directement dans ce codebase
-- Explorer breaking-changes audit : zéro impact applicable
-
-**Framing important (architectural truthfulness) :**
-- `devSubscription.ts` migration = hygiène de code local, **pas** "last v1 holdout migrated en deploy surface"
-- `devSubscription` et `cleanupTestUser` restent des **remote orphans** (existent en remote mais non exportés depuis `src/index.ts`) — hors scope, cleanup backlog
-- Documenté explicitement dans [docs/testing/PILOT_EXECUTION_REPORT_V1.md:188](docs/testing/PILOT_EXECUTION_REPORT_V1.md#L188)
+- **Repo orchestrator** : `C:\Users\aebon\projects\ai-dev-orchestrator`
+- À consulter en premier quand une tâche a été lancée via l'orchestrator ou qu'un run précédent doit être revu.
+- Artifacts : `runs/`, `tasks/`, `orchestrator/`.
+- **Sprint pack PharmApp** : [docs/orchestrator_sprints/README.md](docs/orchestrator_sprints/README.md). Les prochains sprints doivent partir de ces contrats et garder les docs actives à jour à chaque run.
+- **Contrat de prompt orchestrator** : allowed scope, forbidden scope, stop conditions, done criteria, output format obligatoire.
+- **Règle canonical field** : toute introduction d'un champ canonique doit être vérifiée write path **et** read path. Écrire sans switcher le read runtime-critique (settlement, target selection, authorization) ≠ "complete". Si la compat legacy est conservée, le contrat doit dire **explicitement** quel path reste legacy et pourquoi.
+- **`SAFE TO PROCEED = NO`** → ne pas démarrer l'implémentation en main thread. Si le verdict stop est tombé sans inspection data alors que la lecture était possible, re-dispatcher un explorer avec data-audit explicite.
 
 ---
 
-### 📋 **Follow-ups backlog — Session 21 avril 2026**
+## 📊 ÉTAT FONCTIONNEL — ce qui marche en prod
 
-- **Remote orphan cleanup** : `devSubscription` et `cleanupTestUser` existent en remote mais ne sont plus exportés depuis `src/index.ts` — décider re-wire vs delete + `firebase functions:delete`
-- **Décision produit** sur `devSubscription` et `cleanupTestUser` : utilité réelle en prod, ou dead code à purger des deux côtés
-- **Firestore composite index manquant** sur `exchanges(status + createdAt)` → fait échouer le scheduled `expireExchangeHolds` toutes les 30 min (pré-existant, bruit connu, à créer via `firestore.indexes.json` + deploy rules)
-- **Audit périodique automatisé** : script `firebase functions:list` vs exports `src/index.ts` pour détecter drift avant qu'il grandisse
+### Backend (Firebase project `mediexchange`, region `europe-west1`)
 
-**Reporté de sessions précédentes (toujours ouverts) :**
-- **FCM push (N2)** — backend-ready trigger à ajouter (~2h), activation client plus tard
-- **ADR-001 Phase 1b** — migration wallets/ledger/exchanges vers `amountMinor` canonique + retrait adapter
-- **Check balance avant création proposal** (totalPrice + courierFee/2)
+**Functions déployées (42 exports, 100% Node 22) :**
+
+- **Exchange proposals** : `createExchangeProposal`, `acceptExchangeProposal`, `completeExchangeDelivery`, `cancelExchangeProposal`, `expireExchangeHolds` (scheduled)
+- **Medicine requests (purchase-only)** : `createMedicineRequest`, `cancelMedicineRequest`, `submitMedicineRequestOffer`, `withdrawMedicineRequestOffer`, `acceptMedicineRequestOffer`
+- **Wallet & withdrawal** : `createWithdrawalRequest`, `sandboxAdvanceWithdrawal`, `sandboxCredit`, `sandboxDebit`, `getWallet`
+- **Subscription & treasury** : `sandboxSubscriptionSuccess`, `requestPlatformPayout`, `resolvePlatformPayout`, `getSubscriptionStatus`
+- **Admin V2 (country-scoped)** : `setPharmacyActive`, `upsertCity`, `setCourierActive`
+- **Payments mobile money** : `mtnMomoTopupIntent`, `mtnMomoCheckStatus`, `momoWebhook`, `orangeWebhook`, `topupIntent`
+- **Paystack (Ghana)** : `paystackTopupIntent`, `paystackWebhook`
+- **Notifications in-app** : `onDeliveryCreatedNotifyCouriers`, `onDeliveryStatusChangedNotifyPharmacies`
+- **Auth unifiée** : `createPharmacyUser`, `createCourierUser`, `createAdminUser`, `cleanupTestUserUnified`
+- **Legacy exchange (REST)** : `createExchangeHold`, `exchangeCapture`, `exchangeCancel`
+- **Validation gateways** : `validateInventoryAccess`, `validateProposalAccess`, `validateAnalyticsAccess`, `health`
+
+**Indexes Firestore wired** (`firestore.indexes.json` lié dans `firebase.json` depuis 2026-04-22) :
+- `pharmacies(countryCode + createdAt)`, `couriers(countryCode + createdAt)`, `exchanges(status + createdAt)`, TTL sur `idempotency.at` et `webhook_logs.expireAt`.
+
+### Frontend `pharmapp_unified` (Flutter 3.13+)
+
+**Modules en prod :**
+- Landing + app selection (pharmacy / courier) + auth role-based via `UnifiedAuthBloc`
+- **Dashboard pharmacy** : 1030-line — wallet, subscriptions, inventory, exchanges, profile, notifications
+- **Dashboard courier** : GPS tracking 30s, smart order sorting (distance/fee/efficiency), QR scan pickup/delivery, photo proof, wallet withdrawal, issue reporting
+- **Inventory** : add (3 voies : DB essentielle WHO 547 médicaments, barcode EAN/UPC/Data Matrix/Code 128/QR, custom), browser avec filtres, dénormalisation `medicineName/Dosage/Form` à la création
+- **Exchange proposals** : create / status / list, city-scoped, snapshot inventaire au moment de la proposition
+- **Medicine requests UI** : écran 3 tabs (Open Requests / My Requests / My Offers) — **purchase-only**, voir section limites
+- **Profile éditable** : GPS picker (formal address, landmark, descriptive), what3words optionnel, Haversine pour calcul distance
+- **Notifications N1** : cloche + badge + inbox temps réel sur events exchange/delivery/wallet
+- **Master data shared** : `MasterDataService` parse `system_config/main` (currencies avec `decimals`, `minWithdrawalMinor`, countries, cities)
+
+### Admin panel (web)
+
+- RBAC country-scoped : `super_admin` global, `admin` par `countryScopes: ['CM']`
+- Gestion pharmacies, couriers, cities, currencies, subscription plans
+- Toutes les opérations sensibles passent par callables backend (writes directs supprimés)
+
+### Sécurité
+
+- HMAC-SHA256 sur phone numbers (hash + encrypt + masked display `677****56`)
+- Cross-validation opérateur/préfixe (MTN 65/67/68, Orange 69, Camtel 62, Ghana stripping `233`)
+- Production blocking des numéros test
+- Firestore rules durcies : `pharmacy_inventory` (Private non lisible), `exchange_proposals`, `deliveries`, `delivery_issues`
+- API keys Firebase **jamais** committées (firebase_options.dart utilise des placeholders, voir Testing phase plus bas)
+
+### URLs prod
+
+- Admin : <https://mediexchange-76872.web.app>
+- App : <https://app-mediexchange.web.app>
 
 ---
 
-### ✅ **Session 21 avril 2026 — Sprint 3.2c-α.1 (minWithdrawalMinor zero semantics)**
+## 🚧 ÉTAT FONCTIONNEL — ce qui n'est PAS livré (à savoir)
 
-**Livré & déployé en prod (commit `ed04ec1`) :**
-- **Backend contract locked** sur `system_config/main.currencies[code].minWithdrawalMinor` :
-  - `null/absent` → fallback canonique silencieux
-  - `> 0` → override valide
-  - `0`, `< 0`, `NaN`, `±Infinity`, non-numeric → **invalid config**, `logger.warn` structuré + fallback
-  - **Principe architectural** : invalid config dégrade en warn+fallback, jamais en outage.
-- **Helper pur `resolveMinimumMinor`** extrait + exporté depuis [createWithdrawalRequest.ts:88-121](functions/src/createWithdrawalRequest.ts#L88-L121) pour testabilité directe (pas de mock firebase-admin ni logger).
-- **13 nouveaux tests** unitaires couvrant T1-T9 + variants : `functions/src/__tests__/createWithdrawalRequest-min-resolution.test.ts`. Full suite backend : **82/82 pass**, zero regression.
-- **Audit pré-deploy exécuté** : `system_config/main.currencies` en prod = {XAF: absent, GHS: absent} → aucune devise invalide → deploy safe.
-- **Deploy** : `createWithdrawalRequest(europe-west1)` sur `mediexchange`.
+### 1. Medicine Requests : MVP purchase-only
 
-**Thread `minWithdrawalMinor` fermé** :
-- Sprint 3.2c-α (commit `f40fa85`) : widget consomme `MasterDataCurrency.minWithdrawalMinor` du snapshot shared avec fallback legacy explicite
-- Sprint 3.2c-α.1 (commit `ed04ec1`) : backend aligne sur la sémantique déjà en vigueur côté widget (`minor != null && minor > 0`)
-- Symétrie canonique UI ↔ backend verrouillée
+Le **flag bloquant** est dans le code :
 
-**Monitoring post-deploy (24h) :**
+- [functions/src/createMedicineRequest.ts:45-50](functions/src/createMedicineRequest.ts#L45-L50) : `Only 'purchase' mode is supported in this version.`
+- [functions/src/submitMedicineRequestOffer.ts:48-53](functions/src/submitMedicineRequestOffer.ts#L48-L53) : `Only 'purchase' offer type is supported in this version.`
+
+**Conséquence** : une pharmacie peut demander un médicament et recevoir des offres d'**achat**, mais pas d'**échange**. La branche "exchange-mode" (Bloc 2 Phase 2) reste à livrer — c'est une feature backlog explicite (voir plus bas).
+
+### 2. License pharmacie : stub non-enforced
+
+- Champ `String? licenseNumber` existe dans [shared/lib/models/unified_user.dart:134](shared/lib/models/unified_user.dart#L134).
+- **Aucune validation, aucune enforcement par pays, aucun flow de vérification.**
+- Le champ peut rester null à l'inscription, aucun guard ne le bloque.
+
+**Conséquence** : pour les pays où la licence est légalement obligatoire (ex. Ghana), le système actuel **n'empêche pas** une pharmacie de s'enregistrer sans licence. C'est une feature à construire.
+
+### 3. Trial subscription auto-création — implémentation absente
+
+L'archive mentionne des functions `createTrialSubscription`, `migratePharmacySubscriptions`, `checkMigrationStatus` (annoncées 2025-09-18). **Ces fichiers n'existent pas dans `functions/src/`.** Soit l'implémentation n'a jamais été aboutie, soit elle a été supprimée. Les inscriptions ne créent **pas** automatiquement de trial actuellement.
+
+À clarifier produit avant d'agir : faut-il (re)construire, ou la logique trial est-elle gérée ailleurs ?
+
+### 4. Asymétries / dettes connues
+
+- `minWithdrawalMinor` exposé widget courier et backend, mais **pas exposé dans `CurrencyOption` du admin panel** → operational debt (admin ne peut pas le modifier via UI).
+- Test hook `debugResolveMinWithdrawalMajor` duplique la logique privée → drift risk MEDIUM.
+- UX `.ceil()` boundary : affichage potentiel +1 unité majeure au pire (cosmétique).
+- 3 orphan Firestore composite indexes en prod (`deliveries`, `pharmacy_inventory`, `subscriptions`) absents de `firestore.indexes.json` — décision re-add ou `--force` delete.
+
+### 5. Cleanup admin UI/UX
+
+Identifié pendant la recette V1+V2 (mars 2026), pas adressé. Détail en mémoire `project_admin_cleanup_todo.md`.
+
+---
+
+## ✅ Sprints récemment fermés (avril 2026)
+
+| Date | Sprint | Sujet | Commits |
+|---|---|---|---|
+| 2026-04-22 | **A + B** | Firestore indexes wiring (`firebase.json`) + script audit drift remote vs local + fix schema CLI v14 | `3df4704`, `98a714d` |
+| 2026-04-21 | **3.3-β** | Node 20 → 22 (deadline Firebase 2026-04-30 sécurisée 9j en avance) | `73f8456` |
+| 2026-04-21 | **3.3-α** | `firebase-functions` 6→7, `firebase-admin` 12→13 | `50acda1` |
+| 2026-04-21 | **3.2c-α.1** | `minWithdrawalMinor` zero/invalid semantics backend + 13 tests | `ed04ec1` |
+| 2026-04-21 | **3.2c-α** | Widget courier consomme `minWithdrawalMinor` depuis snapshot shared | `f40fa85` |
+| 2026-04-21 | **3.2b** | Ghana MSISDN symétrique client↔backend, FR i18n below-min, `decimals` snapshot | `ea61eb0` |
+| 2026-04-19 | **Demo polish** | Notifications N1, Paystack Ghana, Money schema V1 (`amountMinor`), Ghana multi-country, Unknown Medicine fix, dashboard responsive | (multiple) |
+
+**Conséquence majeure** : known noise `expireExchangeHolds` (FAILED_PRECONDITION 30 min) **fully closed**. Audit remote drift en prod = **0** (42 local exports = 42 remote, tous nodejs22).
+
+Pour le détail de Bloc 1 (Inventory Visibility), Bloc 2 Phase 1 (Medicine Requests purchase-only), Admin V1+V2A→V2C (mars 2026) → voir [CLAUDE-ARCHIVE.md](CLAUDE-ARCHIVE.md).
+
+---
+
+## 📋 Backlog vivant
+
+### 🆕 Features produit (priorité à clarifier avec le user)
+
+| ID | Feature | Description | État |
+|---|---|---|---|
+| **F-LICENSE** | License pharmacie obligatoire par pays | Validation `licenseNumber` à l'inscription et en runtime, configurable par pays (`countries.{code}.licenseRequired: bool`). Ghana = required. | À spécifier |
+| **F-BLOC2-P2** | Medicine Requests — exchange mode | Lever le blocage purchase-only dans `createMedicineRequest` + `submitMedicineRequestOffer`. Permettre offre = `purchase` **OU** `exchange` (proposition d'échange avec médicament de la pharmacie offrante). Bridge vers `exchange_proposals` canonique. | À spécifier |
+
+### 🛠️ Sprint planifié
+
+| ID | Sujet | État |
+|---|---|---|
+| **3.2c-β** | MSISDN hardening (gated par audit `methodCode` actif, prompt finalisé avec ajouts A+B+C) | Prêt à exécuter |
+
+### 🧹 Tech debt
+
+| ID | Sujet | Sévérité | Effort |
+|---|---|---|---|
+| **TD-IDX-ORPHANS** | 3 orphan Firestore indexes (`deliveries`, `pharmacy_inventory`, `subscriptions`) — décider re-add source ou `--force` delete | Low | ~1h |
+| **TD-ADMIN-MIN** | `CurrencyOption` admin panel n'expose pas `minWithdrawalMinor` | Medium | ~2h |
+| **TD-DRIFT-HOOK** | `debugResolveMinWithdrawalMajor` duplique la logique privée du widget — drift risk | Medium | ~1h |
+| **TD-CEIL-UX** | Polish `.ceil()` boundary affichage min withdrawal | Low | ~30min |
+| **TD-FCM** | FCM push (N2) — backend trigger à ajouter (activation client plus tard) | Low | ~2h |
+| **TD-ADR001-P1B** | Migration `wallets`/`ledger`/`exchanges` vers `amountMinor` canonique + retrait adapter legacy | Medium | sprint dédié |
+| **TD-BALANCE-CHECK** | Vérifier balance (`totalPrice + courierFee/2`) avant création proposal | Low | ~2h |
+| **TD-ADMIN-UI** | Cleanup UI/UX admin panel identifié pendant recette V1+V2 | Low | sprint dédié |
+| **TD-DEAD-COMMENT** | Commentaire mort `// export { cleanupTestUser } from "./cleanup.js"` dans [functions/src/index.ts:17](functions/src/index.ts#L17) | Trivial | inclus dans ce cleanup |
+
+### ❓ Décisions produit en attente
+
+- **Trial subscription** : reconstruction des functions absentes (`createTrialSubscription` etc.) ou approche différente ?
+- **`devSubscription` / `cleanupTestUser`** : utilité réelle ou suppression définitive du code local ? (Audit 2026-04-22 prouve 0 drift remote, donc pas d'urgence opérationnelle.)
+- **`testpharmacy*` / comptes test** : politique de gestion des données de test en prod.
+
+### 📅 Échéances externes
+
+- **Firebase Node 20 décommissioning** : 2026-10-30. Déjà sécurisé via Node 22 (sprint 3.3-β).
+- Pas d'autre deadline externe identifiée.
+
+---
+
+## 🎯 Objectif global du produit
+
+PharmApp est une **plateforme SaaS d'échange de médicaments entre pharmacies** sur le marché africain, avec :
+- Abonnement mensuel pharmacie (XAF 6 000 - 30 000 / KES / NGN / GHS selon pays)
+- Wallet interne pour payer/recevoir des médicaments et frais de course
+- Course livraison via courier indépendant (50/50 split entre 2 pharmacies)
+- Mobile money topup (MTN MoMo, Orange Money, Paystack Ghana)
+- Admin country-scoped (un admin par pays + super_admin global)
+
+**Pays actifs / en préparation** : Cameroun (XAF, ville-scopé), Ghana (GHS, Paystack), Kenya / Nigeria / autres = framework prêt (multi-currency, multi-country) mais activation par flag.
+
+---
+
+## 🛠️ Dev commands
+
+### Build / run
+
 ```bash
-gcloud logging read 'severity=WARNING
-  AND resource.type="cloud_run_revision"
-  AND resource.labels.service_name="createwithdrawalrequest"
-  AND jsonPayload.message:"invalid minWithdrawalMinor config"' \
-  --project=mediexchange --freshness=24h
-```
-Baseline T0 = 0 warn (conforme audit clean).
-
-**Prochain sprint à ordonnancer : 3.2c-β — MSISDN hardening**, toujours gated par l'audit methodCode actif (cf. prompt finalisé avec ajouts A+B+C).
-
----
-
-### ✅ **Session 21 avril 2026 — Sprint 3.2c-α (widget consumes minWithdrawalMinor from shared snapshot)**
-
-**Livré & déployé** (commit `f40fa85`, no backend deploy nécessaire) :
-- **`MasterDataCurrency.minWithdrawalMinor`** exposé dans le snapshot shared, parsé depuis `system_config/main.currencies[code].minWithdrawalMinor`
-- **Widget courier** consomme `_masterData?.getCurrency(currency)?.minWithdrawalMinor` avec `.ceil()` pour conversion minor→major (jamais under-report)
-- **Legacy `_minWithdrawalByCurrency` table** retenue comme fallback explicite documenté (snapshot null, field absent, ou <= 0)
-- **Static fallback** `_fallbackMinWithdrawalMinorByCurrency` ajouté dans `MasterDataService` pour offline parity backend
-- **Tests widget** : 17/17 pass (11 anciens + 6 nouveaux : snapshot-driven, null fallback, decimals=0 XAF, ceil() rounding, gating consistency)
-
-**Orchestrator run :** 2 agents linéaires (explorer → writer), zéro itération, ~5 min total.
-
-**Follow-ups ouverts post-revue :**
-- Admin panel `CurrencyOption` ne expose pas `minWithdrawalMinor` → operational debt
-- Test hook `debugResolveMinWithdrawalMajor` duplique la logique privée → drift risk MEDIUM
-- Refactor UX polish `.ceil()` boundary (affiche +1 unité majeure au pire)
-
----
-
-### ✅ **Session 21 avril 2026 — Patch 3.2b (Courier Withdrawal config gap)**
-
-**Livré & déployé en prod (commit `ea61eb0`) :**
-- **Ghana MSISDN validation symétrique** : client ([encryption_service.dart:189](shared/lib/services/encryption_service.dart#L189)) + backend ([createWithdrawalRequest.ts:97](functions/src/createWithdrawalRequest.ts#L97) / [:138](functions/src/createWithdrawalRequest.ts#L138)), stripping `233`.
-- **Below-minimum FR localization** : traduction dédiée ajoutée dans [withdrawal_service.dart:108](pharmapp_unified/lib/services/withdrawal_service.dart#L108).
-- **Shared snapshot `decimals`** : `MasterDataCurrency.decimals` parsé dans [master_data_service.dart:104](shared/lib/services/master_data_service.dart#L104) + [master_data_snapshot.dart:94](shared/lib/models/master_data_snapshot.dart#L94), consommé par [courier_wallet_widget.dart:80](pharmapp_unified/lib/widgets/courier/courier_wallet_widget.dart#L80) pour le formatage monétaire.
-- **Deploy** : `createWithdrawalRequest(europe-west1)` sur `mediexchange`.
-
-**Follow-up flagué MEDIUM (non bloquant, à adresser dans sprint 3.2c) :**
-- `minWithdrawalMinor` reste backend-only ([createWithdrawalRequest.ts:324](functions/src/createWithdrawalRequest.ts#L324)), UI widget encore hardcodée — asymétrie UI/backend à fermer via exposition au snapshot shared.
-
-**⚠️ Warning runtime Firebase Functions :**
-- Node.js 20 **deprecation 2026-04-30** / décommissioning 2026-10-30
-- `firebase-functions` package à upgrade (`npm install --save firebase-functions@latest`) — **breaking changes attendus**, à prévoir en sprint dédié avant octobre.
-
----
-
-### ✅ **Session 19 avril 2026 — Demo polish**
-
-**Livré & déployé en prod :**
-- **Notifications N1 (in-app inbox)** : cloche + badge + écran `notifications/{uid}/inbox/{id}`, trigger Firestore sur events exchange/delivery/wallet. Front : `notification_bell.dart`, `notification_service.dart`. Backend : `functions/src/notifications.ts`.
-- **Paystack hosted checkout (Ghana GHS)** : intent `paystackTopupIntent` + webhook HMAC-SHA512 `paystackWebhook`, popup-safe launch via dialog+user-gesture pour éviter les blocks navigateur.
-- **Money schema V1** : `amountMinor` canonique écrit sur tous les nouveaux top-ups (ADR-001 Phase 1a). Adapter `toLegacyWalletUnits` côté crédit pour compat wallets legacy (major × 100).
-- **Ghana multi-country** : flag GH ajouté au country picker, `SANDBOX_PLAN_AMOUNTS.GHS` ({basic:50, professional:150, enterprise:300}), fee courier 3/5 GHS par city.
-- **Courier wallet display fix** : `_fmt` divise par 100 pour afficher legacy units correctement (250.06 GHS au lieu de 25,006 GHS). Backfill wallets Ghana + `completeExchangeDelivery` force currency au crédit.
-- **Delivery history réelle** : `_CourierDeliveryHistory` StreamBuilder sur `deliveries` filtré `courierId + orderBy createdAt desc`.
-- **Unknown Medicine fix** : dénormalisation `medicineName/Dosage/Form` à la création inventory ([inventory_service.dart:73-76](pharmapp_unified/lib/services/inventory_service.dart#L73-L76)) + fallback backend dans `acceptExchangeProposal` (lookup `medicines/{medicineId}` → reconstruction depuis kebab-id → "Unknown Medicine"). Nouvelles livraisons OK, anciennes restent figées.
-- **Dashboard cards responsive** : 2 cols mobile / 4 cols desktop (≥600px), aspect 2.2 (courier) / 1.2 (pharmacy). Icons 32 (courier) / 28 (pharmacy).
-- **Cleanup 3 pharmacies legacy** : `testpharmacy1`, `pharmacytest2`, `pharmacytest3` entièrement supprimées (auth + Firestore) via `functions/scripts/cleanup-pharmacies.cjs`.
-
-**Roadmap post-démo (non bloquant) :**
-- **FCM push (N2)** — backend-ready trigger à ajouter (~2h), activation client plus tard
-- **ADR-001 Phase 1b** — migration wallets/ledger/exchanges vers `amountMinor` canonique + retrait adapter
-- **Check balance avant création proposal** (totalPrice + courierFee/2)
-
-### URLs production
-- Admin : https://mediexchange-76872.web.app
-- App : https://app-mediexchange.web.app
-
----
-
-## 📦 **HISTORIQUE — 2026-03-23 (BLOC 2 CLOS + CLEANUP)**
-
-### ✅ **Admin chantier freezé** — V1 + V2 (A→D) complétés et déployés
-
-### ✅ **Bloc 1 — Inventory Visibility MVP — VALIDÉ & DÉPLOYÉ**
-
-- Toggle Published/Private sur cartes inventaire
-- Rules `pharmacy_inventory` durcies (Private non lisible par autres pharmacies)
-- Snapshot inventaire dans `exchange_proposals`
-- Proposals UI découplée des lectures live
-
-### ✅ **Bloc 2 — Medicine Requests — CLOS & DÉPLOYÉ (23 mars 2026)**
-
-**Sprint 2A (backend)** : 5 callables + helper transactionnel `acceptRequestOfferIntoCanonicalProposal`
-**Sprint 2B (UI)** : écran 3 tabs (Open Requests, My Requests, My Offers) + dialogs + CTA depuis Marketplace
-
-**Sécurité** : writes backend-only, scope géographique revalidé, trial expiry vérifié
-
-### ✅ **Cleanup primaryCurrencyCode — CLOS (23 mars 2026)**
-
-- Champ supprimé du modèle, service, UI, runtime, migration
-- Source de vérité devise = `countries.{countryCode}.defaultCurrencyCode`
-- Champ supprimé de `system_config/main` en prod
-
-### **URLs en production**
-
-- Admin : https://mediexchange-76872.web.app
-- App : https://app-mediexchange.web.app
-
-### ✅ **Contrat V1 `CONTRACT_ADMIN_MASTER_DATA_AND_TREASURY_V1.md` — COMPLÉTÉ**
-
-**Lots V1 :** tous fermés (Lots 1–4, Sprints 1 → 4C)
-
-### ✅ **V2A — Country-scoped admin foundation — VALIDÉ (22 mars 2026)**
-
-**Modèle RBAC :**
-- `super_admin` = global, voit tout
-- `admin` = scoped par `countryScopes: ['CM']`, ne voit que ses pays
-- `admin` sans scopes = non-opérationnel (sécurité par défaut)
-
-**Ce qui a été livré :**
-- `admin_panel/lib/models/admin_user.dart` — `countryScopes`, `isGlobal` = super_admin only, `hasCountryScope()` ✅
-- `admin_panel/lib/services/admin_auth_service.dart` — guards create/update pour scopes obligatoires ✅
-- `admin_panel/lib/services/pharmacy_management_service.dart` — `getScopedPharmaciesStream()`, toggle via callable ✅
-- `admin_panel/lib/screens/admin_dashboard_screen.dart` — navigation dynamique par rôle, KPIs scopés ✅
-- `admin_panel/lib/screens/pharmacy_management_screen.dart` — liste pharmacies scopée ✅
-- `functions/src/setPharmacyActive.ts` — callable avec validation scope pays ✅
-- `firestore.indexes.json` — index `pharmacies: countryCode + createdAt` ✅
-
-### ✅ **V2B — City management via callables — VALIDÉ (22 mars 2026)**
-
-**Ce qui a été livré :**
-- `functions/src/upsertCity.ts` — callable create/update/disable avec guards admin + scope pays + defaultCityCode coherence ✅
-- `admin_panel/lib/services/system_config_service.dart` — `upsertCityViaCallable()`, direct writes supprimés ✅
-- `admin_panel/lib/screens/system_config/cities_tab.dart` — `allowedCountryCodes` filter, callable, erreurs backend ✅
-- `admin_panel/lib/screens/city_management_screen.dart` — écran standalone pour admins scoped ✅
-- Pas de hard delete — soft delete via `enabled: false` ✅
-
-### ✅ **V2C — Courier management by country — VALIDÉ (22 mars 2026)**
-
-**Ce qui a été livré :**
-- `functions/src/setCourierActive.ts` — callable toggle isActive avec guards admin + scope pays ✅
-- `admin_panel/lib/models/courier_user.dart` — modèle admin (fullName, vehicleType, licensePlate, phone/phoneNumber fallback) ✅
-- `admin_panel/lib/services/courier_management_service.dart` — stream global/scoped + callable ✅
-- `admin_panel/lib/screens/courier_management_screen.dart` — écran admin avec recherche, filtre, toggle, détails ✅
-- `admin_panel/lib/screens/admin_dashboard_screen.dart` — nav "Couriers" pour admins canManagePharmacies ✅
-- `firestore.indexes.json` — index `couriers: countryCode + createdAt` ✅
-
-**Déploiement cumulé requis (V1 + V2A + V2B + V2C) :**
-1. `firebase deploy --only firestore:indexes`
-2. `firebase deploy --only firestore:rules`
-3. `firebase deploy --only functions`
-
-**Prochain sprint V2 :**
-- **V2D** : finance par pays (optionnel)
-
----
-
-## 🗂️ **PREVIOUS STATUS - 2025-10-26 (PROFILE FEATURE COMPLETE!)**
-
-### 🎉 **SESSION ACHIEVEMENTS - 2025-10-26 (EDITABLE PROFILE WITH GPS LOCATION!):**
-- **Profile Feature Complete**: ✅ Migrated editable ProfileScreen with full GPS location picker functionality
-- **8 Components Migrated**: ✅ ~1,400 lines of code transferred from pharmacy_app to pharmapp_unified
-- **Flutter Compatibility Fixed**: ✅ withValues() → withOpacity() for Flutter 3.13 compatibility (RangeError resolved)
-- **GPS Location System**: ✅ Advanced location picker supporting formal addresses, landmarks, and descriptions for global deployment
-- **Firestore Rules Fixed**: ✅ Added missing rules for pharmacy_inventory and exchange_proposals collections
-- **Dashboard Black Screen Resolved**: ✅ Fixed PERMISSION_DENIED errors preventing dashboard from loading
-- **pharmacy_app Disabled**: ✅ Renamed pubspec.yaml to .OBSOLETE to prevent accidental builds
-- **Code Review Score**: ✅ 9.2/10 - APPROVED for production deployment
-- **Git Commit**: ✅ Commit 205971d pushed successfully - ready for exchange flow testing
-- **Security Audit**: ✅ NO sensitive data exposure - all files safe for commit
-
-### 🎯 **Profile Features Implemented - 2025-10-26:**
-- ✅ **Editable Profile**: Full edit capability for pharmacy name, phone, and address
-- ✅ **GPS Location Picker**: Interactive map with tap-to-select and current location button
-- ✅ **Three Address Types**: Formal (street address), Landmark-based, Descriptive location
-- ✅ **what3words Support**: Optional ultra-precise location sharing
-- ✅ **Global Deployment Ready**: Designed for Africa, Asia, South America (areas without formal addresses)
-- ✅ **Distance Calculation**: Haversine formula for pharmacy-to-pharmacy distance
-- ✅ **Courier Navigation**: GPS coordinates + address + what3words for delivery routing
-- ✅ **Async Safety**: Mounted checks to prevent crashes on disposed widgets
-- ✅ **BLoC Architecture**: Maintains UnifiedAuthBloc pattern for state management
-- ✅ **Direct Firestore Updates**: Atomic updates to both users and pharmacies collections
-
-### 📋 **Profile Module Files (1,400+ lines):**
-1. **Main Screen**: profile_screen.dart (383 lines) - Editable profile with GPS location picker
-2. **Widgets**: auth_text_field.dart (64 lines) - Styled text input widget, location_picker_widget.dart - Interactive map component
-3. **Screens**: location_picker_screen.dart (481 lines) - Full-featured map-based location selector with address forms
-4. **Models**: pharmacy_user.dart (184 lines), location_data.dart (203 lines), subscription.dart - Complete user data models
-5. **Services**: location_service.dart - GPS location handling and validation
-6. **Backend**: firestore.rules - Added pharmacy_inventory and exchange_proposals rules to fix dashboard
-
-### 🐛 **Critical Bugs Fixed - 2025-10-26:**
-1. **RangeError with withValues()**: User identified Flutter 3.27+ API incompatibility - fixed by replacing with withOpacity()
-2. **Black Screen After Profile Save**: Missing Firestore rules for pharmacy_inventory and exchange_proposals - deployed new rules to Firebase
-3. **Missing subscription.dart**: Copied from pharmacy_app to resolve PharmacyUser import error
-4. **Missing Mounted Checks**: Added async safety checks at lines 106, 114 to prevent crashes
-5. **pharmacy_app Still Loading**: Renamed pubspec.yaml to .OBSOLETE to make standalone app unbuildable
-
-### 🎉 **PREVIOUS SESSION - 2025-10-25 (INVENTORY & EXCHANGE MIGRATION COMPLETE!):**
-- **Missing Features Migrated**: ✅ Inventory and Exchange features copied from pharmacy_app to pharmapp_unified
-- **African Medicines Database**: ✅ 547-line WHO Essential Medicines List for Africa integrated
-- **Inventory Screens Complete**: ✅ 4 screens (Add Medicine, Barcode Scanner, Custom Medicine, Browser) - 84KB total
-- **Exchange Screens Complete**: ✅ 3 screens (Create Proposal, Status, Proposals List) - 71KB total
-- **Services Migrated**: ✅ inventory_service, exchange_service, barcode_parser, medicine_lookup, secure_subscription
-- **Models Migrated**: ✅ pharmacy_inventory, exchange_proposal, barcode_medicine_data, medicine
-- **Import Paths Fixed**: ✅ All relative imports updated for new directory structure (../../ → ../../../)
-- **Camera Permissions Enhanced**: ✅ Added permission denial handling with graceful fallback to manual entry
-- **Backend Exchange Verified**: ✅ exchangeCapture function confirmed complete with 50/50 courier fee split
-- **Code Review Score**: ✅ 8.5/10 - APPROVED WITH MINOR RECOMMENDATIONS
-- **Security Audit**: ✅ NO sensitive data exposure - all files safe for commit
-
-### 🎯 **Inventory & Exchange Features - 2025-10-25:**
-- ✅ **African Medicines Database**: 500+ essential medicines (WHO list) for quick selection
-- ✅ **Barcode Scanning**: EAN-13, UPC-A, Data Matrix, Code 128, QR codes with camera permission handling
-- ✅ **Custom Medicine Creation**: Manual entry when barcode not found
-- ✅ **Inventory Browser**: Category filtering, search, quantity management
-- ✅ **Exchange Proposals**: City-based peer-to-peer medicine exchange creation
-- ✅ **Exchange Status Tracking**: Real-time status updates for active exchanges
-- ✅ **Subscription Guards**: Premium features protected with secure_subscription_service
-- ✅ **Backend Integration**: Complete exchangeCapture workflow with wallet debits and courier payments
-
-### 📋 **Inventory & Exchange Files (155KB+):**
-1. **Data**: essential_medicines.dart (547 lines) - WHO Essential Medicines List for Africa
-2. **Models**: medicine.dart, pharmacy_inventory.dart, exchange_proposal.dart, barcode_medicine_data.dart
-3. **Services**: inventory_service.dart, exchange_service.dart, barcode_parser_service.dart, medicine_lookup_service.dart, secure_subscription_service.dart
-4. **Inventory Screens**: add_medicine_screen.dart (33KB), barcode_scanner_screen.dart (15KB), create_custom_medicine_screen.dart (15KB), inventory_browser_screen.dart (20KB)
-5. **Exchange Screens**: create_proposal_screen.dart (26KB), exchange_status_screen.dart (19KB), proposals_screen.dart (26KB)
-6. **Backend**: exchangeCapture function (247 lines) - Complete exchange workflow with atomicity
-
-### 🎉 **PREVIOUS SESSION - 2025-10-25 (COURIER MIGRATION COMPLETE!):**
-- **Courier Module Migrated**: ✅ Complete migration of 4,913+ lines to pharmapp_unified MASTER app
-- **DeliveryBloc Architecture**: ✅ Proper BLoC pattern with 7 events, 9 states, stream-based updates
-- **Firestore Permissions Fixed**: ✅ Couriers can now read pending deliveries (PERMISSION_DENIED resolved)
-- **Back Button Crash Fixed**: ✅ PopScope with exit confirmation dialog on both pharmacy & courier screens
-- **URL Launcher Integrated**: ✅ Google Maps navigation for delivery routes
-- **Issue Reporting Complete**: ✅ 7 issue types with Firestore backend integration
-- **Code Review Score**: ✅ 8.5/10 - APPROVED for production deployment
-- **Security Audit**: ✅ NO sensitive data - safe for git commit
-- **Testing Validated**: ✅ User confirmed: "the courier app seems ok"
-
-### 🎯 **Courier Features Implemented - 2025-10-25:**
-- ✅ **GPS Tracking**: Real-time location updates every 30 seconds with proper cleanup
-- ✅ **Smart Order Sorting**: Proximity-based algorithm (distance 60%, fee 20%, efficiency 20%)
-- ✅ **QR Scanning**: Pickup and delivery verification with security validation
-- ✅ **Photo Proof**: Camera integration for delivery confirmation with fallback
-- ✅ **Wallet Withdrawals**: Mobile money integration (MTN/Orange) with 1,000 XAF minimum
-- ✅ **Issue Reporting**: 7 predefined types with admin resolution workflow
-- ✅ **Navigation**: url_launcher integration for Google Maps turn-by-turn
-- ✅ **Complete Lifecycle**: Accept → En Route → Pickup → Deliver workflow
-
-### 📋 **Courier Module Files (4,913+ lines):**
-1. **Models**: delivery.dart (288 lines) - Delivery, DeliveryLocation, DeliveryItem
-2. **Services**: delivery_service.dart (397 lines), courier_location_service.dart (170 lines)
-3. **BLoC**: delivery_bloc.dart (230 lines) - Complete state management
-4. **Screens**: courier_main_screen.dart, active_delivery_screen.dart (894 lines), available_orders_screen.dart (700 lines), qr_scanner_screen.dart, delivery_camera_screen.dart, order_details_screen.dart
-5. **Widgets**: courier_wallet_widget.dart (371 lines) - Withdrawal workflow
-6. **Backend**: firestore.rules - Courier permissions + delivery_issues collection
-
-### 🎉 **PREVIOUS SESSION - 2025-10-25 (Wallet Testing):**
-- **Login Navigation Fixed**: ✅ Resolved persistent bug where users needed back button after login
-- **Sandbox Wallet Credit**: ✅ Added Gmail account pattern to `sandboxCredit` function - ALL Gmail accounts allowed
-- **Sandbox Wallet Debit**: ✅ Created NEW `sandboxDebit` Firebase function - withdraw feature now working
-- **Backend Repository Cloned**: ✅ Cloned https://github.com/crepmaster/pharmapp locally for function development
-- **Firebase Functions Deployed**: ✅ Both `sandboxCredit` and `sandboxDebit` deployed to production (`mediexchange`)
-- **Sandbox Testing Screen**: ✅ Complete wallet testing UI with add/withdraw money functionality
-- **Exchange Testing Plan**: ✅ Comprehensive test plan created for city-based peer-to-peer medicine exchange
-- **Security Validation**: ✅ API keys removed from all commits - placeholder-only in git history
-
-### 🎯 **Features Tested & Working - 2025-10-25:**
-- ✅ **Login Navigation**: Direct navigation to dashboard (no back button needed)
-- ✅ **Wallet Credit (Add Money)**: Gmail accounts can credit test wallets
-- ✅ **Wallet Debit (Withdraw Money)**: Gmail accounts can debit test wallets
-- ✅ **Balance Validation**: Prevents overdrafts with insufficient funds checks
-- ✅ **Real-time Balance Updates**: Wallet UI refreshes after transactions
-- ✅ **Ledger Audit Trail**: All transactions logged in Firestore
-
-### 📋 **Next Session: Exchange Workflow Testing**
-- **Test Accounts**: 3 pharmacies (2 in Douala, 1 in Yaoundé) + 1 courier
-- **City Isolation**: Verify pharmacies only see medicines in their own city
-- **Complete Exchange**: Test courier fee split, medicine payment, delivery completion
-- **Expected Balances**: Pharmacy A: 47k, Pharmacy B: 97k, Courier C: 6k XAF
-- **Test Plan**: [docs/testing/NEXT_SESSION_EXCHANGE_TESTING.md](docs/testing/NEXT_SESSION_EXCHANGE_TESTING.md)
-
-### 🎉 **SESSION ACHIEVEMENTS - 2025-10-24 (MASTER APP ESTABLISHED):**
-- **MASTER APP ESTABLISHED**: ✅ `pharmapp_unified` is now the master application for all pharmacy functionality
-- **Complete Dashboard Migration**: ✅ ALL pharmacy features transferred from standalone app to unified app
-- **Feature Parity Achieved**: ✅ 1030-line production dashboard with wallet, subscriptions, inventory, exchanges, profile
-- **Logout Bug Fixed**: ✅ Fixed critical BLoC state handling bug in main.dart (Unauthenticated state not handled)
-- **Architecture Cleanup**: ✅ Marked `pharmacy_app/` as OBSOLETE in documentation
-- **Code Review Analysis**: ✅ Comprehensive analysis of why reviewer missed logout bug + recommendations
-- **File Transfer Complete**: ✅ All services, models, widgets, screens copied to unified app
-
-### 🎉 **SESSION ACHIEVEMENTS - 2025-10-24 (Evening Session):**
-- **Unified Landing Page**: ✅ Created beautiful app selection screen (choose Pharmacy or Courier)
-- **Role-Based Authentication**: ✅ Implemented role-specific login screens with dynamic branding
-- **Navigation Architecture**: ✅ Complete flow: Landing → App Selection → Role-Specific Auth → Dashboard
-- **BLoC Provider Propagation**: ✅ Fixed critical navigation issues with proper BlocProvider.value usage
-- **Async Safety**: ✅ Added mounted checks to prevent navigation on disposed widgets
-- **Error & Loading States**: ✅ Comprehensive UI feedback for auth states (already present, verified)
-- **Code Review Score**: ✅ 7.5/10 → Fixed all 3 critical issues → Expected 9.0/10
-- **PharmApp Unified**: ✅ Running successfully on http://localhost:49199 (port 8086)
-
-### 🎉 **SESSION ACHIEVEMENTS - 2025-10-24 (Earlier Today):**
-- **UnifiedAuthBloc Migration**: ✅ Both pharmacy_app AND courier_app fully migrated to unified authentication
-- **CRITICAL BUG FIX**: ✅ Fixed duplicate BlocProvider causing registration navigation failure (both apps)
-- **Architecture Improvement**: ✅ Single source of truth - one UnifiedAuthBloc instance per app
-- **Code Reviewer Enhanced**: ✅ Added mandatory BLoC architecture checks to prevent future issues
-- **Registration Flow**: ✅ Complete end-to-end working (register → auto-login → dashboard navigation)
-- **Obsolete Code Cleanup**: ✅ Deleted old AuthBloc from both pharmacy_app and courier_app
-- **Firebase Keys Setup**: ✅ Permanent testing environment with secure .gitignore protection
-- **Consistent Architecture**: ✅ All apps now use unified authentication system (pharmacy, courier, admin)
-
-### 🎉 **PREVIOUS SESSION ACHIEVEMENTS - 2025-10-20:**
-- **Android Emulator**: ✅ Now working - Pharmacy app builds and runs successfully on Pixel 9a emulator
-- **Build Errors Fixed**: ✅ Created firebase_options.dart with environment-aware configuration
-- **Type Safety**: ✅ Fixed Country enum type issues in auth_service.dart
-- **Firebase Functions**: ✅ Added cleanup.ts for database maintenance
-- **Project Organization**: ✅ Cleaned project structure (30 MD files → 2 in root, organized into docs/)
-- **Agent System**: ✅ Complete workflow validated (Codeur→Reviewer→Testeur→Chef)
-- **Quality Metrics**: ✅ Code review: 10/10 score, 100% compliance, first approval rate: 100%
-- **Development Status**: ✅ Full development environment operational, zero runtime errors
-
-### ✅ **PAYMENT SYSTEM INTEGRATION COMPLETE - PRODUCTION READY**
-- **Security Score**: 9.5/10 (Enterprise-grade encryption + comprehensive security hardening)
-- **Business Management**: ✅ Complete admin system with currency, cities, and plans
-- **Security Audit**: ✅ All critical vulnerabilities resolved with encryption
-- **API Key Security**: ✅ Complete remediation of Google API key exposure
-- **Unified Wallet System**: ✅ Complete wallet integration across all apps with auto-creation
-- **Payment Preferences**: ✅ Complete encrypted payment operator selection system
-- **Mobile Money Integration**: ✅ MTN MoMo, Orange Money with cross-validation
-
-### 💳 **ENCRYPTED PAYMENT PREFERENCES SYSTEM - COMPLETED:**
-- **HMAC-SHA256 Encryption**: Production-grade encryption for phone numbers and sensitive data
-- **Masked Display**: Phone numbers shown as 677****56 for privacy protection
-- **Environment-Aware Security**: Test numbers blocked in production, allowed in development  
-- **Operator Cross-Validation**: MTN (65/67/68), Orange (69), Camtel (62) prefix validation
-- **Secure Storage**: Encrypted phone data in Firestore, never plaintext storage
-- **Registration Integration**: Payment method selection during user registration
-- **GDPR/NDPR Compliance**: Privacy by design with comprehensive data protection
-- **Audit Logging**: Secure logging without sensitive data exposure
-
-### 🔒 **ENTERPRISE-GRADE SECURITY COMPLETE:**
-- **Server-Side Validation**: 3 Firebase Functions deployed and operational ✅
-- **Payment Data Encryption**: HMAC-SHA256 encryption for all sensitive payment data ✅
-- **Phone Number Protection**: Triple-layer security (hash + encrypt + mask) ✅
-- **Production Environment Controls**: Environment-aware test number blocking ✅
-- **Cross-Method Validation**: MTN/Orange operator-phone number validation ✅
-- **Privacy Protection**: 200+ debug statements sanitized (no sensitive data exposure) ✅
-- **Admin Security**: Proper Firestore rules with `isSuperAdmin()` validation ✅
-- **App Stability**: Async BuildContext safety with `mounted` checks ✅
-- **Revenue Protection**: Subscription bypass impossible with server-side enforcement ✅
-- **API Key Security**: Google API keys completely purged from git history ✅
-- **Authentication System**: Complete unified registration with automatic navigation ✅
-- **Automated Security Reviews**: Git hooks implemented for automatic security scanning ✅
-
-### 🏢 **COMPREHENSIVE ADMIN BUSINESS MANAGEMENT:**
-- **Multi-Currency System**: Dynamic currency management (XAF, KES, NGN, GHS, USD)
-- **City-Based Operations**: Geographic pharmacy and courier grouping system
-- **Dynamic Subscription Plans**: Admin-created plans with flexible multi-currency pricing
-- **System Configuration**: Complete admin interface for business settings management
-- **Regional Expansion Ready**: Framework for African multi-country deployment
-
-### 💰 **BUSINESS MODEL - FULLY OPERATIONAL:**
-- **African Market Pricing**: XAF 6,000-30,000 (Cameroon), KES 1,500-7,500 (Kenya)
-- **Dynamic Plans**: Admin-configurable subscription tiers and pricing
-- **Trial System**: 14-30 day free trials with automatic conversion
-- **City-Based Delivery**: Courier operations restricted by geographic zones
-- **Payment Integration**: Mobile money (MTN MoMo, Orange Money) + unified wallet system
-- **Unified Wallet**: Automatic wallet creation, courier earnings, withdrawal management
-
-### 🌍 **AFRICAN DEPLOYMENT READY:**
-- **25+ Cities Pre-configured**: Major pharmaceutical markets across 4 countries
-- **Currency Exchange**: Real-time rate management for regional operations  
-- **Regulatory Compliance**: Healthcare data security and privacy protection
-- **Network Optimization**: Designed for African connectivity conditions
-
-### 🎯 **PRODUCTION LAUNCH STATUS:**
-**APPROVED FOR IMMEDIATE DEPLOYMENT** - All critical systems operational:
-1. ✅ **3 Mobile Applications**: Pharmacy, Courier, Admin panel fully functional
-2. ✅ **9+ Firebase Functions**: Backend services deployed and tested
-3. ✅ **Enterprise Security**: Comprehensive audit passed with 9.5/10 score
-4. ✅ **Business Management**: Complete admin configuration system
-5. ✅ **African Market Ready**: Multi-currency, multi-country framework
-
----
-
-## Project Overview
-
-This repository contains a Flutter-based medicine exchange platform with three applications that connect to a Firebase backend system:
-
-- **pharmacy_app/**: Mobile app for pharmacies to manage inventory and exchange medicines
-- **courier_app/**: Mobile app for couriers handling deliveries between pharmacies
-- **admin_panel/**: Web-based admin control panel for subscription and pharmacy management
-- **shared/**: Shared code and utilities including encrypted payment preferences system
-
-All apps are built with Flutter 3.13+ and use Firebase as the backend service.
-
-### Backend Integration
-
-The mobile apps connect to a Firebase backend system (separate repository at D:\Projects\pharmapp) that provides:
-- **Payment Processing**: Mobile money integration (MTN MoMo, Orange Money)
-- **Exchange Management**: Peer-to-peer pharmaceutical exchanges with escrow functionality
-- **Wallet System**: User balance management with hold/release mechanisms
-- **Firebase Functions**: Cloud functions for payment webhooks, exchange workflows, and scheduled tasks
-- **Firebase Project ID**: `mediexchange`
-
-## Development Commands
-
-### Building and Running
-
-## 🧪 **TESTING PHASE WORKFLOW**
-
-**CRITICAL SECURITY RULE: Real API keys are TEMPORARY for testing only!**
-
-### Testing Phase Procedure:
-
-#### 🔓 **START Testing Phase**
-1. **Get Firebase Keys** (automated via Firebase CLI):
-   ```bash
-   # Get real API keys from Firebase project
-   firebase apps:sdkconfig web --project=mediexchange
-   ```
-   Copy the `apiKey` and `appId` values from the output.
-
-2. **Temporarily Add Real Keys**:
-   Edit `pharmacy_app/lib/firebase_options.dart` lines 28 & 30:
-   ```dart
-   // TESTING PHASE: Replace placeholders with real keys (from firebase CLI)
-   defaultValue: 'AIzaSyDrM96tzLwGkVaCvqEP9cWAXZYqvOEGyAs',      // ← Real key here
-   defaultValue: '1:850077575356:web:67c7130629f17dd57708b9',   // ← Real app ID here
-   ```
-
-3. **Deploy CORS-enabled Functions** (if needed):
-   ```bash
-   cd functions && npm run build
-   cd functions && firebase deploy --only functions:topupIntent
-   ```
-
-4. **Run Applications**:
-   ```bash
-   cd pharmacy_app && flutter run -d chrome --web-port=8084
-   cd courier_app && flutter run -d chrome --web-port=8085  
-   cd admin_panel && flutter run -d chrome --web-port=8086
-   ```
-
-#### 🔒 **END Testing Phase (MANDATORY)**
-**BEFORE ANY GIT COMMIT**: Restore placeholders in `firebase_options.dart`:
-```dart
-// SECURE: Restore placeholders before committing
-defaultValue: 'AIzaSyC-PLACEHOLDER-REPLACE-WITH-REAL-KEY'
-defaultValue: '1:850077575356:web:PLACEHOLDER-REPLACE-WITH-REAL-APPID'
+# Frontend (master app)
+cd pharmapp_unified && flutter run -d chrome --web-port=8086
+cd admin_panel && flutter run -d chrome --web-port=8087
+
+# Backend functions
+cd functions && npm run build      # tsc clean
+cd functions && npm test           # 82+ tests
+cd functions && npm run serve      # emulator
 ```
 
-**This ensures real Firebase keys are NEVER committed to git history!**
+### Deploy
 
-**🔑 Test Accounts (Real Firebase Data):**
-```
-Email: meunier@promoshake.net
-Password: [use your actual password from registration]
-Pharmacy: Test Pharmacy with encrypted payment preferences (from 2025-09-08)
-
-Email: 09092025@promoshake.net
-Password: [your new password]
-Pharmacy: New test pharmacy (created 2025-09-09)
-```
-
-**📱 Test Mobile Money Numbers:**
-- MTN: 677123456, 678123456
-- Orange: 694123456, 695123456
-
-## 💰 **WALLET TESTING PROCEDURES**
-
-### **Frontend Wallet Testing Steps**:
-
-1. **Login to Test Account**:
-   - Use: `09092025@promoshake.net` (has 25,000 XAF pre-credited)
-   - Navigate to: http://localhost:8084
-   
-2. **Check Initial Balance**:
-   - Dashboard should display current wallet balance
-   - Should show: 25,000 XAF from previous sandboxCredit operations
-
-3. **Test Wallet Top-up (Frontend)**:
-   - Click "Add Money" or "Top-up Wallet" button
-   - Select payment method (MTN/Orange)
-   - Enter amount (e.g., 10,000 XAF)
-   - Enter test mobile number
-   - **Known Issue**: CORS error may occur with `topupIntent` function
-   
-4. **Alternative: Direct API Testing**:
-   ```bash
-   # Test sandboxCredit function directly (working alternative)
-   curl -X POST https://europe-west1-mediexchange.cloudfunctions.net/sandboxCredit \
-     -H "Content-Type: application/json" \
-     -d '{
-       "email": "09092025@promoshake.net",
-       "amount": 10000,
-       "currency": "XAF"
-     }'
-   ```
-
-5. **CORS Troubleshooting** (if topupIntent fails):
-   ```bash
-   # Verify CORS is enabled on topupIntent
-   curl -i -X OPTIONS https://europe-west1-mediexchange.cloudfunctions.net/topupIntent \
-     -H "Origin: http://localhost:8084" \
-     -H "Access-Control-Request-Method: POST"
-   
-   # Should return: access-control-allow-origin: http://localhost:8084
-   ```
-
-6. **Backend Wallet Verification**:
-   ```bash
-   # Check wallet balance via backend
-   cd functions && pwsh ./scripts/test-cloudrun.ps1 -GetWallet 09092025@promoshake.net
-   ```
-
-### **Expected Test Results**:
-- ✅ Wallet balance displays correctly in frontend
-- ✅ sandboxCredit function works (CORS enabled)
-- ⚠️  topupIntent may have CORS issues (requires deployment fix)
-- ✅ Backend wallet queries work via PowerShell script
-
-**Building APKs:**
 ```bash
-# Build APK for pharmacy app
-cd pharmacy_app && flutter build apk
-
-# Build APK for courier app
-cd courier_app && flutter build apk
-
-# Build web app for admin panel
-cd admin_panel && flutter build web
+firebase deploy --only firestore:indexes      # indexes
+firebase deploy --only firestore:rules        # rules
+firebase deploy --only functions              # all functions
+firebase deploy --only functions:NAME         # one function
 ```
 
-### Testing and Analysis
+### Audit drift remote vs local
+
 ```bash
-# Run tests for pharmacy app
-cd pharmacy_app && flutter test
-
-# Run tests for courier app
-cd courier_app && flutter test
-
-# Analyze code for issues
-cd pharmacy_app && flutter analyze
-cd courier_app && flutter analyze
-
-# Format code
-cd pharmacy_app && dart format .
-cd courier_app && dart format .
+node functions/scripts/audit-remote-drift.mjs --project mediexchange
 ```
 
-### Firebase
-Firebase project ID: `mediexchange`
-Both apps are configured with Firebase and include:
-- Authentication
-- Firestore database
-- Cloud Functions
-- Push notifications
-
-### Backend System Architecture (D:\Projects\pharmapp)
-
-**Firestore Collections:**
-- `payments` - Payment intent records
-- `webhook_logs` - Webhook call logs (TTL: 30 days)
-- `wallets` - User wallet balances (available/held amounts)
-- `ledger` - Transaction history
-- `exchanges` - Exchange state (hold_active/completed/canceled)
-- `idempotency` - Idempotency tracking
-
-**Key Workflows:**
-- Payment Flow: Create payment intent → External webhook → Credit wallet (idempotent)
-- Exchange Flow: Create hold (50/50 courier fee split) → Capture/Cancel → Process transaction
-- Security: Webhook authentication, Firestore rules, ACID transactions, idempotency
-
-**Backend Commands:**
-- `cd functions && npm run build` - Build TypeScript functions
-- `cd functions && npm run serve` - Start Firebase emulator
-- `cd functions && npm run deploy` - Deploy functions
-- `cd functions && npm test` - Run 69 unit tests
-- `pwsh ./scripts/test-cloudrun.ps1 -RunDemo` - Test full payment/exchange flow
-
-## Architecture
-
-### Technology Stack
-- **Framework**: Flutter 3.13+
-- **State Management**: flutter_bloc + equatable
-- **Backend**: Firebase (Auth, Firestore, Functions, Messaging)
-- **UI**: Material Design 3 with custom theming
-- **Maps**: Google Maps (courier app only)
-- **QR Codes**: Both scanning and generation capabilities
-- **Security**: HMAC-SHA256 encryption for sensitive payment data
-
-### Key Dependencies
-- **firebase_core/firebase_auth/cloud_firestore**: Firebase integration
-- **flutter_bloc**: State management pattern
-- **google_maps_flutter**: Maps functionality (courier app)
-- **qr_code_scanner/qr_flutter**: QR code handling
-- **cached_network_image**: Optimized image loading
-- **shared_preferences/sqflite**: Local data persistence
-- **crypto**: HMAC-SHA256 encryption for payment data security
-
-### App-Specific Features
-
-**Pharmacy App**:
-- Primary color: Blue (#1976D2) 
-- Focus on inventory management and medicine exchange
-- QR code generation for orders
-- Encrypted payment preferences with masked display
-
-**Courier App**:
-- Primary color: Green (#4CAF50)
-- GPS/location services with Google Maps
-- QR code scanning for order verification
-- Camera permissions for delivery proof
-
-### Project Structure
-Each app follows standard Flutter architecture:
-- `lib/main.dart`: Entry point with Firebase initialization
-- `lib/firebase_options.dart`: Firebase configuration
-- `pubspec.yaml`: Dependencies and asset declarations
-- `assets/`: Images, icons, and fonts (Inter font family)
-
-## 🔄 **Latest Session Work (2025-09-08)**
-
-### ✅ **COMPLETED - ENCRYPTED PAYMENT PREFERENCES SYSTEM**
-
-Following user request to "encrypt phone and other sensitive data", implemented comprehensive encryption system:
-
-#### **🔒 NEW FILES CREATED:**
-- **`shared/lib/services/encryption_service.dart`** (329 lines):
-  - HMAC-SHA256 encryption with custom salts
-  - Phone number hashing and masking (677****56)
-  - Cameroon mobile validation (MTN: 65/67/68, Orange: 69, Camtel: 62)
-  - Environment-aware test number blocking
-  - Secure audit logging without sensitive data exposure
-
-#### **🔄 ENHANCED FILES:**
-- **`shared/lib/models/payment_preferences.dart`** (189 lines):
-  - Added `encryptedPhone` and `phoneHash` fields for secure storage
-  - Enhanced with `maskedPhone`, `isSecurityCompliant` getters
-  - `PaymentPreferences.createSecure()` factory method
-  - Environment-aware `getSandboxNumber()` method
-  - Secure `toString()` with masked phone display
-
-- **`shared/lib/screens/auth/payment_method_screen.dart`** (enhanced):
-  - Added EncryptionService integration for validation
-  - Cross-method validation (phone matches selected operator)
-  - Production test number blocking
-  - Environment-aware UI (test numbers only shown in development)
-  - Enhanced security with PaymentPreferences.createSecure()
-
-- **`shared/pubspec.yaml`**: Added `crypto: ^3.0.3` dependency
-- **`shared/lib/pharmapp_shared.dart`**: Exported EncryptionService
-
-#### **🛡️ SECURITY IMPROVEMENTS:**
-- **Phone Number Security**: Triple-layer protection (hash + encrypt + mask)
-- **Production Safety**: Environment-aware controls block test numbers in production
-- **Operator Validation**: Cross-validation prevents MTN numbers with Orange selection
-- **Privacy by Design**: Masked display (677****56) prevents accidental exposure
-- **GDPR/NDPR Compliance**: Comprehensive data protection implementation
-
-#### **📊 SECURITY REVIEW RESULTS:**
-- **Previous Score**: 7.5/10 (Critical issues identified)
-- **Current Score**: 9.5/10 (Enterprise-grade security achieved)
-- **Status**: ✅ **APPROVED FOR PRODUCTION DEPLOYMENT**
-
-### 🔧 **TECHNICAL FIXES:**
-- Fixed `FirebaseFirestore` import in `pharmacy_app/lib/services/unified_auth_service.dart`
-- Fixed missing required arguments in `Subscription` constructor with `currency: 'XAF'` and `isYearly: false`
-
-### 💰 **SANDBOX CREDIT SYSTEM - LATEST ADDITION (2025-09-09):**
-- **`sandboxCredit` Firebase Function**: Deployed to production for testing wallet functionality
-- **Security Features**: Only works with test account patterns (`*@promoshake.net`, `test*@*`, etc.)
-- **Credit Limits**: Maximum 100,000 XAF per sandbox credit operation
-- **Function URL**: `https://europe-west1-mediexchange.cloudfunctions.net/sandboxCredit`
-- **Test Account**: `09092025@promoshake.net` (User ID: `Mlq8s7N3QZb6Z2kIWGYBZab07u52`) credited with 25,000 XAF
-- **Usage**: Enables testing wallet top-ups, balance displays, and transaction flows without real payments
-
-### 🆕 **TRIAL SUBSCRIPTION SYSTEM - IMPLEMENTED (2025-09-18):**
-- **Automatic Trial Creation**: New pharmacy registrations get 30-day trial subscriptions automatically
-- **Migration Script**: `migratePharmacySubscriptions` function to update existing pharmacies
-- **Backend Functions**: `createTrialSubscription`, `checkMigrationStatus` implemented
-- **Subscription Validation**: All subscription guard services updated for trial support
-- **Field Type Fixes**: Proper Firestore timestamp fields for subscription dates
-- **Status**: ✅ Backend implementation complete, pending deployment for existing users
-
-### 📋 **FILES SUMMARY:**
-- **2 New Files**: EncryptionService and enhanced payment preferences system
-- **1 New Firebase Function**: `sandboxCredit` for testing wallet functionality (127 lines)
-- **5+ Enhanced Files**: Payment method screen, shared exports, dependencies, wallet dashboard
-- **Total Lines Added**: 650+ lines including secure encryption and sandbox testing code
-- **Security Features**: HMAC-SHA256, environment controls, cross-validation, audit logging, test account validation
-
-### 🎯 **READY FOR DEPLOYMENT:**
-The encrypted payment preferences system AND sandbox credit functionality are now production-ready with enterprise-grade security suitable for African mobile money transactions. All critical security vulnerabilities have been resolved with comprehensive encryption implementation.
-
-## 💼 **Business Model Strategy:**
-- **Revenue Model**: Subscription-based SaaS for pharmacies
-- **Pricing**: XAF 6,000-30,000/month (Cameroon market pricing)
-- **Payment Methods**: Mobile money (MTN MoMo, Orange Money) + wallet system
-- **Value Proposition**: Professional medicine exchange platform with GPS delivery
-- **Target Market**: Licensed pharmacies across Africa (Kenya, Nigeria, Ghana priority)
-
-## 🚀 **READY FOR COMMERCIAL LAUNCH**
-
-The platform is now **PRODUCTION READY** with:
-- ✅ Complete mobile applications for pharmacies and couriers
-- ✅ Comprehensive admin control panel
-- ✅ Enterprise-grade security (9.5/10 score)
-- ✅ Encrypted payment preferences system
-- ✅ African mobile money integration
-- ✅ Multi-currency business model
-- ✅ Complete Firebase backend deployment
-
-**Full project history and detailed implementation notes are available in CLAUDE-BACKUP-2025-09-08.md**
+Read-only. Rapporte `remote_only` / `local_only` / `intersection`. Au 2026-04-22 : 0 drift.
 
 ---
 
-# 🚀 FLUTTER TRANSFER AGENTS - ENVIRONMENT MIGRATION SYSTEM
+## 🧪 Testing phase — règle de sécurité
 
-## Overview
-Specialized transfer agents have been created to handle complete Flutter multi-app development environment migration between laptops. These agents are specifically designed for the PharmApp Mobile ecosystem with its three Flutter applications and Firebase backend.
+**API keys réelles = TEMPORAIRES, JAMAIS committées.**
 
-## 📋 Agent 1: Flutter Backup Agent
-**File**: `.claude/flutter-backup-agent.md`
-**Purpose**: Prepares old laptop for transfer by documenting complete Flutter development environment
+1. Récupérer clés : `firebase apps:sdkconfig web --project=mediexchange`
+2. Remplacer placeholders dans `pharmapp_unified/lib/firebase_options.dart` (lignes des `defaultValue`)
+3. Tester
+4. **AVANT TOUT COMMIT** : restaurer les placeholders (`'AIzaSyC-PLACEHOLDER-...'`)
 
-### Key Capabilities for PharmApp Mobile:
-- **Flutter SDK Documentation**: Complete Flutter/Dart version capture
-- **Multi-App Dependencies**: Backs up all three apps (Pharmacy, Courier, Admin Panel)
-- **Firebase Configuration**: Documents Firebase project connections and configurations
-- **VS Code Extensions**: Exports Flutter/Dart specific development extensions
-- **Platform Tools**: Documents Android SDK, iOS tools (macOS), Java environment
-- **Shared Package Handling**: Manages monorepo structure with shared dependencies
-- **Cross-Platform Support**: Handles Windows, macOS, and Linux differences
+Validation pré-commit : git hook `.husky/pre-commit` scanne les patterns sensibles.
 
-### Generated Backup Files:
-- `flutter-version-backup.txt` - Complete Flutter environment
-- `pubspec-dependencies-backup.txt` - All app dependencies
-- `firebase-config-backup/` - Firebase configurations
-- `platform-tools-backup.txt` - Android/iOS tool info
-- `vscode-flutter-extensions.txt` - Development extensions
-- `shared-packages-backup.txt` - Monorepo structure
-- `FLUTTER_BACKUP_SUMMARY.txt` - Master restoration guide
+---
 
-## 🔄 Agent 2: Flutter Restoration Agent
-**File**: `.claude/flutter-restoration-agent.md`
-**Purpose**: Sets up new laptop with complete Flutter development environment from backup
+## 📁 Architecture Firebase
 
-### Key Capabilities for PharmApp Mobile:
-- **Minimal Prerequisites**: Only requires VS Code + Claude Code + Git clone
-- **Smart SDK Installation**: Detects OS and installs appropriate Flutter SDK version
-- **Multi-App Setup**: Configures all three Flutter applications automatically
-- **Firebase Integration**: Sets up Firebase CLI and project connections
-- **VS Code Configuration**: Installs extensions and creates optimal settings
-- **Platform-Specific Tools**: Android SDK, iOS tools (macOS), emulators/simulators
-- **Build Validation**: Tests that all three apps build successfully
-- **Comprehensive Testing**: Validates complete development environment
+**Firestore collections clés** :
+- `pharmacies/{uid}` — profil pharmacy (countryCode, cityCode, subscriptionStatus, licenseNumber)
+- `couriers/{uid}` — profil courier
+- `wallets/{uid}` — `{available, held, currency, updatedAt}`
+- `ledger/{id}` — transactions (audit trail)
+- `exchanges/{id}` — état exchange legacy (`hold_active`/`completed`/`canceled`)
+- `exchange_proposals/{id}` — proposals canoniques (avec snapshot inventaire)
+- `deliveries/{id}` — courses livraison
+- `medicine_requests/{id}` — requests purchase-only (Bloc 2 phase 1)
+- `medicine_request_offers/{id}` — offres sur requests
+- `notifications/{uid}/inbox/{id}` — inbox notifications N1
+- `pharmacy_inventory/{id}` — inventaire pharmacy (toggle public/private)
+- `system_config/main` — currencies, countries, cities, plans (source de vérité master data)
+- `payments/{id}`, `webhook_logs/{id}` (TTL 30j), `idempotency/{id}` (TTL)
 
-### Special Features for PharmApp Mobile:
-- **Firebase Multi-Project**: Handles different Firebase configurations per app
-- **Mobile Money Testing**: Sets up environment for MTN MoMo, Orange Money testing
-- **Encrypted Payment System**: Configures encryption services and secure payment testing
-- **Multi-Currency Support**: Sets up testing for XAF, KES, NGN, GHS currencies
-- **Healthcare Compliance**: Ensures security configurations for medical data
+**Workflows clés** :
+- **Top-up** : `topupIntent` ou `paystackTopupIntent` → webhook idempotent → crédite wallet
+- **Exchange (canonical)** : `createExchangeProposal` → `acceptExchangeProposal` (hold 50/50 courier fee) → courier livre → `completeExchangeDelivery` (capture, ledger, notifications)
+- **Withdrawal** : `createWithdrawalRequest` (valide MSISDN + min minor) → admin/sandbox advance → ledger debit
 
-## 🚀 Usage Instructions for PharmApp Mobile
+---
 
-### On Old Laptop (Preparation Phase):
-1. **Launch Flutter Backup Agent**: Use Claude Code to launch the backup agent
-2. **Automated Documentation**: Agent documents complete Flutter environment
-3. **Multi-App Analysis**: Backs up all three apps and shared packages
-4. **Firebase Configuration**: Documents Firebase project connections
-5. **Commit Backup**: All backup files committed to repository
+## 📚 Mémoires actives
 
-### On New Laptop (Restoration Phase):
-1. **Initial Setup**: Install VS Code + Claude Code extension + Git
-2. **Clone Repository**: `git clone <pharmapp-mobile-repository-url>`
-3. **Open Project**: Open in VS Code and launch Claude Code
-4. **Launch Flutter Restoration Agent**: Use the restoration agent
-5. **Automated Setup**: Agent reads backups and reconstructs environment
-6. **Multi-App Validation**: Tests all three apps build and run correctly
+Voir l'index `C:\Users\aebon\.claude\projects\c--Users-aebon-projects-pharmapp-mobile\memory\MEMORY.md`.
 
-## 📦 What Gets Transferred (PharmApp Mobile Specific)
-
-### Flutter Development Environment:
-- Flutter SDK version (>=3.13.0) and configuration
-- Dart SDK (>=3.1.0) and global packages
-- Platform-specific tools (Android SDK, Xcode for iOS)
-- Firebase CLI and project configurations
-
-### Multi-App Structure:
-- **Pharmacy App**: All dependencies and configurations
-- **Courier App**: Google Maps integration and camera permissions
-- **Admin Panel**: Web-specific build configurations
-- **Shared Package**: Encrypted payment preferences system
-
-### Firebase Integration:
-- Project ID: `mediexchange`
-- Authentication configuration
-- Firestore rules and indexes
-- Cloud Functions deployment settings
-- Push notification configurations
-
-### Payment System Configuration:
-- Mobile money integration (MTN MoMo, Orange Money)
-- Encrypted payment preferences system
-- HMAC-SHA256 encryption services
-- Multi-currency support (XAF, KES, NGN, GHS)
-- Sandbox testing environment
-
-### VS Code Environment:
-- Flutter and Dart extensions
-- Workspace settings optimized for multi-app development
-- Debug configurations for all three apps
-- Flutter development tools integration
-
-## 🔒 Security Considerations for PharmApp Mobile
-
-### What's Backed Up Safely:
-- Flutter SDK versions and configurations
-- pubspec.yaml dependencies for all apps
-- VS Code extension lists and settings
-- Firebase project structure (no sensitive keys)
-- Build configurations and deployment settings
-
-### What's NOT Backed Up (Security):
-- Firebase API keys (google-services.json)
-- Production environment secrets
-- Payment API credentials
-- Private certificates or signing keys
-- Encrypted user data or payment information
-
-### Healthcare Data Security:
-- Backup process excludes any patient or medical data
-- Encryption keys are not transferred
-- Production database connections excluded
-- GDPR/NDPR compliance maintained
-
-## 🛠️ Flutter-Specific Technical Features
-
-### Cross-Platform Compatibility:
-- **Windows**: Flutter installation via direct download
-- **macOS**: Homebrew integration, Xcode setup for iOS development
-- **Linux**: Package manager integration, complete Android setup
-
-### Multi-App Build System:
-- Gradle configurations for Android builds
-- CocoaPods setup for iOS (macOS only)
-- Web build configurations for Admin Panel
-- Shared package dependency resolution
-
-### Firebase Multi-Project Setup:
-- Automatic Firebase CLI installation
-- Project switching and configuration
-- Function deployment verification
-- Emulator setup for local development
-
-### Development Tools Integration:
-- Android Studio integration
-- VS Code Flutter extensions
-- Dart analysis and formatting
-- Hot reload and debugging setup
-
-## 📋 Transfer Checklist for PharmApp Mobile
-
-### Pre-Transfer (Old Laptop):
-- [ ] Run Flutter backup agent via Claude Code
-- [ ] Verify all three apps build successfully
-- [ ] Ensure all changes are committed to Git
-- [ ] Validate backup file generation
-- [ ] Push backup files to repository
-
-### Post-Transfer (New Laptop):
-- [ ] Install VS Code + Claude Code + Git
-- [ ] Clone PharmApp Mobile repository
-- [ ] Run Flutter restoration agent
-- [ ] Verify all three apps build: Pharmacy, Courier, Admin
-- [ ] Test Flutter doctor passes all checks
-- [ ] Configure Firebase project connections
-- [ ] Test encrypted payment system setup
-- [ ] Verify mobile money testing environment
-
-### Validation Tests:
-- [ ] `flutter doctor` reports no critical issues
-- [ ] Pharmacy App builds APK successfully
-- [ ] Courier App builds APK successfully
-- [ ] Admin Panel builds web version successfully
-- [ ] Firebase authentication works
-- [ ] Encrypted payment preferences system functional
-- [ ] Mobile money testing environment operational
-
-## 🎯 Success Criteria for PharmApp Mobile
-
-**Transfer is successful when:**
-1. ✅ All three Flutter apps build without errors
-2. ✅ Flutter doctor shows no critical issues
-3. ✅ Firebase project is properly connected
-4. ✅ VS Code Flutter development environment is functional
-5. ✅ Encrypted payment system is configured
-6. ✅ Mobile money testing environment is operational
-7. ✅ Android/iOS development tools are working
-8. ✅ Shared package dependencies resolve correctly
-
-**Estimated Total Time: 3-5 hours** (including Firebase setup and multi-app validation)
-
-The Flutter transfer agents provide a robust, secure, and comprehensive solution for migrating the PharmApp Mobile development environment between machines, ensuring developers can immediately continue working on all three applications with full functionality.
+**Mémoires projet à jour** :
+- `project_admin_lot1_status.md` — Contrat V1 + V2 (A→D) complétés
+- `project_admin_cleanup_todo.md` — Cleanup UI/UX admin identifié
+- `project_withdrawal_min_thread_closed.md` — Thread `minWithdrawalMinor` fermé
+- `project_functions_remote_drift_backlog.md` — Thread remote drift fermé, 1 résiduel mineur (orphan indexes)
