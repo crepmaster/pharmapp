@@ -132,10 +132,11 @@ Identifié pendant la recette V1+V2 (mars 2026), pas adressé. Détail en mémoi
 
 ---
 
-## ✅ Sprints récemment fermés (avril 2026)
+## ✅ Sprints récemment fermés (avril–mai 2026)
 
 | Date | Sprint | Sujet | Commits |
 |---|---|---|---|
+| 2026-05-12 | **0 — Doc Freeze** | Archive 67 docs historiques sous `docs/archive/`, stub `DEVELOPMENT_COMMANDS.md`, création `docs/ACTIVE_DOCS.md`, refonte `docs/README.md`, archive policy dans `CLAUDE.md`. Orchestrator run `20260512-000940-c578fa`, APPROVED iter 1 | `472e178`, `01e6906` |
 | 2026-04-22 | **A + B** | Firestore indexes wiring (`firebase.json`) + script audit drift remote vs local + fix schema CLI v14 | `3df4704`, `98a714d` |
 | 2026-04-21 | **3.3-β** | Node 20 → 22 (deadline Firebase 2026-04-30 sécurisée 9j en avance) | `73f8456` |
 | 2026-04-21 | **3.3-α** | `firebase-functions` 6→7, `firebase-admin` 12→13 | `50acda1` |

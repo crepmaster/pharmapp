@@ -76,3 +76,22 @@ Implémenter seulement :
 - `rg` ciblés sur références obsolètes
 - lecture manuelle de `docs/ACTIVE_DOCS.md`, `docs/README.md`, `docs/DEVELOPMENT_COMMANDS.md`
 
+---
+
+## Statut final — 2026-05-12
+
+**Run orchestrator :** `20260512-000940-c578fa`
+**Verdict :** APPROVED à l'itération 1
+**Commits livrés :**
+- `472e178` — T1+T2 : `docs/archive/` créé, 67 fichiers historiques déplacés via `git mv` (préservation de structure : testing/, reports/, backups/, guides/, setup/, agent_knowledge/, admin/, specs/, plus top-level)
+- `01e6906` — T3+T4+T5+T6 : `DEVELOPMENT_COMMANDS.md` stub, `ACTIVE_DOCS.md` créé, `README.md` refondu, `CLAUDE.md` archive policy
+
+**Validations exécutées :**
+- `rg "pharmacy_app|courier_app" docs/*.md docs/**/*.md` : aucun match hors `docs/archive/**` + 4 stubs/sprint-pack légitimes + `ACTIVE_DOCS.md` (contexte explicatif)
+- `git status --short` : 71 changes, tous dans `docs/` + `CLAUDE.md`
+- Pre-commit hook `validate:quick` (tsc + eslint) : passé
+
+**Hors scope préservé :** `test_suite/unit_test_list.md`, `scripts/setup-firebase-keys.md`, `pharmapp_unified/README.md` contiennent encore des références aux dossiers supprimés mais sont hors périmètre Sprint 0. À traiter dans un sprint hygiène ultérieur si besoin.
+
+**Risques résiduels :** aucun bloquant. Email de notification finalize a échoué (auth SMTP), n'affecte ni la doc ni le code.
+
