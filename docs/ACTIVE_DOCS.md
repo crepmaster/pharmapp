@@ -3,13 +3,18 @@
 This file lists operational, up-to-date documentation. For deprecated or historical docs, see **[`docs/archive/`](archive/)**.
 
 > Policy: only documents listed here (and [`../CLAUDE.md`](../CLAUDE.md)) are considered source of truth for current engineering. Anything in `docs/archive/` is preserved for traceability but **must not pilot ongoing work**.
+>
+> **Listed-active rule** : a document listed below must not contain stale `PRODUCTION READY` claims, must not reference functions/features that no longer exist in the codebase, and must not reference deleted directories (`pharmacy_app/`, `courier_app/`) as active modification targets. If a listed doc drifts into any of these states, it must be moved to `docs/archive/` and removed from this index.
 
 ---
 
 ## 🎯 Top-level source of truth
 
-- **[../CLAUDE.md](../CLAUDE.md)** — Canonical state of the project, locked product decisions, sprint backlog, dev commands, architecture, testing procedures.
-- **[../CLAUDE-ARCHIVE.md](../CLAUDE-ARCHIVE.md)** — Historical sessions snapshot (read-only, contains stale claims explicitly disclaimed in its header).
+- **[../CLAUDE.md](../CLAUDE.md)** — Canonical state of the project, locked product decisions, sprint backlog, dev commands, architecture, testing procedures. **This is the ONLY top-level source of truth.**
+
+## 🗄️ Historical pointers (NOT source of truth)
+
+- **[../CLAUDE-ARCHIVE.md](../CLAUDE-ARCHIVE.md)** — Read-only snapshot of the pre-cleanup `CLAUDE.md`. Contains stale claims explicitly disclaimed in its header. Consult for git-history context only.
 
 ---
 
@@ -22,7 +27,6 @@ This file lists operational, up-to-date documentation. For deprecated or histori
 - [DEVELOPMENT_COMMANDS.md](DEVELOPMENT_COMMANDS.md) — Stub. Redirects to `CLAUDE.md`.
 - [FILE_STRUCTURE_ACTIVE_VS_OBSOLETE.md](FILE_STRUCTURE_ACTIVE_VS_OBSOLETE.md) — Stub. Historical pointer to `CLAUDE.md`.
 - [AGENTS_SYSTEM_README.md](AGENTS_SYSTEM_README.md) — Agents system overview.
-- [INDEX.md](INDEX.md) — Legacy index (review for deprecation in a future sprint).
 
 ### Architectural Decision Records (`docs/adr/`)
 
@@ -71,8 +75,6 @@ This file lists operational, up-to-date documentation. For deprecated or histori
 
 - [testing/KENYA-MANUAL-TEST-CHECKLIST.md](testing/KENYA-MANUAL-TEST-CHECKLIST.md) — Kenya manual QA checklist.
 - [testing/NEXT_SESSION_EXCHANGE_TESTING.md](testing/NEXT_SESSION_EXCHANGE_TESTING.md) — Exchange E2E test plan (active).
-- [testing/TESTING-STATUS-2025-09-18.md](testing/TESTING-STATUS-2025-09-18.md) — Reference status snapshot.
-- [testing/TEST-003-INDEX.md](testing/TEST-003-INDEX.md) — Test 003 index.
 - [testing/CODE_REVIEW_REQUEST_2025-10-21.md](testing/CODE_REVIEW_REQUEST_2025-10-21.md) — Review request (active reference).
 - [testing/PILOT_TASK_EXCHANGE_E2E_V1.md](testing/PILOT_TASK_EXCHANGE_E2E_V1.md) — Pilot E2E task contract.
 - [testing/PILOT_EXECUTION_PLAN_V1.md](testing/PILOT_EXECUTION_PLAN_V1.md) — Pilot execution plan.
