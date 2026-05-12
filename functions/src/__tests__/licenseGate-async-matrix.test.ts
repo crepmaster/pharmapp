@@ -1,24 +1,21 @@
 /**
- * Sprint 2A.2 — Callable-level license gate tests (architect finding #4).
+ * `licenseGate` async matrix tests — Sprint 2A.2 + 2A.3.
  *
- * Verifies `assertLicenseAllowsMarketplace` against a fully mocked
- * Firestore returning various pharmacy + country snapshots. Covers the
- * counterparty matrix flagged in the architect findings :
+ * **Honest naming (Sprint 2A.3 architect finding F2A3-FINDING-2)** : this
+ * file does NOT exercise the marketplace callables themselves. It tests
+ * `assertLicenseAllowsMarketplace`, the async helper that the callables
+ * invoke. Real callable-level tests (input-validation branches for
+ * missing counterparty IDs, fail-closed throws) live in
+ * `acceptCallables-input-validation.test.ts`.
  *
- *   - counterparty `verified`                       → resolves
- *   - counterparty `rejected`                       → throws failed-precondition
- *   - counterparty `expired`                        → throws failed-precondition
- *   - counterparty `correction_needed`              → throws failed-precondition
- *   - counterparty `grace_period` not yet expired   → resolves
- *   - counterparty `grace_period` expired           → throws failed-precondition
- *   - counterparty doc missing                      → throws permission-denied
- *   - country `licenseRequired = false`             → resolves regardless of status
- *
- * The fail-closed-on-missing-ID behavior is tested at the callable
- * level via the input-validation branches in
- * `acceptExchangeProposal` / `acceptMedicineRequestOffer`; those throws
- * happen BEFORE `assertLicenseAllowsMarketplace` is called and are
- * trivially covered by reading the relevant `if` branches.
+ * Covered scenarios :
+ *   - country `licenseRequired = true` × {verified, rejected, expired,
+ *     correction_needed, pending_verification, grace_active,
+ *     grace_expired, no_status}
+ *   - country `licenseRequired = false` × any status → allow
+ *   - country unknown / missing on pharmacy / system_config missing
+ *     → DENY (Sprint 2A.3 F2A3-FINDING-1 fail-closed)
+ *   - pharmacy doc missing entirely → throws permission-denied
  *
  * Mock pattern reuses the module-scope getFirestore() mock from
  * licenseGate.test.ts so the file under test can be imported without
@@ -114,7 +111,7 @@ function tsPast(): { toMillis: () => number } {
   return { toMillis: () => Date.now() - 7 * 24 * 60 * 60 * 1000 };
 }
 
-describe("assertLicenseAllowsMarketplace — Sprint 2A.2 callable counterparty matrix", () => {
+describe("assertLicenseAllowsMarketplace — async matrix (Sprint 2A.2 + 2A.3)", () => {
   describe("country requires license (mandatory)", () => {
     test("counterparty verified → resolves", async () => {
       setupSnapshots(
@@ -240,19 +237,35 @@ describe("assertLicenseAllowsMarketplace — Sprint 2A.2 callable counterparty m
       ).resolves.toBeUndefined();
     });
 
-    test("missing countryCode on pharmacy → resolves (defensive: country unknown = allow)", async () => {
-      // The gate cannot evaluate a country it doesn't know about. The
-      // current contract is "default to allow" — documented in
-      // licenseGate.ts. If product ever requires "default deny", this
-      // test must flip.
+  });
+
+  describe("Sprint 2A.3 F2A3-FINDING-1 — unknown / missing country fail-closed", () => {
+    test("missing countryCode on pharmacy → DENY (flipped from allow in 2A.3)", async () => {
+      // Architect F2A3-FINDING-1 : a modified client could create
+      // pharmacies/{uid} without countryCode and bypass the gate. The
+      // gate now denies when countryCode is missing — even for an
+      // otherwise-verified pharmacy.
       setupSnapshots(
-        { licenseStatus: "rejected" },
+        { licenseStatus: "verified" },
         null,
         null
       );
       await expect(
         assertLicenseAllowsMarketplace(FAKE_DB, "counterparty-uid")
-      ).resolves.toBeUndefined();
+      ).rejects.toMatchObject({ code: "failed-precondition" });
+    });
+
+    test("countryCode present but country absent from system_config → DENY", async () => {
+      // Pharmacy claims countryCode='XX' but system_config has no XX entry.
+      // Treated as unknown country → fail-closed deny.
+      setupSnapshots(
+        { countryCode: "XX", licenseStatus: "verified" },
+        "GH", // mocked sysconfig contains GH only, not XX
+        { licenseRequired: true }
+      );
+      await expect(
+        assertLicenseAllowsMarketplace(FAKE_DB, "counterparty-uid")
+      ).rejects.toMatchObject({ code: "failed-precondition" });
     });
   });
 

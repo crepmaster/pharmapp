@@ -41,6 +41,13 @@ export { acceptMedicineRequestOffer } from "./acceptMedicineRequestOffer.js";
 export { submitPharmacyLicense } from "./submitPharmacyLicense.js";
 export { adminVerifyPharmacyLicense } from "./adminVerifyPharmacyLicense.js";
 export { backfillLicenseGracePeriod } from "./backfillLicenseGracePeriod.js";
+// ======================= Pharmacy Registration (Sprint 2A.3 TD-LICENSE-REGISTRATION-OWNED) =======================
+// Canonical write path for `pharmacies/{uid}` for the unified Flutter app.
+// Replaces the client-side `UnifiedAuthService.signUp` direct Firestore
+// write for pharmacy accounts (courier / admin paths unchanged). Reads
+// `system_config/main.countries.{code}.licenseRequired` SERVER-SIDE at
+// create time so a super-admin toggle takes effect immediately.
+export { createPharmacyRegistration } from "./createPharmacyRegistration.js";
 // ======================= Admin Operations (V2A+V2B+V2C) =======================
 export { setPharmacyActive } from "./setPharmacyActive.js";
 export { upsertCity } from "./upsertCity.js";

@@ -40,7 +40,11 @@ jest.mock("firebase-functions/logger", () => ({
   error: jest.fn(),
 }));
 
-import { evaluateLicenseGate } from "../lib/licenseGate.js";
+import {
+  evaluateLicenseGate,
+  type CountryResolution,
+  type CountryLicenseConfig,
+} from "../lib/licenseGate.js";
 
 const NOW = new Date("2026-05-12T12:00:00.000Z");
 const PAST = new Date("2026-05-10T12:00:00.000Z"); // 2 days before NOW
@@ -50,27 +54,59 @@ function ts(date: Date) {
   return { toMillis: () => date.getTime() };
 }
 
-describe("evaluateLicenseGate — Sprint 2a F-LICENSE", () => {
-  // ---- Country NOT requiring license -------------------------------------
-  describe("country not requiring license", () => {
-    test("country=null → allow (country_not_required)", () => {
-      const result = evaluateLicenseGate({}, null, NOW);
-      expect(result.decision).toBe("allow");
-      expect(result.reason).toBe("country_not_required");
+/** Helper to build a `loaded` resolution succinctly. */
+function loaded(country: CountryLicenseConfig): CountryResolution {
+  return { status: "loaded", country };
+}
+
+describe("evaluateLicenseGate — Sprint 2a / 2A.3 F-LICENSE", () => {
+  // ---- Sprint 2A.3 F2A3-FINDING-1: unknown / missing country fail-closed ─
+  describe("country resolution failures (Sprint 2A.3 fail-closed)", () => {
+    test("country_missing_on_pharmacy → deny", () => {
+      const result = evaluateLicenseGate(
+        { licenseStatus: "verified" }, // even verified can't bypass missing country
+        { status: "country_missing_on_pharmacy" },
+        NOW
+      );
+      expect(result.decision).toBe("deny");
+      expect(result.reason).toBe("country_missing_on_pharmacy");
     });
 
+    test("country_unknown_in_system_config → deny", () => {
+      const result = evaluateLicenseGate(
+        { licenseStatus: "verified" },
+        { status: "country_unknown_in_system_config" },
+        NOW
+      );
+      expect(result.decision).toBe("deny");
+      expect(result.reason).toBe("country_unknown_in_system_config");
+    });
+
+    test("system_config_missing → deny", () => {
+      const result = evaluateLicenseGate(
+        { licenseStatus: "verified" },
+        { status: "system_config_missing" },
+        NOW
+      );
+      expect(result.decision).toBe("deny");
+      expect(result.reason).toBe("system_config_missing");
+    });
+  });
+
+  // ---- Country NOT requiring license -------------------------------------
+  describe("country not requiring license", () => {
     test("country.licenseRequired=false → allow", () => {
       const result = evaluateLicenseGate(
         { licenseStatus: "rejected" }, // even rejected pharmacies pass when country opt-out
-        { licenseRequired: false },
+        loaded({ licenseRequired: false }),
         NOW
       );
       expect(result.decision).toBe("allow");
       expect(result.reason).toBe("country_not_required");
     });
 
-    test("country.licenseRequired absent → allow (defensive default)", () => {
-      const result = evaluateLicenseGate({}, {}, NOW);
+    test("country.licenseRequired absent on loaded country → allow (defensive default)", () => {
+      const result = evaluateLicenseGate({}, loaded({}), NOW);
       expect(result.decision).toBe("allow");
       expect(result.reason).toBe("country_not_required");
     });
@@ -78,7 +114,7 @@ describe("evaluateLicenseGate — Sprint 2a F-LICENSE", () => {
 
   // ---- Country requiring license -----------------------------------------
   describe("country requiring license", () => {
-    const required = { licenseRequired: true };
+    const required = loaded({ licenseRequired: true });
 
     test("verified → allow", () => {
       const r = evaluateLicenseGate({ licenseStatus: "verified" }, required, NOW);
@@ -141,7 +177,7 @@ describe("evaluateLicenseGate — Sprint 2a F-LICENSE", () => {
 
   // ---- Grace period semantics --------------------------------------------
   describe("grace period semantics", () => {
-    const required = { licenseRequired: true };
+    const required = loaded({ licenseRequired: true });
 
     test("grace_period with future end → allow (grace_active)", () => {
       const r = evaluateLicenseGate(
@@ -227,7 +263,7 @@ describe("evaluateLicenseGate — Sprint 2a F-LICENSE", () => {
 
   // ---- Defensive / unknown values ----------------------------------------
   describe("defensive parsing", () => {
-    const required = { licenseRequired: true };
+    const required = loaded({ licenseRequired: true });
 
     test("unknown licenseStatus value → deny", () => {
       // The LicenseStatus type accepts arbitrary strings at runtime

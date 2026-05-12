@@ -101,7 +101,9 @@ export interface GateResult {
     | "grace_active"
     | "grace_expired"
     | "not_verified"
-    | "country_unknown_on_pharmacy";
+    | "country_missing_on_pharmacy"
+    | "country_unknown_in_system_config"
+    | "system_config_missing";
 }
 
 function toMillisOrNull(
@@ -124,20 +126,59 @@ function toMillisOrNull(
 }
 
 /**
+ * Sprint 2A.3 (architect finding F2A3-FINDING-1) — Resolution status
+ * passed by the async wrapper so the pure evaluator can distinguish:
+ *
+ *   - `loaded` : country config was found in `system_config/main.countries`
+ *                and is passed as `country`.
+ *   - `country_missing_on_pharmacy` : pharmacy doc has no `countryCode`.
+ *   - `country_unknown_in_system_config` : pharmacy has a `countryCode`
+ *                but it's not in the system_config map.
+ *   - `system_config_missing` : the `system_config/main` doc is absent
+ *                OR has no `countries` map.
+ */
+export type CountryResolution =
+  | { status: "loaded"; country: CountryLicenseConfig }
+  | { status: "country_missing_on_pharmacy" }
+  | { status: "country_unknown_in_system_config" }
+  | { status: "system_config_missing" };
+
+/**
  * Pure decision function. No Firestore reads, no I/O — used directly by
  * the unit-test matrix and indirectly by `assertLicenseAllowsMarketplace`.
  *
- * Country config not loaded (null) is treated identically to a country
- * that does NOT require a license — the gate allows. This preserves the
- * "Ghana not yet activated = no enforcement" behavior expected by the
- * locked decisions.
+ * Sprint 2A.3 (architect finding F2A3-FINDING-1) — fail-closed on
+ * unknown / missing country. Previously, a `null` country resolved to
+ * `allow / country_not_required`, which allowed any pharmacy without a
+ * `countryCode` (or whose country had not yet been added to
+ * `system_config/main.countries`) to bypass the gate. The new behavior:
+ *
+ *   - country resolution status is the FIRST signal we look at
+ *   - any non-`loaded` resolution → deny (with a specific reason)
+ *   - `loaded` country with `licenseRequired != true` → allow
+ *   - otherwise → standard verified/grace/deny matrix
+ *
+ * Migration / audit implication: pharmacies whose `countryCode` is not
+ * yet in `system_config/main.countries` will start being denied at the
+ * marketplace gate. A dry-run audit script is required pre-deploy.
  */
 export function evaluateLicenseGate(
   pharmacy: PharmacyLicenseSnapshot,
-  country: CountryLicenseConfig | null,
+  resolution: CountryResolution,
   now: Date = new Date()
 ): GateResult {
-  if (!country?.licenseRequired) {
+  if (resolution.status === "country_missing_on_pharmacy") {
+    return { decision: "deny", reason: "country_missing_on_pharmacy" };
+  }
+  if (resolution.status === "country_unknown_in_system_config") {
+    return { decision: "deny", reason: "country_unknown_in_system_config" };
+  }
+  if (resolution.status === "system_config_missing") {
+    return { decision: "deny", reason: "system_config_missing" };
+  }
+
+  const country = resolution.country;
+  if (!country.licenseRequired) {
     return { decision: "allow", reason: "country_not_required" };
   }
 
@@ -184,20 +225,35 @@ export async function assertLicenseAllowsMarketplace(
     countryCode?: string;
   };
 
-  let country: CountryLicenseConfig | null = null;
+  // Sprint 2A.3 F2A3-FINDING-1: resolve the country with explicit status
+  // so the pure evaluator can fail-closed on missing/unknown country.
   const countryCode = pharmacyData.countryCode;
-  if (typeof countryCode === "string" && countryCode.length > 0) {
+  let resolution: CountryResolution;
+  if (typeof countryCode !== "string" || countryCode.length === 0) {
+    resolution = { status: "country_missing_on_pharmacy" };
+  } else {
     const sysConfigSnap = await db
       .collection("system_config")
       .doc("main")
       .get();
-    const sysConfigData = (sysConfigSnap.data() ?? {}) as {
-      countries?: Record<string, CountryLicenseConfig | undefined>;
-    };
-    country = sysConfigData.countries?.[countryCode] ?? null;
+    if (!sysConfigSnap.exists) {
+      resolution = { status: "system_config_missing" };
+    } else {
+      const sysConfigData = (sysConfigSnap.data() ?? {}) as {
+        countries?: Record<string, CountryLicenseConfig | undefined>;
+      };
+      const countriesMap = sysConfigData.countries;
+      if (!countriesMap || typeof countriesMap !== "object") {
+        resolution = { status: "system_config_missing" };
+      } else if (!(countryCode in countriesMap) || countriesMap[countryCode] == null) {
+        resolution = { status: "country_unknown_in_system_config" };
+      } else {
+        resolution = { status: "loaded", country: countriesMap[countryCode]! };
+      }
+    }
   }
 
-  const result = evaluateLicenseGate(pharmacyData, country);
+  const result = evaluateLicenseGate(pharmacyData, resolution);
   if (result.decision === "deny") {
     throw new HttpsError(
       "failed-precondition",

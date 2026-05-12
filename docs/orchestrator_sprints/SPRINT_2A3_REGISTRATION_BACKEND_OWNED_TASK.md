@@ -351,3 +351,80 @@ Sprint 2B ne peut démarrer que si ce sprint est `APPROVED` et finalisé.
 Sprint 2B consommera le callable livré ici pour ajouter l'input licence
 conditionnel, les écrans admin, le profil licence et la marketplace
 visibility.
+
+---
+
+## Statut final — 2026-05-12
+
+**Run orchestrator :** `20260512-224720-6c0a2a`
+
+**Décision architecte (Solution Architect Refactoring Challenge) :** EXTEND. Pas de refactor auth multi-rôles ; migration pharmacie ciblée avec fallback courier/admin inchangé. Anti-orphan via try/catch + `auth.deleteUser` sur échec Firestore. Session post-create via `signInWithEmailAndPassword` côté Flutter (pas de custom token).
+
+### Lots livrés
+
+**Lot A — Unknown-country fail-closed**
+- [functions/src/lib/licenseGate.ts](../../functions/src/lib/licenseGate.ts) : nouveau type `CountryResolution` (loaded / country_missing_on_pharmacy / country_unknown_in_system_config / system_config_missing). Signature `evaluateLicenseGate(pharmacy, resolution, now?)` (breaking change interne, callers internes migrés). `assertLicenseAllowsMarketplace` construit le `CountryResolution` selon présence countryCode + existence sysconfig + existence countryCode dans countries map.
+- Nouveaux reasons : `country_missing_on_pharmacy`, `country_unknown_in_system_config`, `system_config_missing`. Erreur côté utilisateur reste générique (uniform message).
+- Tests `licenseGate.test.ts` + `licenseGate-async-matrix.test.ts` étendus avec scénarios fail-closed (3 unit + 2 async). Test "missing countryCode → allow" flip à deny.
+
+**Lot B — Counterparty tests honesty**
+- `acceptCallables-license-gate.test.ts` renommé via `git mv` en [functions/src/__tests__/licenseGate-async-matrix.test.ts](../../functions/src/__tests__/licenseGate-async-matrix.test.ts). Header doc clarifié : ce fichier teste le **helper**, pas les callables.
+- Nouveau fichier [functions/src/__tests__/acceptCallables-input-validation.test.ts](../../functions/src/__tests__/acceptCallables-input-validation.test.ts) — 4 tests callable-level réels via `firebase-functions-test` v3 `wrap` :
+  - `acceptExchangeProposal` avec proposal sans `fromPharmacyId` → `failed-precondition` (message contient "counterparty")
+  - `acceptExchangeProposal` sans `proposalId` → `invalid-argument` (post-gate)
+  - `acceptMedicineRequestOffer` avec offer sans `sellerPharmacyId` → `failed-precondition` (message contient "seller")
+  - `acceptMedicineRequestOffer` avec offer doc absent → `not-found`
+
+**Lot C — Drift guard PROTECTED_LICENSE_FIELDS vs firestore.rules**
+- Nouveau [functions/src/__tests__/protectedLicenseFields-drift-guard.test.ts](../../functions/src/__tests__/protectedLicenseFields-drift-guard.test.ts) — 12 tests : `test.each(PROTECTED_LICENSE_FIELDS)` qui lit `firestore.rules` comme plain text et vérifie présence de chaque champ + 3 sanity (helper present, helper change reference, taille canonique = 9). Tourne dans `npm test` standard, pas besoin d'emulator.
+
+**Lot D — Backend-owned pharmacy registration**
+- Nouveau callable [functions/src/createPharmacyRegistration.ts](../../functions/src/createPharmacyRegistration.ts) — `onCall` region `europe-west1` :
+  - validation inputs (email, password ≥ 8 chars, profileData required, countryCode mandatory)
+  - lecture SERVER-SIDE de `system_config/main.countries.{countryCode}` (pas de cache, source de vérité fraîche à chaque call)
+  - countryCode absent du sysconfig → `failed-precondition` (refus rather than guess)
+  - `country.licenseRequired === true` + licenseNumber absent → `failed-precondition` code `LICENSE_REQUIRED` (consommable par Sprint 2B UI pour re-prompt immédiat)
+  - `country.licenseRequired === true` + licenseNumber présent : validation regex via `country.licenseFormatRegex` si configuré
+  - création Firebase Auth via Admin SDK + batch Firestore atomique sur `users/{uid}` + `pharmacies/{uid}` + `wallets/{uid}`
+  - **anti-orphan** : si batch Firestore échoue après Auth created, `auth.deleteUser(uid)` ; si cleanup échoue, log error pour remédiation manuelle
+  - retour `{ uid, email, licenseStatus: "not_required" | "pending_verification" }`
+  - traduction erreurs Admin SDK : `auth/email-already-exists` → `already-exists`, `auth/weak-password` → `invalid-argument`
+- Helper pur `computeInitialPharmacyLicenseStatus({licenseRequired, hasLicenseNumber})` exporté pour unit testing
+- Export ajouté dans [functions/src/index.ts](../../functions/src/index.ts) section "Pharmacy Registration (Sprint 2A.3)"
+- [shared/lib/services/unified_auth_service.dart](../../shared/lib/services/unified_auth_service.dart) `signUp` : nouvelle branche `if (userType == UserType.pharmacy)` qui appelle le callable via `FirebaseFunctions.instanceFor(region: 'europe-west1')`, puis `signInWithEmailAndPassword` pour obtenir la session. `FirebaseFunctionsException` re-wrappée en `FirebaseAuthException` pour compat UI. Courier/admin gardent le flow client-write existant.
+- [shared/pubspec.yaml](../../shared/pubspec.yaml) : `cloud_functions: ^5.1.3` ajouté.
+- [functions/src/__tests__/createPharmacyRegistration.test.ts](../../functions/src/__tests__/createPharmacyRegistration.test.ts) — 13 tests (3 pur helper + 10 callable smoke : not_required path, LICENSE_REQUIRED throw avant Auth created, pending_verification path, regex invalid, countryCode unknown, anti-orphan deleteUser called, server-side flip de config, missing inputs).
+
+### Validations exécutées
+
+- `cd functions && npm run build` ✅ tsc clean
+- `cd functions && npm run lint` ✅ eslint clean
+- `cd functions && npm test` ✅ **188/188 pass** (was 156 → +32 nouveaux, zéro régression)
+- `cd functions && npm run test:rules` ✅ **22/22** (inchangé, pas de changement rules en 2A.3)
+- `cd shared && dart analyze` ✅ 4 warnings pré-existantes, 0 nouvelle introduite
+- `cd pharmapp_unified && flutter analyze` : non exécuté dans ce sprint car la modif Flutter touche `shared/`, pas `pharmapp_unified/`. À relancer Sprint 2B quand l'UI évolue.
+
+### Non-régression
+
+- 156 tests pré-2A.3 : tous verts.
+- Inscription pharmacy non mandatory : passe par le nouveau callable, retourne `not_required`, sign-in OK.
+- Inscription pharmacy mandatory : refuse sans licenseNumber, accepte avec → `pending_verification`. Sprint 2B branchera l'UI sur l'erreur structurée `LICENSE_REQUIRED`.
+- Inscription courier/admin : flow client-write inchangé (out of scope 2A.3).
+- Marketplace gate : `verified` + `grace_period actif` passent toujours ; counterparty fail-closed sur ID manquant.
+
+### Pré-deploy audit (BLOQUANT pour push prod)
+
+**Avant de pousser ce sprint en prod**, exécuter un audit read-only :
+
+1. Scanner `pharmacies` Firestore : compter les pharmacies sans `countryCode` ou avec `countryCode` non-présent dans `system_config/main.countries`. Ces pharmacies seront refusées par le gate après deploy → décision produit nécessaire (migration data, ou grandfather grace_period via `backfillLicenseGracePeriod` ciblé).
+2. Scanner `pharmacies` Firestore : compter les pharmacies sans `licenseStatus`. Avec 2A.3 ces pharmacies sont déjà bloquées par le gate (fail-closed dès Sprint 2A.1) ; pas de nouvelle régression mais audit utile.
+3. Tester en sandbox : flow inscription pharmacy via Flutter app → callable → signIn. Vérifier que `users/{uid}` + `pharmacies/{uid}` + `wallets/{uid}` sont créés correctement.
+
+À documenter dans `TD-LICENSE-REGISTRATION-AUDIT` (nouveau TD à tracker dans CLAUDE.md).
+
+### Limites assumées
+
+- Aucun custom token : la session se prend via `signInWithEmailAndPassword` après le callable. C'est plus simple mais ré-utilise le password client-side ; acceptable car même password vient d'être envoyé au callable de toute façon.
+- Pas de migration courier/admin vers backend-owned : décision explicite hors scope 2A.3.
+- Pas de Firestore rule `allow create` totalement fermée sur `pharmacies/{uid}` côté client : la rule deny-on-license-fields (Sprint 2A.1) reste suffisante comme defense-in-depth. Une rule "allow create only via admin SDK" serait possible mais complexifie l'audit + le test:rules harness.
+- npm audit : 25 vulnerabilities transitives pré-existantes (firebase, rules-unit-testing) — non scope 2A.3.

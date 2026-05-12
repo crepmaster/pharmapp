@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import '../models/unified_user.dart';
 
 /// User types for role-based authentication
@@ -42,6 +43,14 @@ class UserProfile {
 class UnifiedAuthService {
   static final FirebaseAuth _auth = FirebaseAuth.instance;
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  // Sprint 2A.3 TD-LICENSE-REGISTRATION-OWNED: pharmacy registration is
+  // now backend-owned via the `createPharmacyRegistration` callable in
+  // `europe-west1`. Auth user creation + Firestore writes + license
+  // initialization (read server-side from system_config) happen inside
+  // the callable. The Flutter side only does `signInWithEmailAndPassword`
+  // afterwards to obtain a session token.
+  static final FirebaseFunctions _functions =
+      FirebaseFunctions.instanceFor(region: 'europe-west1');
   
   // Security: Rate limiting tracking
   static final Map<String, DateTime> _lastAttempts = {};
@@ -84,8 +93,57 @@ class UnifiedAuthService {
       
       // Security: Log attempt (sanitized)
       _logAuthAttempt('signup', userType.toString(), email);
-      
-      // Create Firebase user
+
+      // Sprint 2A.3 TD-LICENSE-REGISTRATION-OWNED: pharmacy registration
+      // goes through a backend callable instead of direct client write.
+      // The callable :
+      //   - validates inputs
+      //   - reads system_config/main.countries server-side to determine
+      //     licenseRequired (no client-snapshot staleness)
+      //   - creates Firebase Auth + users/{uid} + pharmacies/{uid} +
+      //     wallets/{uid} atomically (anti-orphan on failure)
+      //   - returns { uid, email, licenseStatus }
+      // After success, the client signs in to obtain a session.
+      // Courier / admin flows keep the legacy client-side write below.
+      if (userType == UserType.pharmacy) {
+        try {
+          final result = await _functions
+              .httpsCallable('createPharmacyRegistration')
+              .call<Map<String, dynamic>>({
+            'email': email,
+            'password': password,
+            'profileData': profileData,
+            if (profileData['licenseNumber'] != null)
+              'licenseNumber': profileData['licenseNumber'],
+          });
+          // Backend created the account; sign in to obtain a session.
+          final credential = await _auth.signInWithEmailAndPassword(
+            email: email,
+            password: password,
+          );
+          _clearRateLimit(email);
+          _logAuthSuccess(
+            'signup',
+            userType.toString(),
+            result.data['uid'] as String? ?? credential.user?.uid ?? '',
+          );
+          return credential;
+        } on FirebaseFunctionsException catch (e) {
+          _trackFailedAttempt(email);
+          _logAuthFailure('signup', userType.toString(), e.code);
+          // Re-wrap as FirebaseAuthException for backward-compat with
+          // existing UI error handling. The original .code is preserved
+          // in .message so the registration UI in Sprint 2B can detect
+          // LICENSE_REQUIRED via the details.
+          throw FirebaseAuthException(
+            code: e.code,
+            message: e.message ?? 'Registration failed.',
+          );
+        }
+      }
+
+      // Legacy client-side flow for non-pharmacy roles (courier / admin)
+      // — to be migrated in a future sprint if regulatory needs change.
       final credential = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
