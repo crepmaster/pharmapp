@@ -27,7 +27,7 @@ non-verified hors grâce (finding architecte #5).
 **Sprint 2A.3 (TD-LICENSE-REGISTRATION-OWNED) doit être fermé** —
 décision architecte 2026-05-12 :
 
-- nouveau callable backend-owned créant `pharmacies/{uid}` + initialisant `licenseStatus` atomiquement selon `system_config/main.countries.{code}.licenseRequired` ;
+- nouveau callable backend-owned `createPharmacyRegistration` créant `pharmacies/{uid}` + initialisant `licenseStatus` atomiquement selon `system_config/main.countries.{code}.licenseRequired` ;
 - `UnifiedAuthService.signUp` Flutter migré pour appeler ce callable au lieu d'écrire Firestore direct ;
 - tests backend + non-régression auth.
 
@@ -48,11 +48,16 @@ manquants d'abord.
 À partir de Sprint 2A.3, le canonical path pour créer une pharmacie est :
 
 ```text
-Flutter UI → UnifiedAuthService.signUp → callable backend createPharmacyAccount
+Flutter UI → UnifiedAuthService.signUp → callable backend createPharmacyRegistration
            → atomic write pharmacies/{uid} + licenseStatus selon country config
 ```
 
 Sprint 2B UI **n'écrit JAMAIS `pharmacies/{uid}` direct depuis Flutter** — elle appelle uniquement le callable Sprint 2A.3. L'input licence à l'inscription est passé en paramètre du callable. La Firestore rule `allow create` deny-on-license-fields (Sprint 2A.1) reste comme defense-in-depth.
+
+Si le snapshot `MasterDataCountry.licenseRequired` côté client est stale
+et que le backend répond `LICENSE_REQUIRED`, l'UI 2B doit afficher le
+champ licence immédiatement et relancer l'inscription via le même
+callable. Le cache client n'est jamais la source de vérité.
 
 ## Décisions verrouillées rappelées
 

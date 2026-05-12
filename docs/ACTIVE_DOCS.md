@@ -75,11 +75,11 @@ This file lists operational, up-to-date documentation. For deprecated or histori
 - [orchestrator_sprints/SPRINT_1_MSISDN_HARDENING_TASK.md](orchestrator_sprints/SPRINT_1_MSISDN_HARDENING_TASK.md) — ✅ Sprint 1 (MSISDN hardening 3.2c-β, 2026-05-12).
 - [orchestrator_sprints/SPRINT_2A_LICENSE_BACKEND_TASK.md](orchestrator_sprints/SPRINT_2A_LICENSE_BACKEND_TASK.md) — ✅ Sprint 2a (F-LICENSE backend foundation, 2026-05-12) + correction 2A.1/2A.2.
 - [orchestrator_sprints/SPRINT_2A1_SECURITY_CORRECTION_TASK.md](orchestrator_sprints/SPRINT_2A1_SECURITY_CORRECTION_TASK.md) — ✅ Sprint 2A.1 (3 findings critiques, 2026-05-12).
-- [orchestrator_sprints/SPRINT_2A2_ARCHITECT_FOLLOWUP_TASK.md](orchestrator_sprints/SPRINT_2A2_ARCHITECT_FOLLOWUP_TASK.md) — Sprint 2A.2 (6 findings additionnels, doc + tests paramétrisés + fail-closed + contract corrections, en cours 2026-05-12).
+- [orchestrator_sprints/SPRINT_2A2_ARCHITECT_FOLLOWUP_TASK.md](orchestrator_sprints/SPRINT_2A2_ARCHITECT_FOLLOWUP_TASK.md) — ✅ Sprint 2A.2 (6 findings additionnels, doc + tests paramétrisés + fail-closed + contract corrections, 2026-05-12).
 
 **Sprints à venir (ordre verrouillé)** :
 
-- `SPRINT_2A3_REGISTRATION_BACKEND_OWNED_TASK.md` (à créer) — TD-LICENSE-REGISTRATION-OWNED, refactor inscription pharmacy backend-owned. **Doit clore avant Sprint 2B.**
+- [orchestrator_sprints/SPRINT_2A3_REGISTRATION_BACKEND_OWNED_TASK.md](orchestrator_sprints/SPRINT_2A3_REGISTRATION_BACKEND_OWNED_TASK.md) — Sprint 2A.3 TD-LICENSE-REGISTRATION-OWNED, refactor inscription pharmacy backend-owned, Option A / alpha verrouillée. **Prochain sprint, doit clore avant Sprint 2B.**
 - [orchestrator_sprints/SPRINT_2B_LICENSE_UI_TASK.md](orchestrator_sprints/SPRINT_2B_LICENSE_UI_TASK.md) — Sprint 2B (UI admin + pharmacy registration + profile + marketplace visibility lot). Bloqué jusqu'à clôture 2A.3.
 - [orchestrator_sprints/SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md](orchestrator_sprints/SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md) — Sprint 3 (trial subscription, présuppose 2A.3 pour gate sur write path canonique).
 - [orchestrator_sprints/SPRINT_4_MEDICINE_REQUESTS_EXCHANGE_TASK.md](orchestrator_sprints/SPRINT_4_MEDICINE_REQUESTS_EXCHANGE_TASK.md) — Sprint 4 (Bloc 2 P2 exchange mode).

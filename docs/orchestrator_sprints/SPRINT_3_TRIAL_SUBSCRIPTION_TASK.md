@@ -12,6 +12,9 @@ Construire le trial subscription manquant en l'alignant avec le gate licence.
 - Pays avec licence obligatoire : trial démarre à `licenseStatus = verified`.
 - 30 jours complets garantis après validation licence.
 - Une pharmacie non vérifiée ne consomme pas son trial.
+- Sprint 3 présuppose Sprint 2A.3 fermé : le trial doit s'accrocher au
+  write path canonique backend-owned, pas au create Firestore direct
+  historique.
 
 ## Résultat attendu
 
@@ -50,14 +53,15 @@ Tâches :
    - proposals ;
    - medicine requests ;
    - UI subscription.
-4. Inspecter la sortie de Sprint 2 F-LICENSE.
+4. Inspecter la sortie de Sprint 2 F-LICENSE, incluant 2A.3
+   registration backend-owned et 2B UI.
 5. Proposer le modèle d'état trial.
 6. Identifier la fonction d'activation à appeler quand licence devient `verified`.
 7. Définir tests.
 
 Stop conditions :
 
-- Sprint 2 F-LICENSE non terminé ;
+- Sprint 2A.3 ou Sprint 2B non terminé ;
 - modèle subscription actuel incompatible sans refactor large ;
 - décision produit manquante sur durée trial ou accès pendant pending license.
 
@@ -87,4 +91,3 @@ Implémenter :
 - `cd functions && npm run build && npm run lint && npm test`
 - `cd pharmapp_unified && flutter analyze`
 - tests ciblés si disponibles
-

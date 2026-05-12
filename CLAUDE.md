@@ -172,15 +172,19 @@ Pour le détail de Bloc 1 (Inventory Visibility), Bloc 2 Phase 1 (Medicine Reque
 |---|---|---|---|
 | **F-LICENSE (2a backend)** | License pharmacie — fondation backend | Master data fields, helpers, callables submit/verify/backfill, gate marketplace, Firestore rules, tests Jest. Split du Sprint 2 monolithique (architect decision 2026-05-12, voir [docs/orchestrator_sprints/SPRINT_2_SCOPING_PROPOSAL.md](docs/orchestrator_sprints/SPRINT_2_SCOPING_PROPOSAL.md)). | ✅ Livré + corrigé via 2A.1 |
 | **F-LICENSE (2A.1 security correction)** | Findings architecte fermés | rules deny on create + counterparty gate + rules emulator harness 12/12 verts | ✅ Livré |
-| **F-LICENSE (2b UI)** | License pharmacie — UI admin + mobile | Admin panel country config + license review, pharmacy registration field conditionnel, profile license status & correction flow, widget tests. | Débloqué après clôture 2A.1 |
-| **TD-LICENSE-REGISTRATION-OWNED** | Refactor : inscription pharmacy backend-owned | Migrer `UnifiedAuthService.signUp` Flutter → callable backend qui owne la création `pharmacies/{uid}` et l'init licence. Sprint 2A.1 a verrouillé la faille de l'inscription via rules deny-on-create (Option B transitionnelle) ; ce refactor est l'Option A pérenne. **À planifier idéalement avant ou pendant Sprint 3 Trial** pour aligner le trial gate sur un write path canonique. | À planifier |
+| **TD-LICENSE-REGISTRATION-OWNED (Sprint 2A.3)** | Refactor : inscription pharmacy backend-owned | Migrer `UnifiedAuthService.signUp` Flutter → callable backend `createPharmacyRegistration` qui owne la création `pharmacies/{uid}` et l'init licence en lisant `system_config/main.countries.{code}.licenseRequired` côté serveur au moment du create. C'est l'Option A / alpha verrouillée avant 2B pour éviter qu'un snapshot client stale décide l'enforcement licence. | Prochain sprint verrouillé |
+| **F-LICENSE (2b UI)** | License pharmacie — UI admin + mobile | Admin panel country config + license review, pharmacy registration field conditionnel, profile license status & correction flow, widget tests. La registration UI consomme le callable 2A.3 et n'écrit jamais `pharmacies/{uid}` direct. | Bloqué jusqu'à clôture 2A.3 |
 | **F-BLOC2-P2** | Medicine Requests — exchange mode | Lever le blocage purchase-only dans `createMedicineRequest` + `submitMedicineRequestOffer`. Permettre offre = `purchase` **OU** `exchange` (proposition d'échange avec médicament de la pharmacie offrante). Bridge vers `exchange_proposals` canonique. | À spécifier |
 
 ### 🛠️ Sprint planifié
 
 | ID | Sujet | État |
 |---|---|---|
-| **3.2c-β** | MSISDN hardening (gated par audit `methodCode` actif, prompt finalisé avec ajouts A+B+C) | Prêt à exécuter |
+| **2A.3** | TD-LICENSE-REGISTRATION-OWNED — inscription pharmacie backend-owned, Option A / alpha | Prochain sprint |
+| **2B** | F-LICENSE UI complète + marketplace visibility | Bloqué jusqu'à clôture 2A.3 |
+| **3** | Trial subscription aligné licence | Bloqué jusqu'à clôture 2B |
+| **4** | F-BLOC2-P2 exchange mode | Bloqué jusqu'à clôture 3 |
+| **5** | Clôture E2E | Bloqué jusqu'à clôture 4 |
 
 ### 🧹 Tech debt
 
