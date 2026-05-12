@@ -66,6 +66,7 @@ This file lists operational, up-to-date documentation. For deprecated or histori
 - [orchestrator_sprints/README.md](orchestrator_sprints/README.md) — Sprint pack index avec séquence verrouillée.
 - [orchestrator_sprints/GLOBAL_EXECUTION_CONTRACT.md](orchestrator_sprints/GLOBAL_EXECUTION_CONTRACT.md) — Cross-sprint locked decisions and rules.
 - [orchestrator_sprints/CLAUDE_RUNNER_PROMPT.md](orchestrator_sprints/CLAUDE_RUNNER_PROMPT.md) — Master prompt for Claude to drive sprints via the orchestrator.
+- [orchestrator_sprints/SPRINT_2A3_RUNNER_PROMPT.md](orchestrator_sprints/SPRINT_2A3_RUNNER_PROMPT.md) — Prompt dédié pour lancer Sprint 2A.3 via orchestrator avec décisions architecte verrouillées.
 - [orchestrator_sprints/SPRINT_2_SCOPING_PROPOSAL.md](orchestrator_sprints/SPRINT_2_SCOPING_PROPOSAL.md) — Architecte decision splitting monolithic Sprint 2 into 2a/2b (referenced after-the-fact pour 2A.1/2A.2/2A.3).
 - [orchestrator_sprints/SPRINT_2A_ARCHITECT_REVIEW_FINDINGS.md](orchestrator_sprints/SPRINT_2A_ARCHITECT_REVIEW_FINDINGS.md) — 3 findings critiques post-Sprint-2a (audit trail).
 

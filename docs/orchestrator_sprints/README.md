@@ -36,6 +36,11 @@ Lire `GLOBAL_EXECUTION_CONTRACT.md` avant chaque sprint. Il définit :
 
 Utiliser `CLAUDE_RUNNER_PROMPT.md` pour demander à Claude Code de lancer et suivre les sprints via l'orchestrator.
 
+Pour le prochain sprint, utiliser le prompt dédié
+`SPRINT_2A3_RUNNER_PROMPT.md` : il verrouille Option A / alpha,
+unknown-country fail-closed, les tests counterparty pragmatiques et le
+drift guard `PROTECTED_LICENSE_FIELDS` vs `firestore.rules`.
+
 ## Règle de continuité
 
 À chaque nouvelle session, l'agent doit commencer par lire :

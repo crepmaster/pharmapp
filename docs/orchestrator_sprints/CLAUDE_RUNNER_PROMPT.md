@@ -45,10 +45,18 @@ Exécute les sprints dans cet ordre strict :
 
 1. `SPRINT_0_DOC_FREEZE_TASK.md`
 2. `SPRINT_1_MSISDN_HARDENING_TASK.md`
-3. `SPRINT_2_F_LICENSE_TASK.md`
-4. `SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md`
-5. `SPRINT_4_MEDICINE_REQUESTS_EXCHANGE_TASK.md`
-6. `SPRINT_5_E2E_CLOSURE_TASK.md`
+3. `SPRINT_2A_LICENSE_BACKEND_TASK.md`
+4. `SPRINT_2A1_SECURITY_CORRECTION_TASK.md`
+5. `SPRINT_2A2_ARCHITECT_FOLLOWUP_TASK.md`
+6. `SPRINT_2A3_REGISTRATION_BACKEND_OWNED_TASK.md`
+7. `SPRINT_2B_LICENSE_UI_TASK.md`
+8. `SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md`
+9. `SPRINT_4_MEDICINE_REQUESTS_EXCHANGE_TASK.md`
+10. `SPRINT_5_E2E_CLOSURE_TASK.md`
+
+Le prochain sprint courant est `SPRINT_2A3_REGISTRATION_BACKEND_OWNED_TASK.md`.
+Tu peux utiliser le prompt dédié `SPRINT_2A3_RUNNER_PROMPT.md` pour ce
+sprint.
 
 Ne saute pas un sprint sauf si le sprint précédent est déjà terminé et documenté dans `CLAUDE.md` et/ou dans un rapport orchestrator.
 
