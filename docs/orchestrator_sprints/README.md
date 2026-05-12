@@ -8,9 +8,11 @@ Chaque fichier `SPRINT_*.md` est conçu comme un ticket source autonome pour l'o
 
 1. `SPRINT_0_DOC_FREEZE_TASK.md` — ✅ fermé 2026-05-12 (run `20260512-000940-c578fa`)
 2. `SPRINT_1_MSISDN_HARDENING_TASK.md` — ✅ fermé 2026-05-12 (run `20260512-065209-a16494`)
-3. `SPRINT_2A_LICENSE_BACKEND_TASK.md` — orchestrator APPROVED 2026-05-12 (run `20260512-090822-3bfcff`) mais **correction sécurité 2A.1 requise par l'architecte** (voir [SPRINT_2A_ARCHITECT_REVIEW_FINDINGS.md](SPRINT_2A_ARCHITECT_REVIEW_FINDINGS.md))
-3.1. `SPRINT_2A1_SECURITY_CORRECTION_TASK.md` — 3 findings critiques + rules emulator harness
-4. `SPRINT_2B_LICENSE_UI_TASK.md` — bloqué jusqu'à clôture **2A.1**
+3. `SPRINT_2A_LICENSE_BACKEND_TASK.md` — ✅ fermé fonctionnellement (run `20260512-090822-3bfcff`) ; revue architecte a requis 2A.1 + 2A.2 (voir [SPRINT_2A_ARCHITECT_REVIEW_FINDINGS.md](SPRINT_2A_ARCHITECT_REVIEW_FINDINGS.md))
+3.1. `SPRINT_2A1_SECURITY_CORRECTION_TASK.md` — ✅ fermé (run `20260512-200553-7f698f`) — 3 findings critiques + rules emulator harness
+3.2. `SPRINT_2A2_ARCHITECT_FOLLOWUP_TASK.md` — 6 findings additionnels (doc + tests paramétrisés + fail-closed + contract corrections)
+3.3. `SPRINT_2A3_REGISTRATION_BACKEND_OWNED_TASK.md` — refactor Option A (TD-LICENSE-REGISTRATION-OWNED), à créer pendant 2A.2
+4. `SPRINT_2B_LICENSE_UI_TASK.md` — bloqué jusqu'à clôture **2A.3** (registration backend-owned doit exister avant l'UI)
 5. `SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md`
 6. `SPRINT_4_MEDICINE_REQUESTS_EXCHANGE_TASK.md`
 7. `SPRINT_5_E2E_CLOSURE_TASK.md`
