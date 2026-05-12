@@ -194,10 +194,12 @@ function normalizeMsisdn(raw: string): string {
 }
 
 /**
- * Strip leading country codes the client may send (237/254/255/256/234) to
+ * Strip leading country codes the client may send (237/254/255/256/234/233) to
  * match the Dart validator's normalisation (see EncryptionService.validatePhoneWithMethod).
+ *
+ * Exported for unit testing. Keep pure — no side effects.
  */
-function stripLeadingCountryCode(digits: string): string {
+export function stripLeadingCountryCode(digits: string): string {
   if (
     digits.startsWith("237") ||
     digits.startsWith("254") ||
@@ -212,20 +214,56 @@ function stripLeadingCountryCode(digits: string): string {
 }
 
 /**
- * Per-method MSISDN validation. Unknown method → legacy `len >= 9` fallback
- * so providers added to system_config without a matching backend pattern
- * don't hard-fail payout creation (graceful degradation; client-side validator
- * still blocks at submit time).
+ * Sprint 3.2c-β — MSISDN Hardening.
+ *
+ * Per-method MSISDN validation for withdrawal payouts. Symmetric with the
+ * client validator in `shared/lib/services/encryption_service.dart`
+ * (`EncryptionService.validatePhoneWithMethod`).
+ *
+ * Contract:
+ *   - `normalizedDigits` length < 9 → reject (basic sanity)
+ *   - `methodCode` missing (null / undefined / empty / whitespace-only)
+ *     → REJECT (was: pass). A provider with `supportsPayouts=true` MUST have
+ *     a `methodCode` configured. Missing methodCode = misconfigured provider,
+ *     fail-closed at the backend boundary.
+ *   - `methodCode` unknown to this backend table (e.g. ops added a new market)
+ *     → graceful fallback to length-only check (existing tolerance for
+ *     deployment race between ops + backend). A structured `warn` is emitted
+ *     so ops can detect drift via log aggregation.
+ *   - `methodCode` known → strict regex check against the local prefix
+ *     (after stripping international country code).
+ *
+ * The `warn` callback is injected so unit tests can capture emitted warnings
+ * without mocking firebase-functions/logger.
+ *
+ * Exported for unit testing. Keep pure — no firestore, no logger imports.
+ *
+ * Pre-deploy audit prerequisite: confirm every active provider in
+ * `system_config/main.mobileMoneyProviders` with `supportsPayouts=true` has
+ * a non-empty `methodCode`. Without this audit, the strictness change can
+ * cause a payout outage for misconfigured providers.
  */
-function isValidMsisdnForMethod(
+export function isValidMsisdnForMethod(
   normalizedDigits: string,
-  methodCode: string | undefined | null
+  methodCode: string | undefined | null,
+  warn: (message: string, payload: Record<string, unknown>) => void = () => {}
 ): boolean {
   if (normalizedDigits.length < 9) return false;
-  if (!methodCode) return true;
+  // Hardening 3.2c-β: missing methodCode = misconfigured provider, reject.
+  if (typeof methodCode !== "string" || methodCode.trim().length === 0) {
+    return false;
+  }
   const key = methodCode.toLowerCase().replace(/\s/g, "_");
   const pattern = MSISDN_PATTERNS_BY_METHOD[key];
-  if (!pattern) return true; // unknown → graceful fallback
+  if (!pattern) {
+    // Unknown methodCode → graceful fallback (length-only) + structured warn
+    // so ops can detect that backend patterns are out of sync with config.
+    warn("createWithdrawalRequest: unknown methodCode, length-only fallback", {
+      methodCode: key,
+      reason: "unknown_method_code",
+    });
+    return true;
+  }
   return pattern.test(stripLeadingCountryCode(normalizedDigits));
 }
 
@@ -441,7 +479,11 @@ export const createWithdrawalRequest = onCall<CreateWithdrawalInput>(
       throw new HttpsError("invalid-argument", "msisdn is required.");
     }
     const normalizedMsisdn = normalizeMsisdn(rawMsisdn);
-    if (!isValidMsisdnForMethod(normalizedMsisdn, provider.methodCode)) {
+    if (
+      !isValidMsisdnForMethod(normalizedMsisdn, provider.methodCode, (message, payload) =>
+        logger.warn(message, payload)
+      )
+    ) {
       throw new HttpsError(
         "invalid-argument",
         "msisdn is invalid for the selected provider."

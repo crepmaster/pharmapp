@@ -11,7 +11,6 @@ import { validateFields, validators, sendValidationError, sendError, BusinessErr
 import { requireAuth } from "./lib/auth.js";
 // 👉 expose aussi la tâche planifiée
 export { expireExchangeHolds } from "./scheduled.js";
-// export { cleanupTestUser } from "./cleanup.js";  // Commented out - file missing
 // ======================= Exchange Proposal Callable Functions =======================
 export { createExchangeProposal } from "./createExchangeProposal.js";
 export { acceptExchangeProposal } from "./acceptExchangeProposal.js";
@@ -26,8 +25,27 @@ export { sandboxSubscriptionSuccess } from "./sandboxSubscriptionSuccess.js";
 // Admin callables for requesting and resolving platform treasury payouts.
 export { requestPlatformPayout } from "./requestPlatformPayout.js";
 export { resolvePlatformPayout } from "./resolvePlatformPayout.js";
-// ======================= Admin Operations (V2A) =======================
+// ======================= Medicine Requests (Bloc 2 — Sprint 2A) =======================
+export { createMedicineRequest } from "./createMedicineRequest.js";
+export { cancelMedicineRequest } from "./cancelMedicineRequest.js";
+export { submitMedicineRequestOffer } from "./submitMedicineRequestOffer.js";
+export { withdrawMedicineRequestOffer } from "./withdrawMedicineRequestOffer.js";
+export { acceptMedicineRequestOffer } from "./acceptMedicineRequestOffer.js";
+// ======================= Admin Operations (V2A+V2B+V2C) =======================
 export { setPharmacyActive } from "./setPharmacyActive.js";
+export { upsertCity } from "./upsertCity.js";
+export { setCourierActive } from "./setCourierActive.js";
+// ======================= MTN MoMo Collections (Wallet Top-up) =======================
+export { mtnMomoTopupIntent } from "./mtnMomoTopupIntent.js";
+export { mtnMomoCheckStatus } from "./mtnMomoCheckStatus.js";
+// ======================= Paystack (Wallet Top-up via hosted checkout) =======================
+export { paystackTopupIntent } from "./paystackTopupIntent.js";
+export { paystackWebhook } from "./paystackWebhook.js";
+// ======================= Wallet Withdrawals (generic, pharmacy + courier) =======================
+export { createWithdrawalRequest } from "./createWithdrawalRequest.js";
+export { sandboxAdvanceWithdrawal } from "./sandboxAdvanceWithdrawal.js";
+// ======================= Notifications (in-app inbox triggers) =======================
+export { onDeliveryCreatedNotifyCouriers, onDeliveryStatusChangedNotifyPharmacies, } from "./notifications.js";
 // --------- Admin init ---------
 if (getApps().length === 0)
     initializeApp();
@@ -892,8 +910,12 @@ export const sandboxCredit = onRequest({
         // Get user document from pharmacies or couriers collection
         let userDoc = await db.collection("pharmacies").doc(userId).get();
         let userData = null;
+        let isCourierAccount = false;
         if (!userDoc.exists) {
             userDoc = await db.collection("couriers").doc(userId).get();
+            if (userDoc.exists) {
+                isCourierAccount = true;
+            }
         }
         if (!userDoc.exists) {
             res.status(404).json({
@@ -904,6 +926,17 @@ export const sandboxCredit = onRequest({
         }
         userData = userDoc.data();
         const userEmail = String(userData?.email ?? "").trim();
+        // F1b: reject courier accounts — sandboxCredit is pharmacy-only.
+        // Couriers must use dedicated courier testing flows.
+        // This guard runs BEFORE the test-account email check so that any courier
+        // (test or not) deterministically receives COURIER_NOT_ALLOWED.
+        if (isCourierAccount) {
+            res.status(400).json({
+                error: "sandboxCredit is not allowed for courier accounts. Use dedicated courier testing flows.",
+                code: "COURIER_NOT_ALLOWED"
+            });
+            return;
+        }
         // Check if email matches test patterns
         const isTestAccount = testAccountPatterns.some(pattern => pattern.test(userEmail));
         if (!isTestAccount) {
