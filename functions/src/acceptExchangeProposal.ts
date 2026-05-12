@@ -22,6 +22,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { citySlug } from "./cityUtils.js";
+import { assertLicenseAllowsMarketplace } from "./lib/licenseGate.js";
 
 const db = getFirestore();
 
@@ -50,6 +51,9 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
         "User must be authenticated to accept proposals"
       );
     }
+
+    // 🔒 F-LICENSE GATE (Sprint 2a) — see createExchangeProposal for details.
+    await assertLicenseAllowsMarketplace(db, userId);
 
     const data = request.data;
 

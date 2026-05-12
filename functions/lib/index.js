@@ -31,6 +31,16 @@ export { cancelMedicineRequest } from "./cancelMedicineRequest.js";
 export { submitMedicineRequestOffer } from "./submitMedicineRequestOffer.js";
 export { withdrawMedicineRequestOffer } from "./withdrawMedicineRequestOffer.js";
 export { acceptMedicineRequestOffer } from "./acceptMedicineRequestOffer.js";
+// ======================= Pharmacy License (Sprint 2a F-LICENSE) =======================
+// Owner-only submit/correct of pharmacy license + admin verify/reject +
+// admin backfill grace period when activating a country retroactively.
+// License gate is in functions/src/lib/licenseGate.ts and is consumed by
+// the 5 marketplace callables (createExchangeProposal,
+// acceptExchangeProposal, createMedicineRequest, submitMedicineRequestOffer,
+// acceptMedicineRequestOffer).
+export { submitPharmacyLicense } from "./submitPharmacyLicense.js";
+export { adminVerifyPharmacyLicense } from "./adminVerifyPharmacyLicense.js";
+export { backfillLicenseGracePeriod } from "./backfillLicenseGracePeriod.js";
 // ======================= Admin Operations (V2A+V2B+V2C) =======================
 export { setPharmacyActive } from "./setPharmacyActive.js";
 export { upsertCity } from "./upsertCity.js";

@@ -13,6 +13,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { acceptRequestOfferIntoCanonicalProposal } from "./lib/requestProposalBridge.js";
+import { assertLicenseAllowsMarketplace } from "./lib/licenseGate.js";
 
 const db = getFirestore();
 
@@ -28,6 +29,9 @@ export const acceptMedicineRequestOffer = onCall<AcceptOfferData>(
     if (!userId) {
       throw new HttpsError("unauthenticated", "Authentication required.");
     }
+
+    // 🔒 F-LICENSE GATE (Sprint 2a) — block unverified pharmacies.
+    await assertLicenseAllowsMarketplace(db, userId);
 
     const { requestId, offerId } = request.data;
     if (!requestId || typeof requestId !== "string") {

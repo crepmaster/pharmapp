@@ -37,6 +37,46 @@ class MasterDataCountry {
   /// Stable IDs of mobile money providers operating in this country.
   final List<String> providerIds;
 
+  // Sprint 2a F-LICENSE — country-configurable pharmacy license fields.
+  // Source: `system_config/main.countries[code]`. All nullable / default-false
+  // so a country document without any license field stays in the historical
+  // "no license required" behavior. The backend gate
+  // (`functions/src/lib/licenseGate.ts`) and the UI (Sprint 2b) both read
+  // these. Sprint 2a does NOT write them — admin write is Sprint 2b.
+
+  /// `true` ⇒ pharmacies in this country must hold a verified license to
+  /// participate in marketplace actions (publish inventory, create / accept
+  /// exchange proposals, create medicine requests, etc).
+  final bool licenseRequired;
+
+  /// Display label for the license number field at registration / profile
+  /// edit (e.g. "Pharmacy License Number"). UI fallback if absent.
+  final String? licenseLabel;
+
+  /// Hint / help text shown below the license field in the UI. UI fallback
+  /// if absent.
+  final String? licenseHelpText;
+
+  /// `true` ⇒ a license submission must be verified by an admin before the
+  /// pharmacy is considered `verified`. `false` would mean self-attestation
+  /// is sufficient (not used in the MVP but reserved for future regulators).
+  final bool licenseVerificationRequired;
+
+  /// Optional regex (as a string) that the license number must match. The
+  /// backend validates with this regex in `submitPharmacyLicense`. UI is
+  /// expected to mirror the check before submit (Sprint 2b).
+  final String? licenseFormatRegex;
+
+  /// `true` ⇒ a license document URL is required (PDF / scan). Sprint 2a
+  /// treats this as opaque metadata; real Firebase Storage upload is
+  /// Sprint 2b.
+  final bool licenseDocumentRequired;
+
+  /// Default grace period (in days) granted to pharmacies that pre-exist a
+  /// retroactive activation of `licenseRequired`. Falls back to 30 if absent.
+  /// Consumed by the backend backfill callable.
+  final int licenseGracePeriodDays;
+
   const MasterDataCountry({
     required this.code,
     required this.name,
@@ -46,6 +86,13 @@ class MasterDataCountry {
     required this.sortOrder,
     required this.defaultCityCode,
     required this.providerIds,
+    this.licenseRequired = false,
+    this.licenseLabel,
+    this.licenseHelpText,
+    this.licenseVerificationRequired = false,
+    this.licenseFormatRegex,
+    this.licenseDocumentRequired = false,
+    this.licenseGracePeriodDays = 30,
   });
 }
 

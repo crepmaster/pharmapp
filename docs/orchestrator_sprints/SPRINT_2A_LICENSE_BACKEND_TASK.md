@@ -249,3 +249,49 @@ cd shared && dart analyze
 ```
 
 Pas de `flutter analyze` côté admin/unified en 2a — aucune UI touchée.
+
+---
+
+## Statut final — 2026-05-12
+
+**Run orchestrator :** `20260512-090822-3bfcff`
+
+**Décision architecte (Solution Architect Refactoring Challenge) :** EXTEND. Aucun modèle pays concurrent à consolider, le shared `MasterDataCountry` est l'unique modèle runtime, l'unique helper `licenseGate.ts` porte la vérité du gate, write paths convergent sur `createPharmacyUser` + futur `submitPharmacyLicense`/`adminVerifyPharmacyLicense`, 5 read paths marketplace clairement identifiés, 9 champs Firestore à protéger énumérés, backfill idempotent via skip-if-licenseStatus.
+
+**Livré :**
+
+1. **Master data extension shared** ([shared/lib/models/master_data_snapshot.dart](../../shared/lib/models/master_data_snapshot.dart), [shared/lib/services/master_data_service.dart](../../shared/lib/services/master_data_service.dart)) : `MasterDataCountry` reçoit 7 nouveaux champs (`licenseRequired`, `licenseLabel`, `licenseHelpText`, `licenseVerificationRequired`, `licenseFormatRegex`, `licenseDocumentRequired`, `licenseGracePeriodDays`), tous nullable / défaut sûr pour préserver le comportement historique des pays non mandatory.
+2. **License gate helper** ([functions/src/lib/licenseGate.ts](../../functions/src/lib/licenseGate.ts)) : evaluator pur `evaluateLicenseGate(pharmacy, country, now?)` + wrapper async `assertLicenseAllowsMarketplace(db, uid)`. Type `LicenseStatus` exporté avec 7 valeurs. Defensive parsing sur `licenseGraceEndsAt` (Timestamp, epoch ms, broken toMillis → tous gérés). Error message uniforme côté HttpsError sans fuite du statut interne ni du pays.
+3. **3 nouveaux callables** :
+   - `submitPharmacyLicense` ([functions/src/submitPharmacyLicense.ts](../../functions/src/submitPharmacyLicense.ts)) : owner-only, metadata-only (URL document opaque), valide regex pays si configuré, transitionne `pending_verification`, clear `licenseRejectionReason` au resubmit
+   - `adminVerifyPharmacyLicense` ([functions/src/adminVerifyPharmacyLicense.ts](../../functions/src/adminVerifyPharmacyLicense.ts)) : admin/super_admin country-scoped, transitions `verify | reject | correction_needed`, écrit `licenseVerifiedBy` + `licenseVerifiedAt`, exige `reason` pour reject/correction
+   - `backfillLicenseGracePeriod` ([functions/src/backfillLicenseGracePeriod.ts](../../functions/src/backfillLicenseGracePeriod.ts)) : admin-only, `dryRun: true` par défaut, idempotent (skip si `licenseStatus` déjà set), batching 400 ops, rapport `{affected, skipped, total, gracePeriodDaysUsed}`
+4. **Gate appliqué aux 5 callables marketplace** : `createExchangeProposal`, `acceptExchangeProposal`, `createMedicineRequest`, `submitMedicineRequestOffer`, `acceptMedicineRequestOffer`. Injection après l'auth check, avant toute autre validation. Aucun changement de logique métier.
+5. **`createPharmacyUser` license init** ([functions/src/auth/unified-auth-functions.ts](../../functions/src/auth/unified-auth-functions.ts)) : helper pur `computeInitialLicenseStatus(countryLicenseRequired, hasLicenseNumber)`, post-create update du `licenseStatus` (`not_required` vs `pending_verification`), `licenseCountryCode` initialisé depuis le pharmacy doc. Si l'update échoue, log warn mais ne fail pas le create (gate fail-closed sur licenseStatus manquant + licenseRequired).
+6. **Firestore rules** ([firestore.rules](../../firestore.rules)) : interdiction client-side mutation sur les 9 champs licence (`licenseStatus`, `licenseVerifiedBy`, `licenseVerifiedAt`, `licenseRejectionReason`, `licenseGraceEndsAt`, `licenseNumber`, `licenseCountryCode`, `licenseDocumentUrl`, `licenseExpiryDate`). Helper rule `pharmacyLicenseFieldChanged(before, after, name)`. Callables backend bypass les rules (admin SDK).
+7. **Exports `functions/src/index.ts`** ([functions/src/index.ts](../../functions/src/index.ts)) : section "Pharmacy License (Sprint 2a F-LICENSE)" avec les 3 nouveaux callables.
+8. **Tests** ([functions/src/__tests__/licenseGate.test.ts](../../functions/src/__tests__/licenseGate.test.ts)) : 19 tests couvrant les 11 scénarios du brief + cas defensive (Timestamp / epoch ms / broken toMillis / unknown status / null).
+
+**Validations exécutées :**
+
+- `cd functions && npm run build` ✅ tsc clean
+- `cd functions && npm run lint` ✅ eslint clean
+- `cd functions && npm test` ✅ **144/144 pass** (était 125 → +19 nouveaux licenseGate, zéro régression)
+- `cd shared && dart analyze` ✅ 5 issues pré-existantes (unused fields dans unified_auth_service, deprecated withOpacity dans country_payment_selection_screen), 0 nouvelle issue introduite par Sprint 2a
+
+**Non-régression :**
+- Pays non mandatory : `evaluateLicenseGate` renvoie `allow / country_not_required` → aucun blocage marketplace, même pour pharmacies `rejected` (le flag pays fait foi)
+- Inscription pharmacie pays non mandatory : `licenseStatus=not_required` écrit, aucun blocage
+- Exchange / medicine request purchase-only existants : gate transparent pour pharmacies dans pays non mandatory, ou `verified`, ou `grace_period` actif
+- Admin V2A country-scoped RBAC : `adminVerifyPharmacyLicense` et `backfillLicenseGracePeriod` réutilisent le même pattern (lecture `admins/{uid}`, vérification `countryScopes`)
+- 125 tests pré-existants : tous verts
+
+**Aucune UI touchée :** `git status --short` confirme `admin_panel/**` et `pharmapp_unified/**` à zéro modifs. Strictement conforme au périmètre Sprint 2a.
+
+**Prérequis pour Sprint 2b (UI) :**
+- Sprint 2a doit être finalisé orchestrator-side (APPROVED + run-finalize OK)
+- Pre-deploy : avant de pousser Sprint 2a en prod, exécuter `backfillLicenseGracePeriod` en `dryRun: true` sur chaque pays qui passe `licenseRequired=true` pour estimer l'impact, puis en `dryRun: false`. Aucun deploy effectué dans ce sprint.
+
+**Limites assumées :**
+- `submitPharmacyLicense` accepte `licenseDocumentUrl` comme chaîne opaque. Pas d'upload Firebase Storage réel — Sprint 2b décidera si on intègre Storage ou si l'URL reste fournie par le client.
+- Les Firestore rules s'appuient sur `request.resource.data` vs `resource.data`. Si le client n'envoie pas le champ, `request.resource.data` ne le contient pas → considéré "presence change". Cela suppose que le client maintient le shape complet du document à chaque update. Si un client envoie un update partiel sans réenvoyer les champs licence, l'update sera refusé. Pratique standard dans cette codebase (les Flutter writes envoient le map complet via `set`/`update`).

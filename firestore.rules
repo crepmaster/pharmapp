@@ -139,8 +139,31 @@ service cloud.firestore {
     match /pharmacies/{userId} {
       allow read: if isAuthenticated(); // Other pharmacies can read basic profile info
       allow create: if isOwner(userId) && isValidPharmacyData(request.resource.data);
-      allow update: if isOwner(userId) && isValidPharmacyData(request.resource.data);
+      // Sprint 2a F-LICENSE: backend-controlled license fields cannot be
+      // mutated by the pharmacy owner client-side. Authoritative write
+      // paths are `submitPharmacyLicense` (owner) and
+      // `adminVerifyPharmacyLicense` (admin), which both run with the
+      // service account / admin SDK and bypass these rules. This block
+      // only closes the direct-client-write side door.
+      allow update: if isOwner(userId)
+                    && isValidPharmacyData(request.resource.data)
+                    && !pharmacyLicenseFieldChanged(resource.data, request.resource.data, 'licenseStatus')
+                    && !pharmacyLicenseFieldChanged(resource.data, request.resource.data, 'licenseVerifiedBy')
+                    && !pharmacyLicenseFieldChanged(resource.data, request.resource.data, 'licenseVerifiedAt')
+                    && !pharmacyLicenseFieldChanged(resource.data, request.resource.data, 'licenseRejectionReason')
+                    && !pharmacyLicenseFieldChanged(resource.data, request.resource.data, 'licenseGraceEndsAt')
+                    && !pharmacyLicenseFieldChanged(resource.data, request.resource.data, 'licenseNumber')
+                    && !pharmacyLicenseFieldChanged(resource.data, request.resource.data, 'licenseCountryCode')
+                    && !pharmacyLicenseFieldChanged(resource.data, request.resource.data, 'licenseDocumentUrl')
+                    && !pharmacyLicenseFieldChanged(resource.data, request.resource.data, 'licenseExpiryDate');
       allow delete: if isOwner(userId);
+    }
+
+    // Sprint 2a F-LICENSE: returns true if the named field's presence or
+    // value differs between the pre-image (before) and post-image (after).
+    function pharmacyLicenseFieldChanged(before, after, name) {
+      return (before.keys().hasAny([name]) != after.keys().hasAny([name]))
+          || (before.keys().hasAny([name]) && before[name] != after[name]);
     }
     
     // Pharmacy data validation function

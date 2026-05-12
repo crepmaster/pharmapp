@@ -1,5 +1,21 @@
 import { onRequest } from "firebase-functions/v2/https";
+import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { UnifiedAuthService } from "../shared/auth/unified-auth-service.js";
+/**
+ * Sprint 2a F-LICENSE — Computes the initial `licenseStatus` for a freshly
+ * created pharmacy doc, based on the country's `licenseRequired` flag.
+ * Pure helper: no I/O, easy to unit-test if needed in a future sprint.
+ */
+function computeInitialLicenseStatus(countryLicenseRequired, licenseNumberProvided) {
+    if (!countryLicenseRequired)
+        return "not_required";
+    // licenseRequired=true → pending_verification regardless of whether the
+    // licenseNumber was provided at registration. Without one, the pharmacy
+    // is gated out of marketplace until they call `submitPharmacyLicense`.
+    // With one, the admin still has to flip it to `verified`.
+    void licenseNumberProvided; // explicit no-op for future caller intent
+    return "pending_verification";
+}
 /**
  * 🏥 Create Pharmacy User
  *
@@ -34,7 +50,13 @@ export const createPharmacyUser = onRequest({ region: 'europe-west1' }, async (r
         return;
     }
     try {
-        const { email, password, pharmacyName, phoneNumber, address, locationData } = req.body;
+        const { email, password, pharmacyName, phoneNumber, address, locationData, 
+        // Sprint 2a F-LICENSE: optional license fields. Captured here so the
+        // pharmacy doc can be born with the correct `licenseStatus`. If a
+        // country is `licenseRequired=true`, the doc lands in
+        // `pending_verification` (with or without licenseNumber). The
+        // pharmacy can complete / correct via `submitPharmacyLicense`.
+        licenseNumber, } = req.body;
         // Validate required fields
         if (!email || !password || !pharmacyName || !phoneNumber || !address) {
             res.status(400).json({
@@ -53,6 +75,47 @@ export const createPharmacyUser = onRequest({ region: 'europe-west1' }, async (r
             address,
             locationData,
         });
+        // Sprint 2a F-LICENSE — Initialize license fields on the freshly
+        // created pharmacy doc. Done post-create rather than threading through
+        // UnifiedAuthService to keep the auth service surface untouched. If
+        // this update fails, the pharmacy exists with no `licenseStatus`
+        // and the gate will treat that as deny on license-required countries
+        // (fail-closed). The pharmacy can then complete via submitPharmacyLicense.
+        try {
+            const db = getFirestore();
+            const pharmacyRef = db.collection('pharmacies').doc(result.uid);
+            const pharmacySnap = await pharmacyRef.get();
+            const pharmacyData = pharmacySnap.data() ?? {};
+            const countryCode = pharmacyData.countryCode;
+            let licenseRequired = false;
+            if (countryCode) {
+                const sysConfigSnap = await db
+                    .collection('system_config')
+                    .doc('main')
+                    .get();
+                const country = (sysConfigSnap.data()?.countries?.[countryCode] ?? {});
+                licenseRequired = country.licenseRequired === true;
+            }
+            const hasLicenseNumber = typeof licenseNumber === 'string' && licenseNumber.trim() !== '';
+            const status = computeInitialLicenseStatus(licenseRequired, hasLicenseNumber);
+            const update = {
+                licenseStatus: status,
+                updatedAt: FieldValue.serverTimestamp(),
+            };
+            if (countryCode) {
+                update.licenseCountryCode = countryCode;
+            }
+            if (hasLicenseNumber) {
+                update.licenseNumber = licenseNumber.trim();
+            }
+            await pharmacyRef.update(update);
+        }
+        catch (licenseErr) {
+            // Log but do NOT fail the create call — pharmacy is already in
+            // Firebase Auth + Firestore. The pharmacy can submit via
+            // submitPharmacyLicense to set the status.
+            console.warn(`⚠️ Pharmacy created but license init failed for ${result.uid}: ${licenseErr?.message ?? licenseErr}`);
+        }
         res.status(200).json({
             success: true,
             message: 'Pharmacy user created successfully',

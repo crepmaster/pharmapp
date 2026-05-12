@@ -21,6 +21,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { citySlug } from "./cityUtils.js";
+import { assertLicenseAllowsMarketplace } from "./lib/licenseGate.js";
 import * as logger from "firebase-functions/logger";
 
 const db = getFirestore();
@@ -62,6 +63,11 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
         "User must be authenticated to create proposals"
       );
     }
+
+    // 🔒 F-LICENSE GATE (Sprint 2a) — block unverified pharmacies in
+    // license-required countries (outside grace period). Throws a generic
+    // failed-precondition without leaking license status or country.
+    await assertLicenseAllowsMarketplace(db, userId);
 
     const data = request.data;
 

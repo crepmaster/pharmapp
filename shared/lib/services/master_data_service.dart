@@ -64,6 +64,10 @@ class MasterDataService {
     final countries = <String, MasterDataCountry>{};
     for (final entry in countriesRaw.entries) {
       final m = entry.value as Map<String, dynamic>? ?? {};
+      // Sprint 2a F-LICENSE: license fields are read here so MasterDataCountry
+      // exposes them to the runtime / UI. Each field is defensively defaulted
+      // to preserve historical "no license" behavior when the Firestore doc
+      // omits them entirely (no breaking change for non-mandatory countries).
       countries[entry.key] = MasterDataCountry(
         code: m['code'] as String? ?? entry.key,
         name: m['name'] as String? ?? entry.key,
@@ -73,6 +77,16 @@ class MasterDataService {
         sortOrder: m['sortOrder'] as int? ?? 0,
         defaultCityCode: m['defaultCityCode'] as String? ?? '',
         providerIds: List<String>.from(m['providerIds'] as List? ?? []),
+        licenseRequired: m['licenseRequired'] as bool? ?? false,
+        licenseLabel: m['licenseLabel'] as String?,
+        licenseHelpText: m['licenseHelpText'] as String?,
+        licenseVerificationRequired:
+            m['licenseVerificationRequired'] as bool? ?? false,
+        licenseFormatRegex: m['licenseFormatRegex'] as String?,
+        licenseDocumentRequired:
+            m['licenseDocumentRequired'] as bool? ?? false,
+        licenseGracePeriodDays:
+            (m['licenseGracePeriodDays'] as num?)?.toInt() ?? 30,
       );
     }
 
