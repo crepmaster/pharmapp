@@ -61,15 +61,33 @@ This file lists operational, up-to-date documentation. For deprecated or histori
 
 ### Orchestrator sprint pack (`docs/orchestrator_sprints/`)
 
-- [orchestrator_sprints/README.md](orchestrator_sprints/README.md) — Sprint pack index.
+**Meta & runner** :
+
+- [orchestrator_sprints/README.md](orchestrator_sprints/README.md) — Sprint pack index avec séquence verrouillée.
 - [orchestrator_sprints/GLOBAL_EXECUTION_CONTRACT.md](orchestrator_sprints/GLOBAL_EXECUTION_CONTRACT.md) — Cross-sprint locked decisions and rules.
 - [orchestrator_sprints/CLAUDE_RUNNER_PROMPT.md](orchestrator_sprints/CLAUDE_RUNNER_PROMPT.md) — Master prompt for Claude to drive sprints via the orchestrator.
-- [orchestrator_sprints/SPRINT_0_DOC_FREEZE_TASK.md](orchestrator_sprints/SPRINT_0_DOC_FREEZE_TASK.md) — Sprint 0 contract (doc freeze).
-- [orchestrator_sprints/SPRINT_1_MSISDN_HARDENING_TASK.md](orchestrator_sprints/SPRINT_1_MSISDN_HARDENING_TASK.md) — Sprint 1 (MSISDN hardening).
-- [orchestrator_sprints/SPRINT_2_F_LICENSE_TASK.md](orchestrator_sprints/SPRINT_2_F_LICENSE_TASK.md) — Sprint 2 (license enforcement).
-- [orchestrator_sprints/SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md](orchestrator_sprints/SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md) — Sprint 3 (trial subscription).
+- [orchestrator_sprints/SPRINT_2_SCOPING_PROPOSAL.md](orchestrator_sprints/SPRINT_2_SCOPING_PROPOSAL.md) — Architecte decision splitting monolithic Sprint 2 into 2a/2b (referenced after-the-fact pour 2A.1/2A.2/2A.3).
+- [orchestrator_sprints/SPRINT_2A_ARCHITECT_REVIEW_FINDINGS.md](orchestrator_sprints/SPRINT_2A_ARCHITECT_REVIEW_FINDINGS.md) — 3 findings critiques post-Sprint-2a (audit trail).
+
+**Sprints closed** :
+
+- [orchestrator_sprints/SPRINT_0_DOC_FREEZE_TASK.md](orchestrator_sprints/SPRINT_0_DOC_FREEZE_TASK.md) — ✅ Sprint 0 (doc freeze, 2026-05-12).
+- [orchestrator_sprints/SPRINT_1_MSISDN_HARDENING_TASK.md](orchestrator_sprints/SPRINT_1_MSISDN_HARDENING_TASK.md) — ✅ Sprint 1 (MSISDN hardening 3.2c-β, 2026-05-12).
+- [orchestrator_sprints/SPRINT_2A_LICENSE_BACKEND_TASK.md](orchestrator_sprints/SPRINT_2A_LICENSE_BACKEND_TASK.md) — ✅ Sprint 2a (F-LICENSE backend foundation, 2026-05-12) + correction 2A.1/2A.2.
+- [orchestrator_sprints/SPRINT_2A1_SECURITY_CORRECTION_TASK.md](orchestrator_sprints/SPRINT_2A1_SECURITY_CORRECTION_TASK.md) — ✅ Sprint 2A.1 (3 findings critiques, 2026-05-12).
+- [orchestrator_sprints/SPRINT_2A2_ARCHITECT_FOLLOWUP_TASK.md](orchestrator_sprints/SPRINT_2A2_ARCHITECT_FOLLOWUP_TASK.md) — Sprint 2A.2 (6 findings additionnels, doc + tests paramétrisés + fail-closed + contract corrections, en cours 2026-05-12).
+
+**Sprints à venir (ordre verrouillé)** :
+
+- `SPRINT_2A3_REGISTRATION_BACKEND_OWNED_TASK.md` (à créer) — TD-LICENSE-REGISTRATION-OWNED, refactor inscription pharmacy backend-owned. **Doit clore avant Sprint 2B.**
+- [orchestrator_sprints/SPRINT_2B_LICENSE_UI_TASK.md](orchestrator_sprints/SPRINT_2B_LICENSE_UI_TASK.md) — Sprint 2B (UI admin + pharmacy registration + profile + marketplace visibility lot). Bloqué jusqu'à clôture 2A.3.
+- [orchestrator_sprints/SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md](orchestrator_sprints/SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md) — Sprint 3 (trial subscription, présuppose 2A.3 pour gate sur write path canonique).
 - [orchestrator_sprints/SPRINT_4_MEDICINE_REQUESTS_EXCHANGE_TASK.md](orchestrator_sprints/SPRINT_4_MEDICINE_REQUESTS_EXCHANGE_TASK.md) — Sprint 4 (Bloc 2 P2 exchange mode).
 - [orchestrator_sprints/SPRINT_5_E2E_CLOSURE_TASK.md](orchestrator_sprints/SPRINT_5_E2E_CLOSURE_TASK.md) — Sprint 5 (E2E closure).
+
+**Référence agrégée (ne plus exécuter directement)** :
+
+- [orchestrator_sprints/SPRINT_2_F_LICENSE_TASK.md](orchestrator_sprints/SPRINT_2_F_LICENSE_TASK.md) — Sprint 2 monolithique original. Conservé pour le target model end-to-end. **Remplacé** par 2a + 2A.1 + 2A.2 + 2A.3 + 2B.
 
 ### Active testing docs (`docs/testing/`)
 

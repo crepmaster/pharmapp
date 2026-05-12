@@ -1,34 +1,58 @@
 # Sprint 2b — F-LICENSE UI Integration
 
-À exécuter dans l'orchestrator uniquement, **après** que Sprint 2a est
-fermé + APPROVED + finalized.
+À exécuter dans l'orchestrator uniquement, **après** que Sprint 2A.3
+(TD-LICENSE-REGISTRATION-OWNED, Option A backend-owned registration)
+est fermé + APPROVED + finalized.
 
 ## Origine
 
 Split du Sprint 2 monolithique acté par l'architecte le 2026-05-12 dans
 [SPRINT_2_SCOPING_PROPOSAL.md](SPRINT_2_SCOPING_PROPOSAL.md). Voir
-aussi le contrat backend [SPRINT_2A_LICENSE_BACKEND_TASK.md](SPRINT_2A_LICENSE_BACKEND_TASK.md).
+aussi le contrat backend [SPRINT_2A_LICENSE_BACKEND_TASK.md](SPRINT_2A_LICENSE_BACKEND_TASK.md),
+les findings architecte [SPRINT_2A_ARCHITECT_REVIEW_FINDINGS.md](SPRINT_2A_ARCHITECT_REVIEW_FINDINGS.md),
+et les sprints de consolidation [SPRINT_2A1_SECURITY_CORRECTION_TASK.md](SPRINT_2A1_SECURITY_CORRECTION_TASK.md)
++ [SPRINT_2A2_ARCHITECT_FOLLOWUP_TASK.md](SPRINT_2A2_ARCHITECT_FOLLOWUP_TASK.md).
 
 ## Objectif
 
 Rendre la feature licence end-to-end utilisable côté humain : admin
 peut configurer un pays comme mandatory et vérifier/refuser des
 licences, pharmacie voit l'input licence conditionnel à l'inscription
-selon master data et peut corriger sa licence après refus.
+selon master data et peut corriger sa licence après refus. **Plus** :
+verrouiller la visibilité marketplace côté reads pour les pharmacies
+non-verified hors grâce (finding architecte #5).
 
 ## Prérequis
 
-Sprint 2a doit être fermé et APPROVED :
+**Sprint 2A.3 (TD-LICENSE-REGISTRATION-OWNED) doit être fermé** —
+décision architecte 2026-05-12 :
 
-- `MasterDataCountry` étendu côté shared.
-- 4 callables backend opérationnels (`submitPharmacyLicense`,
-  `adminVerifyPharmacyLicense`, `backfillLicenseGracePeriod`, gate via
-  `licenseGate.ts`).
-- Firestore rules en place.
-- Tests Jest passent.
+- nouveau callable backend-owned créant `pharmacies/{uid}` + initialisant `licenseStatus` atomiquement selon `system_config/main.countries.{code}.licenseRequired` ;
+- `UnifiedAuthService.signUp` Flutter migré pour appeler ce callable au lieu d'écrire Firestore direct ;
+- tests backend + non-régression auth.
+
+Sprint 2a + 2A.1 + 2A.2 doivent également être fermés :
+
+- `MasterDataCountry` étendu côté shared (Sprint 2a).
+- 3 callables backend opérationnels (`submitPharmacyLicense`, `adminVerifyPharmacyLicense`, `backfillLicenseGracePeriod`) + gate `licenseGate.ts` avec `PROTECTED_LICENSE_FIELDS` exporté (Sprint 2a + 2A.2).
+- Firestore rules deny create + update sur les 9 champs licence (Sprint 2A.1).
+- Counterparty gate fail-closed dans `acceptExchangeProposal` + `acceptMedicineRequestOffer` (Sprint 2A.1 + 2A.2).
+- 22 tests rules + 12 tests callable-level counterparty + 19 tests gate (Sprint 2a + 2A.1 + 2A.2).
 
 Si l'un de ces prérequis n'est pas rempli, l'explorer 2b doit
-répondre `SAFE TO PROCEED = NO` et demander à clore 2a d'abord.
+répondre `SAFE TO PROCEED = NO` et demander à clore les sprints
+manquants d'abord.
+
+## Registration write path canonique (post-2A.3)
+
+À partir de Sprint 2A.3, le canonical path pour créer une pharmacie est :
+
+```text
+Flutter UI → UnifiedAuthService.signUp → callable backend createPharmacyAccount
+           → atomic write pharmacies/{uid} + licenseStatus selon country config
+```
+
+Sprint 2B UI **n'écrit JAMAIS `pharmacies/{uid}` direct depuis Flutter** — elle appelle uniquement le callable Sprint 2A.3. L'input licence à l'inscription est passé en paramètre du callable. La Firestore rule `allow create` deny-on-license-fields (Sprint 2A.1) reste comme defense-in-depth.
 
 ## Décisions verrouillées rappelées
 
@@ -137,17 +161,34 @@ Implémenter par lots sûrs :
    `MasterDataCountry.licenseRequired`, affichage `licenseLabel` et
    `licenseHelpText`, validation regex côté client si
    `licenseFormatRegex` présent. Désactiver soumission si
-   `licenseRequired=true` et licence vide.
+   `licenseRequired=true` et licence vide. **L'écran ne write pas
+   Firestore direct** — appelle le callable backend Sprint 2A.3.
 4. **Pharmacy profile license status** : afficher le statut courant
    (badge), instructions claires si `rejected` ou `correction_needed`,
    bouton "soumettre/corriger" qui appelle
    `submitPharmacyLicense`. Aucune promesse trial.
-5. **Tests widget Flutter** : matrice basique (pays mandatory rend le
+5. **Marketplace visibility (architecte finding #5, ajouté 2A.2)** :
+   les pharmacies mandatory non-`verified` post-grâce **N'APPARAISSENT
+   PAS** dans le marketplace listing (search, "available pharmacies",
+   "send offer to" picker, etc).
+   - Préférer un endpoint backend listing filtré (par exemple callable
+     `getMarketplacePharmacies(countryCode, cityCode)` ou ajouter un
+     flag `marketplaceVisible: bool` calculé côté serveur lors des
+     transitions `licenseStatus`).
+   - **Filtre UI seul ne suffit pas** : un client modifié peut bypass.
+     L'endpoint backend ou le flag calculé par function trigger sont
+     les deux approches acceptables ; l'explorer 2b tranche.
+   - Critère done : test prouvant qu'une pharmacie `rejected` ou
+     `expired` ne remonte pas dans le listing accessible aux autres
+     pharmacies, même si on bypass l'UI et qu'on requête Firestore
+     direct.
+6. **Tests widget Flutter** : matrice basique (pays mandatory rend le
    champ obligatoire, pays non-mandatory ne le rend pas, statut
    `rejected` affiche le flow correction, admin verify happy path).
-6. **Docs** : update `CLAUDE.md` pour Sprint 2b fermé + section
+7. **Docs** : update `CLAUDE.md` pour Sprint 2b fermé + section
    "Statut final" dans ce contrat. Marquer la feature F-LICENSE comme
-   end-to-end livrée.
+   end-to-end livrée (backend + registration canonique + UI +
+   marketplace visibility).
 
 ## Critères de done
 

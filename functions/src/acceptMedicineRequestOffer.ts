@@ -41,22 +41,33 @@ export const acceptMedicineRequestOffer = onCall<AcceptOfferData>(
       throw new HttpsError("invalid-argument", "offerId is required.");
     }
 
-    // 🔒 F-LICENSE GATE — COUNTERPARTY (Sprint 2A.1 security correction):
+    // 🔒 F-LICENSE GATE — COUNTERPARTY (Sprint 2A.1 + 2A.2):
     // gate the seller (the offer's `sellerPharmacyId`) before the
     // transactional bridge commits. The bridge re-reads the offer
     // atomically; this pre-tx read is purely for the eligibility check.
+    //
+    // Sprint 2A.2 (architect finding #4): fail-closed on missing offer
+    // OR missing sellerPharmacyId. The bridge would have failed anyway
+    // on a missing offer, but a generic license-gate refusal protects
+    // against any future relaxation of bridge validation and is the
+    // expected security posture for the architect review.
     const offerPreSnap = await db
       .collection("medicine_request_offers")
       .doc(offerId)
       .get();
-    if (offerPreSnap.exists) {
-      const sellerUid = (offerPreSnap.data() ?? {}).sellerPharmacyId as
-        | string
-        | undefined;
-      if (typeof sellerUid === "string" && sellerUid.length > 0) {
-        await assertLicenseAllowsMarketplace(db, sellerUid);
-      }
+    if (!offerPreSnap.exists) {
+      throw new HttpsError("not-found", "Medicine request offer not found.");
     }
+    const sellerUid = (offerPreSnap.data() ?? {}).sellerPharmacyId as
+      | string
+      | undefined;
+    if (typeof sellerUid !== "string" || sellerUid.length === 0) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Offer is missing seller information and cannot be accepted."
+      );
+    }
+    await assertLicenseAllowsMarketplace(db, sellerUid);
 
     logger.info("acceptMedicineRequestOffer: starting", {
       userId,

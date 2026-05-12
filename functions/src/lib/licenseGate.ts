@@ -26,6 +26,34 @@ import { HttpsError } from "firebase-functions/v2/https";
 import type { Firestore, Timestamp } from "firebase-admin/firestore";
 
 /**
+ * Sprint 2A.2 — Single source of truth for the 9 license fields that
+ * NO client may mutate directly on `pharmacies/{uid}` (neither at
+ * create-time nor at update-time). The Firestore rules enforce this,
+ * and the rules tests iterate this list to prove each field is denied.
+ *
+ * Keep this in sync with `firestore.rules :: pharmacyLicenseFieldsAbsentAtCreate`
+ * and `firestore.rules :: pharmacyLicenseFieldChanged` clauses on
+ * `allow update`. If you add a 10th license field, add it both here
+ * AND in the rules.
+ *
+ * `as const` + `readonly` so callers can `.includes()` against literal
+ * unions without TypeScript widening.
+ */
+export const PROTECTED_LICENSE_FIELDS = [
+  "licenseStatus",
+  "licenseVerifiedBy",
+  "licenseVerifiedAt",
+  "licenseRejectionReason",
+  "licenseGraceEndsAt",
+  "licenseNumber",
+  "licenseCountryCode",
+  "licenseDocumentUrl",
+  "licenseExpiryDate",
+] as const;
+
+export type ProtectedLicenseField = (typeof PROTECTED_LICENSE_FIELDS)[number];
+
+/**
  * Persisted license status values. Kept as a string-literal union (NOT an
  * enum) so the type erases at runtime and matches whatever the Firestore
  * document holds. Unknown / missing values are handled defensively in

@@ -1,24 +1,21 @@
 /**
- * Sprint 2A.1 — Firestore rules tests for F-LICENSE security correction.
+ * Sprint 2A.1 + 2A.2 — Firestore rules tests for F-LICENSE.
  *
- * Architect's non-negotiable acceptance criterion: a client tentative to
- * create `pharmacies/{uid}` with `licenseStatus: "verified"` MUST fail.
+ * Architect's non-negotiable acceptance criterion (kept as the headline
+ * test REQ-2A1-001) : a client tentative to create `pharmacies/{uid}`
+ * with `licenseStatus: "verified"` MUST fail.
  *
- * This test file runs ONLY via `npm run test:rules`, which wraps Jest
- * with `firebase emulators:exec --only firestore` so the Firestore
- * emulator is started on port 8080 and torn down automatically.
+ * Sprint 2A.2 (architect finding #3) : the per-field coverage is now
+ * paramétrisée sur `PROTECTED_LICENSE_FIELDS` (la single-source-of-truth
+ * exportée par `lib/licenseGate.ts`) — chaque ajout de champ licence
+ * gagne automatiquement un test create + update sans toucher à ce
+ * fichier. Originel : 6 champs sur create / 3 sur update. Cible 2A.2 :
+ * 9 champs sur create ET 9 sur update.
  *
- * Excluded from the default `npm test` suite (see
- * `testPathIgnorePatterns` in `jest.config.cjs`) so CI environments
- * without Java / Firebase emulator can still run the standard suite.
- *
- * Scope (per Sprint 2A.1 brief): minimum harness ciblé license fields,
- * NOT a full pharmacy rules suite. Covers the 4 mandatory scenarios:
- *   1. client create with `licenseStatus: "verified"` → denied
- *   2. client create with any other backend-controlled license field → denied
- *   3. client create with no license field → allowed
- *   4. client update setting `licenseStatus` after a legit create → denied
- * Plus a few defensive variants.
+ * This test file runs ONLY via `npm run test:rules`. Excluded from the
+ * default `npm test` suite (see `testPathIgnorePatterns` in
+ * `jest.config.cjs`) so CI environments without Java / Firebase
+ * emulator can still run the standard suite.
  */
 import fs from "fs";
 import path from "path";
@@ -29,6 +26,11 @@ import {
   assertSucceeds,
 } from "@firebase/rules-unit-testing";
 import { setDoc, doc, updateDoc, serverTimestamp } from "firebase/firestore";
+
+import {
+  PROTECTED_LICENSE_FIELDS,
+  type ProtectedLicenseField,
+} from "../lib/licenseGate.js";
 
 let testEnv: RulesTestEnvironment;
 
@@ -47,6 +49,34 @@ const VALID_PHARMACY_BASE = Object.freeze({
   role: "pharmacy",
   isActive: true,
 });
+
+/**
+ * Sample value per protected field used to assemble a deny payload.
+ * Each value is realistic enough that a misconfigured rule could plausibly
+ * accept it — keeps the test honest.
+ */
+function sampleValueFor(field: ProtectedLicenseField): unknown {
+  switch (field) {
+    case "licenseStatus":
+      return "verified"; // the headline self-verification attempt
+    case "licenseVerifiedBy":
+      return "self-verifying-uid";
+    case "licenseVerifiedAt":
+      return serverTimestamp();
+    case "licenseRejectionReason":
+      return "preempted rejection note";
+    case "licenseGraceEndsAt":
+      return serverTimestamp();
+    case "licenseNumber":
+      return "PMC-PRE-FORGED-12345678";
+    case "licenseCountryCode":
+      return "GH";
+    case "licenseDocumentUrl":
+      return "https://example.test/forged-doc.pdf";
+    case "licenseExpiryDate":
+      return serverTimestamp();
+  }
+}
 
 beforeAll(async () => {
   const rulesPath = path.resolve(__dirname, "../../../firestore.rules");
@@ -73,13 +103,13 @@ beforeEach(async () => {
   }
 });
 
-describe("Sprint 2A.1 — F-LICENSE rules: deny client license-field writes", () => {
-  // ─── CREATE DENY SCENARIOS ────────────────────────────────────────────
+describe("Sprint 2A.1 + 2A.2 — F-LICENSE rules: deny client license-field writes", () => {
+  // ─── HEADLINE / NON-NEGOTIABLE ACCEPTANCE ─────────────────────────────
 
-  test("REQ-2A1-001: client create with licenseStatus='verified' → DENIED", async () => {
-    // The architect's non-negotiable acceptance: a modified client must
-    // not be able to self-verify by smuggling licenseStatus into the
-    // create payload.
+  test("REQ-2A1-001: client create with licenseStatus='verified' → DENIED (architect's non-negotiable acceptance)", async () => {
+    // Kept explicit even though the parametrized suite below covers
+    // this case again. The architect's review pins this as the
+    // canonical proof; the test name is the contract.
     const alice = testEnv.authenticatedContext(ALICE_UID);
     await assertFails(
       setDoc(doc(alice.firestore(), `pharmacies/${ALICE_UID}`), {
@@ -89,57 +119,47 @@ describe("Sprint 2A.1 — F-LICENSE rules: deny client license-field writes", ()
     );
   });
 
-  test("REQ-2A1-002: client create with licenseVerifiedBy=callerUid → DENIED", async () => {
-    const alice = testEnv.authenticatedContext(ALICE_UID);
-    await assertFails(
-      setDoc(doc(alice.firestore(), `pharmacies/${ALICE_UID}`), {
-        ...VALID_PHARMACY_BASE,
-        licenseVerifiedBy: ALICE_UID,
-      })
+  // ─── PARAMETRIZED CREATE DENY (9 fields) ──────────────────────────────
+
+  describe("create with any single PROTECTED_LICENSE_FIELDS member → DENIED", () => {
+    test.each(PROTECTED_LICENSE_FIELDS)(
+      "REQ-2A2-CREATE: client create with %s → DENIED",
+      async (field) => {
+        const alice = testEnv.authenticatedContext(ALICE_UID);
+        await assertFails(
+          setDoc(doc(alice.firestore(), `pharmacies/${ALICE_UID}`), {
+            ...VALID_PHARMACY_BASE,
+            [field]: sampleValueFor(field),
+          })
+        );
+      }
     );
   });
 
-  test("REQ-2A1-003: client create with licenseVerifiedAt → DENIED", async () => {
-    const alice = testEnv.authenticatedContext(ALICE_UID);
-    await assertFails(
-      setDoc(doc(alice.firestore(), `pharmacies/${ALICE_UID}`), {
-        ...VALID_PHARMACY_BASE,
-        licenseVerifiedAt: serverTimestamp(),
-      })
+  // ─── PARAMETRIZED UPDATE DENY (9 fields) ──────────────────────────────
+
+  describe("update setting any single PROTECTED_LICENSE_FIELDS member → DENIED", () => {
+    // We seed a clean doc via admin-SDK (rules-bypassing context) before
+    // each parametrized case, then try the update as the owner.
+    test.each(PROTECTED_LICENSE_FIELDS)(
+      "REQ-2A2-UPDATE: client update setting %s on existing pharmacy → DENIED",
+      async (field) => {
+        await testEnv.withSecurityRulesDisabled(async (ctx) => {
+          await setDoc(doc(ctx.firestore(), `pharmacies/${ALICE_UID}`), {
+            ...VALID_PHARMACY_BASE,
+          });
+        });
+        const alice = testEnv.authenticatedContext(ALICE_UID);
+        await assertFails(
+          updateDoc(doc(alice.firestore(), `pharmacies/${ALICE_UID}`), {
+            [field]: sampleValueFor(field),
+          })
+        );
+      }
     );
   });
 
-  test("REQ-2A1-004: client create with licenseGraceEndsAt → DENIED", async () => {
-    const alice = testEnv.authenticatedContext(ALICE_UID);
-    await assertFails(
-      setDoc(doc(alice.firestore(), `pharmacies/${ALICE_UID}`), {
-        ...VALID_PHARMACY_BASE,
-        licenseGraceEndsAt: serverTimestamp(),
-      })
-    );
-  });
-
-  test("REQ-2A1-005: client create with licenseNumber → DENIED (must go through submitPharmacyLicense)", async () => {
-    const alice = testEnv.authenticatedContext(ALICE_UID);
-    await assertFails(
-      setDoc(doc(alice.firestore(), `pharmacies/${ALICE_UID}`), {
-        ...VALID_PHARMACY_BASE,
-        licenseNumber: "PMC-12345678",
-      })
-    );
-  });
-
-  test("REQ-2A1-006: client create with licenseRejectionReason → DENIED", async () => {
-    const alice = testEnv.authenticatedContext(ALICE_UID);
-    await assertFails(
-      setDoc(doc(alice.firestore(), `pharmacies/${ALICE_UID}`), {
-        ...VALID_PHARMACY_BASE,
-        licenseRejectionReason: "fake rejection trying to pre-set it",
-      })
-    );
-  });
-
-  // ─── CREATE ALLOW SCENARIOS ───────────────────────────────────────────
+  // ─── CREATE ALLOW SCENARIO ────────────────────────────────────────────
 
   test("REQ-2A1-007: client create with NO license field → ALLOWED (legit registration path)", async () => {
     const alice = testEnv.authenticatedContext(ALICE_UID);
@@ -150,53 +170,7 @@ describe("Sprint 2A.1 — F-LICENSE rules: deny client license-field writes", ()
     );
   });
 
-  // ─── UPDATE DENY SCENARIOS ────────────────────────────────────────────
-
-  test("REQ-2A1-008: client update setting licenseStatus='verified' on existing pharmacy → DENIED", async () => {
-    // First seed a clean pharmacy doc using admin SDK (rules-bypassing
-    // context) so we have something to update.
-    await testEnv.withSecurityRulesDisabled(async (ctx) => {
-      await setDoc(doc(ctx.firestore(), `pharmacies/${ALICE_UID}`), {
-        ...VALID_PHARMACY_BASE,
-      });
-    });
-    const alice = testEnv.authenticatedContext(ALICE_UID);
-    await assertFails(
-      updateDoc(doc(alice.firestore(), `pharmacies/${ALICE_UID}`), {
-        licenseStatus: "verified",
-      })
-    );
-  });
-
-  test("REQ-2A1-009: client update setting licenseVerifiedBy → DENIED", async () => {
-    await testEnv.withSecurityRulesDisabled(async (ctx) => {
-      await setDoc(doc(ctx.firestore(), `pharmacies/${ALICE_UID}`), {
-        ...VALID_PHARMACY_BASE,
-      });
-    });
-    const alice = testEnv.authenticatedContext(ALICE_UID);
-    await assertFails(
-      updateDoc(doc(alice.firestore(), `pharmacies/${ALICE_UID}`), {
-        licenseVerifiedBy: ALICE_UID,
-      })
-    );
-  });
-
-  test("REQ-2A1-010: client update setting licenseNumber direct → DENIED (must use submitPharmacyLicense callable)", async () => {
-    await testEnv.withSecurityRulesDisabled(async (ctx) => {
-      await setDoc(doc(ctx.firestore(), `pharmacies/${ALICE_UID}`), {
-        ...VALID_PHARMACY_BASE,
-      });
-    });
-    const alice = testEnv.authenticatedContext(ALICE_UID);
-    await assertFails(
-      updateDoc(doc(alice.firestore(), `pharmacies/${ALICE_UID}`), {
-        licenseNumber: "PMC-99999999",
-      })
-    );
-  });
-
-  // ─── UPDATE ALLOW SCENARIOS (non-license fields) ──────────────────────
+  // ─── UPDATE ALLOW SCENARIO (non-license fields) ───────────────────────
 
   test("REQ-2A1-011: client update non-license field (phoneNumber) → ALLOWED", async () => {
     await testEnv.withSecurityRulesDisabled(async (ctx) => {

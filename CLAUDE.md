@@ -105,13 +105,22 @@ Le **flag bloquant** est dans le code :
 
 **Conséquence** : une pharmacie peut demander un médicament et recevoir des offres d'**achat**, mais pas d'**échange**. La branche "exchange-mode" (Bloc 2 Phase 2) reste à livrer — c'est une feature backlog explicite (voir plus bas).
 
-### 2. License pharmacie : stub non-enforced
+### 2. License pharmacie : backend enforced (Sprint 2a + 2A.1 + 2A.2), UI non livrée
 
-- Champ `String? licenseNumber` existe dans [shared/lib/models/unified_user.dart:134](shared/lib/models/unified_user.dart#L134).
-- **Aucune validation, aucune enforcement par pays, aucun flow de vérification.**
-- Le champ peut rester null à l'inscription, aucun guard ne le bloque.
+**Ce qui est livré côté backend** :
+- `MasterDataCountry` étendu avec 7 champs licence (`licenseRequired`, `licenseLabel`, `licenseHelpText`, `licenseVerificationRequired`, `licenseFormatRegex`, `licenseDocumentRequired`, `licenseGracePeriodDays`) côté shared.
+- 3 callables backend : `submitPharmacyLicense` (owner), `adminVerifyPharmacyLicense` (admin country-scoped), `backfillLicenseGracePeriod` (admin, dry-run + idempotent).
+- Helper `licenseGate.ts` avec evaluator pur testable + `assertLicenseAllowsMarketplace(db, uid)`, appliqué aux 5 callables marketplace (caller ET counterparty post-2A.1).
+- Firestore rules `allow create` ET `allow update` interdisent client write sur les 9 champs licence backend-controlled (`PROTECTED_LICENSE_FIELDS` exporté depuis `licenseGate.ts` comme single source of truth, miroir des rules).
+- Rules emulator harness via `@firebase/rules-unit-testing` + script `npm run test:rules` : 22 tests verts (9 create deny + 9 update deny + REQ-2A1-001 explicite + allow-without-licence + allow-non-licence-update + admin SDK bypass).
+- Tests callable-level : 12 tests sur la matrice counterparty (verified / rejected / expired / correction_needed / pending / grace active / grace expired / no status / non-mandatory country / pharmacy doc missing).
 
-**Conséquence** : pour les pays où la licence est légalement obligatoire (ex. Ghana), le système actuel **n'empêche pas** une pharmacie de s'enregistrer sans licence. C'est une feature à construire.
+**Ce qui n'est PAS livré** :
+- **UI complète (Sprint 2B à venir)** : admin panel countries_tab pour configurer license per country, `pharmacy_license_review_screen` pour verify/reject, registration UI conditionnel sur `MasterDataCountry.licenseRequired`, profile license status flow.
+- **Registration canonical path (Sprint 2A.3 à venir, `TD-LICENSE-REGISTRATION-OWNED`)** : `UnifiedAuthService.signUp` Flutter écrit toujours `pharmacies/{uid}` direct. Les rules deny-on-create ferment la faille sécurité (un client modifié ne peut pas s'auto-vérifier) mais le design canonical reste un callable backend-owned qui crée la pharmacie + initialise la licence atomiquement. 2A.3 livre ce refactor avant Sprint 2B.
+- **Marketplace visibility côté reads (Sprint 2B)** : les pharmacies non-verified post-grâce restent lisibles individuellement (rule `allow read: if isAuthenticated()`). Le filtre marketplace listing est dans le scope 2B.
+
+**Conséquence opérationnelle** : sur un pays mandatory (ex. Ghana avec `licenseRequired=true`), une pharmacie qui s'inscrit aujourd'hui via l'app Flutter atterrit avec `licenseStatus` absent ; le gate marketplace bloque fail-closed toute action exchange/proposal/medicine-request ; la pharmacie doit appeler `submitPharmacyLicense` (callable backend) pour passer `pending_verification`, puis un admin doit `adminVerifyPharmacyLicense` pour qu'elle devienne `verified` et accède au marketplace. **Pas d'UI pour ce flow tant que Sprint 2B n'est pas livré** — donc l'enforcement existe en prod mais l'expérience utilisateur n'est pas finie.
 
 ### 3. Trial subscription auto-création — implémentation absente
 
@@ -224,9 +233,12 @@ cd admin_panel && flutter run -d chrome --web-port=8087
 
 # Backend functions
 cd functions && npm run build      # tsc clean
-cd functions && npm test           # 82+ tests
-cd functions && npm run serve      # emulator
+cd functions && npm test           # 144+ tests (excludes firestore rules tests)
+cd functions && npm run test:rules # Firestore rules emulator tests (requires Java 17+, ~10s startup)
+cd functions && npm run serve      # emulator (functions only)
 ```
+
+**⚠️ Pre-deploy règle** : `npm run test:rules` est **obligatoire avant tout deploy de `firestore.rules`** depuis Sprint 2A.1. Le harness lance le Firestore emulator via `firebase emulators:exec` et valide les 22 cas de rules license (9 deny create + 9 deny update + REQ-2A1-001 headline + variantes allow). Tournant à part de `npm test` standard pour ne pas exiger Java sur CI.
 
 ### Deploy
 

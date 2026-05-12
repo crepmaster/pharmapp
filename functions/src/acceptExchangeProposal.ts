@@ -86,9 +86,17 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
     }
     const proposalPreData = proposalPreSnap.data() ?? {};
     const fromPharmacyId = proposalPreData.fromPharmacyId as string | undefined;
-    if (typeof fromPharmacyId === "string" && fromPharmacyId.length > 0) {
-      await assertLicenseAllowsMarketplace(db, fromPharmacyId);
+    // Sprint 2A.2 (architect finding #4): fail-closed on missing
+    // counterparty ID. A proposal without a `fromPharmacyId` is corrupt
+    // and cannot have its counterparty license verified — refuse the
+    // accept rather than silently skipping the gate.
+    if (typeof fromPharmacyId !== "string" || fromPharmacyId.length === 0) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Proposal is missing counterparty information and cannot be accepted."
+      );
     }
+    await assertLicenseAllowsMarketplace(db, fromPharmacyId);
 
     // 🔒 ATOMIC TRANSACTION: Accept proposal + create delivery + update wallet
     const result = await db.runTransaction(async (transaction) => {
