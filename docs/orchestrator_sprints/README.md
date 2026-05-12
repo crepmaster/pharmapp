@@ -6,12 +6,18 @@ Chaque fichier `SPRINT_*.md` est conçu comme un ticket source autonome pour l'o
 
 ## Ordre d'exécution verrouillé
 
-1. `SPRINT_0_DOC_FREEZE_TASK.md`
-2. `SPRINT_1_MSISDN_HARDENING_TASK.md`
-3. `SPRINT_2_F_LICENSE_TASK.md`
-4. `SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md`
-5. `SPRINT_4_MEDICINE_REQUESTS_EXCHANGE_TASK.md`
-6. `SPRINT_5_E2E_CLOSURE_TASK.md`
+1. `SPRINT_0_DOC_FREEZE_TASK.md` — ✅ fermé 2026-05-12 (run `20260512-000940-c578fa`)
+2. `SPRINT_1_MSISDN_HARDENING_TASK.md` — ✅ fermé 2026-05-12 (run `20260512-065209-a16494`)
+3. `SPRINT_2A_LICENSE_BACKEND_TASK.md` — split 2026-05-12 (voir [SPRINT_2_SCOPING_PROPOSAL.md](SPRINT_2_SCOPING_PROPOSAL.md))
+4. `SPRINT_2B_LICENSE_UI_TASK.md` — exécutable seulement après 2a fermé
+5. `SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md`
+6. `SPRINT_4_MEDICINE_REQUESTS_EXCHANGE_TASK.md`
+7. `SPRINT_5_E2E_CLOSURE_TASK.md`
+
+Le contrat monolithique `SPRINT_2_F_LICENSE_TASK.md` est conservé comme
+référence agrégée (modèle cible country + pharmacy + critères de done
+end-to-end) mais **n'est plus exécuté** directement. Il a été split en
+2a (backend) + 2b (UI) sur décision architecte.
 
 ## Contrat global
 

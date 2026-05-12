@@ -158,7 +158,8 @@ Pour le détail de Bloc 1 (Inventory Visibility), Bloc 2 Phase 1 (Medicine Reque
 
 | ID | Feature | Description | État |
 |---|---|---|---|
-| **F-LICENSE** | License pharmacie obligatoire par pays | Validation `licenseNumber` à l'inscription et en runtime, configurable par pays (`countries.{code}.licenseRequired: bool`). Ghana = required. | À spécifier |
+| **F-LICENSE (2a backend)** | License pharmacie — fondation backend | Master data fields, helpers, callables submit/verify/backfill, gate marketplace, Firestore rules, tests Jest. Split du Sprint 2 monolithique (architect decision 2026-05-12, voir [docs/orchestrator_sprints/SPRINT_2_SCOPING_PROPOSAL.md](docs/orchestrator_sprints/SPRINT_2_SCOPING_PROPOSAL.md)). | Prêt à exécuter |
+| **F-LICENSE (2b UI)** | License pharmacie — UI admin + mobile | Admin panel country config + license review, pharmacy registration field conditionnel, profile license status & correction flow, widget tests. | Bloqué jusqu'à clôture 2a |
 | **F-BLOC2-P2** | Medicine Requests — exchange mode | Lever le blocage purchase-only dans `createMedicineRequest` + `submitMedicineRequestOffer`. Permettre offre = `purchase` **OU** `exchange` (proposition d'échange avec médicament de la pharmacie offrante). Bridge vers `exchange_proposals` canonique. | À spécifier |
 
 ### 🛠️ Sprint planifié
