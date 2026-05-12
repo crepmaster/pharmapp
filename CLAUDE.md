@@ -180,6 +180,7 @@ Pour le détail de Bloc 1 (Inventory Visibility), Bloc 2 Phase 1 (Medicine Reque
 | **TD-BALANCE-CHECK** | Vérifier balance (`totalPrice + courierFee/2`) avant création proposal | Low | ~2h |
 | **TD-ADMIN-UI** | Cleanup UI/UX admin panel identifié pendant recette V1+V2 | Low | sprint dédié |
 | **TD-DEAD-COMMENT** | Commentaire mort `// export { cleanupTestUser } from "./cleanup.js"` dans [functions/src/index.ts:17](functions/src/index.ts#L17) | Trivial | inclus dans ce cleanup |
+| **TD-MSISDN-AUDIT** | **Pre-deploy audit (Sprint 1 follow-up)** — avant push prod de `createWithdrawalRequest`, vérifier que tous les `system_config/main.mobileMoneyProviders.*` avec `enabled=true ET supportsPayouts=true` ont `methodCode` non-vide. Sans cet audit, le strictness 3.2c-β peut bloquer des retraits pour providers historiquement mal configurés. Audit read-only via Firestore console ou script script (commit `7c3df07`). | **BLOQUANT pour deploy** | ~30min |
 
 ### ❓ Décisions produit en attente
 
