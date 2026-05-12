@@ -285,3 +285,14 @@ Voir l'index `C:\Users\aebon\.claude\projects\c--Users-aebon-projects-pharmapp-m
 - `project_admin_cleanup_todo.md` — Cleanup UI/UX admin identifié
 - `project_withdrawal_min_thread_closed.md` — Thread `minWithdrawalMinor` fermé
 - `project_functions_remote_drift_backlog.md` — Thread remote drift fermé, 1 résiduel mineur (orphan indexes)
+- `project_roadmap_2026-05.md` — Roadmap 6 sprints (Doc Freeze → MSISDN → F-LICENSE → Trial → F-BLOC2-P2 → Clôture) + 5 décisions produit verrouillées
+
+---
+
+## 🗂️ Archive policy
+
+Le répertoire **[`docs/archive/`](docs/archive/)** contient toute la documentation historique du projet (sessions briefings, anciens reports, drafts CLAUDE, analyses pre-unified-app, setup docs périmés qui pointaient vers les anciens dossiers `pharmacy_app/` et `courier_app/` supprimés). **Ces documents ne sont PAS source de vérité pour les pratiques ou décisions courantes**. Ils sont préservés pour traçabilité git et investigation historique uniquement.
+
+Les documents opérationnels actifs sont listés dans **[`docs/ACTIVE_DOCS.md`](docs/ACTIVE_DOCS.md)**. Si un document n'est pas dans cet index ou dans ce `CLAUDE.md`, considérer qu'il est archivé.
+
+L'archive contient également **[`CLAUDE-ARCHIVE.md`](CLAUDE-ARCHIVE.md)** (à la racine) — snapshot intégral du `CLAUDE.md` pré-cleanup avec disclaimer en tête listant les affirmations devenues factuellement obsolètes (références à `pharmacy_app/courier_app`, statut Bloc 2, etc.).
