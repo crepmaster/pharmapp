@@ -41,6 +41,23 @@ export const acceptMedicineRequestOffer = onCall<AcceptOfferData>(
       throw new HttpsError("invalid-argument", "offerId is required.");
     }
 
+    // 🔒 F-LICENSE GATE — COUNTERPARTY (Sprint 2A.1 security correction):
+    // gate the seller (the offer's `sellerPharmacyId`) before the
+    // transactional bridge commits. The bridge re-reads the offer
+    // atomically; this pre-tx read is purely for the eligibility check.
+    const offerPreSnap = await db
+      .collection("medicine_request_offers")
+      .doc(offerId)
+      .get();
+    if (offerPreSnap.exists) {
+      const sellerUid = (offerPreSnap.data() ?? {}).sellerPharmacyId as
+        | string
+        | undefined;
+      if (typeof sellerUid === "string" && sellerUid.length > 0) {
+        await assertLicenseAllowsMarketplace(db, sellerUid);
+      }
+    }
+
     logger.info("acceptMedicineRequestOffer: starting", {
       userId,
       requestId,

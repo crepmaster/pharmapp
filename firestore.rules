@@ -138,13 +138,21 @@ service cloud.firestore {
     // Mobile app collections
     match /pharmacies/{userId} {
       allow read: if isAuthenticated(); // Other pharmacies can read basic profile info
-      allow create: if isOwner(userId) && isValidPharmacyData(request.resource.data);
       // Sprint 2a F-LICENSE: backend-controlled license fields cannot be
       // mutated by the pharmacy owner client-side. Authoritative write
       // paths are `submitPharmacyLicense` (owner) and
       // `adminVerifyPharmacyLicense` (admin), which both run with the
       // service account / admin SDK and bypass these rules. This block
-      // only closes the direct-client-write side door.
+      // closes the direct-client-write side door for BOTH create and
+      // update.
+      //
+      // Sprint 2A.1 (security correction): the architect review found
+      // that the original `allow create` did not deny license fields,
+      // allowing a modified client to create pharmacies/{uid} with
+      // `licenseStatus: "verified"` and self-verify. Fixed here.
+      allow create: if isOwner(userId)
+                    && isValidPharmacyData(request.resource.data)
+                    && pharmacyLicenseFieldsAbsentAtCreate(request.resource.data);
       allow update: if isOwner(userId)
                     && isValidPharmacyData(request.resource.data)
                     && !pharmacyLicenseFieldChanged(resource.data, request.resource.data, 'licenseStatus')
@@ -164,6 +172,26 @@ service cloud.firestore {
     function pharmacyLicenseFieldChanged(before, after, name) {
       return (before.keys().hasAny([name]) != after.keys().hasAny([name]))
           || (before.keys().hasAny([name]) && before[name] != after[name]);
+    }
+
+    // Sprint 2A.1 F-LICENSE (security correction): returns true ONLY if
+    // the pharmacy create payload does NOT carry any of the 9
+    // backend-controlled license fields. The canonical write paths
+    // (`submitPharmacyLicense` and `adminVerifyPharmacyLicense`) run with
+    // admin SDK privileges and bypass these rules — they remain the only
+    // legitimate way to set license metadata on a pharmacy doc.
+    function pharmacyLicenseFieldsAbsentAtCreate(data) {
+      return !data.keys().hasAny([
+        'licenseStatus',
+        'licenseVerifiedBy',
+        'licenseVerifiedAt',
+        'licenseRejectionReason',
+        'licenseGraceEndsAt',
+        'licenseNumber',
+        'licenseCountryCode',
+        'licenseDocumentUrl',
+        'licenseExpiryDate'
+      ]);
     }
     
     // Pharmacy data validation function

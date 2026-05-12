@@ -254,6 +254,18 @@ Pas de `flutter analyze` côté admin/unified en 2a — aucune UI touchée.
 
 ## Statut final — 2026-05-12
 
+> ⚠️ **Note rétroactive (architect review post-finalize, 2026-05-12)** :
+> L'orchestrator a marqué ce run APPROVED à l'itération 1, mais la revue
+> architecte a identifié 3 findings sécurité critiques (Firestore rules
+> `allow create` non protégées, registration Flutter direct bypass du
+> `createPharmacyUser` backend, accept flows ne gate pas la counterparty).
+> Les correctifs sont livrés dans **Sprint 2A.1** — voir
+> [SPRINT_2A1_SECURITY_CORRECTION_TASK.md](SPRINT_2A1_SECURITY_CORRECTION_TASK.md)
+> et [SPRINT_2A_ARCHITECT_REVIEW_FINDINGS.md](SPRINT_2A_ARCHITECT_REVIEW_FINDINGS.md).
+> Sprint 2A est fermé **fonctionnellement**, mais sa clôture sécurité a
+> nécessité Sprint 2A.1. La leçon est intégrée dans la procédure : tout
+> run orchestrator APPROVED reste sujet à une revue architecte humaine.
+
 **Run orchestrator :** `20260512-090822-3bfcff`
 
 **Décision architecte (Solution Architect Refactoring Challenge) :** EXTEND. Aucun modèle pays concurrent à consolider, le shared `MasterDataCountry` est l'unique modèle runtime, l'unique helper `licenseGate.ts` porte la vérité du gate, write paths convergent sur `createPharmacyUser` + futur `submitPharmacyLicense`/`adminVerifyPharmacyLicense`, 5 read paths marketplace clairement identifiés, 9 champs Firestore à protéger énumérés, backfill idempotent via skip-if-licenseStatus.

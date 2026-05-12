@@ -69,6 +69,27 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
       { notes }
     );
 
+    // 🔒 F-LICENSE GATE — COUNTERPARTY (Sprint 2A.1 security correction):
+    // The architect flagged that gating only the caller leaves a hole — a
+    // proposal created when both parties were `verified` can be accepted
+    // later after `fromPharmacyId` became `rejected` / `expired` / out of
+    // grace. Pre-transaction read of the proposal gives us
+    // `fromPharmacyId`; we gate it before any wallet movement. Small race
+    // window between this read and the tx commit is acceptable for a
+    // license-eligibility check.
+    const proposalPreSnap = await db
+      .collection("exchange_proposals")
+      .doc(proposalId)
+      .get();
+    if (!proposalPreSnap.exists) {
+      throw new HttpsError("not-found", "Proposal not found");
+    }
+    const proposalPreData = proposalPreSnap.data() ?? {};
+    const fromPharmacyId = proposalPreData.fromPharmacyId as string | undefined;
+    if (typeof fromPharmacyId === "string" && fromPharmacyId.length > 0) {
+      await assertLicenseAllowsMarketplace(db, fromPharmacyId);
+    }
+
     // 🔒 ATOMIC TRANSACTION: Accept proposal + create delivery + update wallet
     const result = await db.runTransaction(async (transaction) => {
       // ===== PHASE 1: READ PROPOSAL =====

@@ -161,3 +161,71 @@ cd shared && dart analyze
 ```
 
 Si `test:rules` échoue à cause de l'environnement emulator (Java manquant en CI par exemple), documenter explicitement et l'isoler du pipeline CI standard. Le test reste exécutable manuellement.
+
+---
+
+## Statut final — 2026-05-12
+
+**Run orchestrator :** `20260512-200553-7f698f`
+
+**Décision architecte (Solution Architect Refactoring Challenge) :** EXTEND. Tous les artefacts de 2A sont conservés, on ajoute uniquement la rule deny-on-create + counterparty gate + harness — pas de refactor du gate ni de la registration.
+
+### Livré
+
+**Lot A — Firestore rules deny on create**
+
+- Helper `pharmacyLicenseFieldsAbsentAtCreate(data)` ajouté dans
+  [firestore.rules](../../firestore.rules), interdit la **présence** dans `request.resource.data` (au moment du create) des 9 champs licence (`licenseStatus`, `licenseVerifiedBy`, `licenseVerifiedAt`, `licenseRejectionReason`, `licenseGraceEndsAt`, `licenseNumber`, `licenseCountryCode`, `licenseDocumentUrl`, `licenseExpiryDate`).
+- `allow create` du match `/pharmacies/{userId}` enforce ce helper.
+- `allow update` (Sprint 2a) conserve le helper `pharmacyLicenseFieldChanged` pre/post existant.
+- Les callables backend (`submitPharmacyLicense`, `adminVerifyPharmacyLicense`) tournent avec admin SDK et bypass les rules — seul write path légitime pour la licence.
+
+**Lot B — Counterparty gate**
+
+- [functions/src/acceptExchangeProposal.ts](../../functions/src/acceptExchangeProposal.ts) : read pré-tx du proposal pour récupérer `fromPharmacyId`, puis `assertLicenseAllowsMarketplace(db, fromPharmacyId)` **avant** la transaction wallet/delivery. Throw générique `failed-precondition` si la counterparty n'est plus éligible.
+- [functions/src/acceptMedicineRequestOffer.ts](../../functions/src/acceptMedicineRequestOffer.ts) : read pré-tx de l'offer pour récupérer `sellerPharmacyId`, puis `assertLicenseAllowsMarketplace(db, sellerUid)` avant le `runTransaction` qui invoque le bridge.
+- Le caller gate (Sprint 2a) reste — la counterparty est un ajout, pas un remplacement.
+
+**Lot C — Rules emulator harness**
+
+- Dépendances ajoutées dans [functions/package.json](../../functions/package.json) : `@firebase/rules-unit-testing@^5.0.1` et `firebase@^12.13.0` (client SDK requis par la lib pour l'API modulaire `setDoc`, `updateDoc`).
+- Nouveau [functions/jest.rules.config.cjs](../../functions/jest.rules.config.cjs) : config Jest dédiée matchant uniquement `firestore-rules.test.ts`, `testTimeout: 30000` pour l'emulator cold-boot.
+- [functions/jest.config.cjs](../../functions/jest.config.cjs) (standard) exclut désormais `firestore-rules.test.ts` via `testPathIgnorePatterns` → `npm test` reste runnable sans Java/emulator.
+- Nouveau [firebase.json](../../firebase.json) section `emulators` minimale (`firestore` port 8080, UI désactivée, `singleProjectMode`) requise par `firebase emulators:exec`. Scope étendu d'1 sous-section JSON, justifié comme prérequis technique pour le harness.
+- Script `npm run test:rules` ajouté : `firebase emulators:exec --only firestore --project=demo-pharmapp-rules "jest --config jest.rules.config.cjs"`. Spin-up + tear-down emulator automatique.
+- [functions/src/__tests__/firestore-rules.test.ts](../../functions/src/__tests__/firestore-rules.test.ts) : 12 tests verts couvrant les 4 scénarios mandatory du brief + variantes :
+  - REQ-2A1-001 ✅ **critère non négociable architecte** : client create `licenseStatus="verified"` → DENIED
+  - REQ-2A1-002 à 006 : autres champs licence (`licenseVerifiedBy`, `licenseVerifiedAt`, `licenseGraceEndsAt`, `licenseNumber`, `licenseRejectionReason`) → DENIED
+  - REQ-2A1-007 : create sans champ licence → ALLOWED
+  - REQ-2A1-008 à 010 : update post-create avec champ licence → DENIED
+  - REQ-2A1-011 : update non-licence (phoneNumber) → ALLOWED
+  - REQ-2A1-012 : admin SDK bypass documenté
+
+**Lot D — Documentation**
+
+- [CLAUDE.md](../../CLAUDE.md) : tableau sprints ajoute 2A.1, note rétroactive sur 2a, backlog F-LICENSE découpé (2a livré+corrigé, 2A.1 livré, 2b débloqué, `TD-LICENSE-REGISTRATION-OWNED` tracké comme Option A future).
+- [SPRINT_2A_LICENSE_BACKEND_TASK.md](SPRINT_2A_LICENSE_BACKEND_TASK.md) : note rétroactive en tête du statut final.
+- Ce contrat (statut final).
+
+### Validations exécutées
+
+- `cd functions && npm run build` ✅ tsc clean
+- `cd functions && npm run lint` ✅ eslint clean
+- `cd functions && npm test` ✅ **144/144 pass** (rules tests correctement exclus)
+- `cd functions && npm run test:rules` ✅ **12/12 pass** (rules emulator)
+- `cd shared && dart analyze` (non-régression depuis 2a — pas de changement Dart en 2A.1)
+
+### Non-régression
+
+- Sprint 2a backend reste intact : licenseGate, 3 callables, gate sur 5 callables marketplace, init licence dans `createPharmacyUser`.
+- Sprint 2a tests : 19 tests licenseGate verts.
+- 125 tests pré-2a : tous verts.
+- Inscription pharmacie non mandatory : conserve son comportement (création sans licence, gate transparent).
+- Inscription pharmacie mandatory : le client peut toujours créer son pharmacy doc sans champ licence ; le gate marketplace fail-closed jusqu'à `submitPharmacyLicense` + verify.
+
+### Limites assumées (en plus de celles de 2a)
+
+- **Registration write path canonique** : Sprint 2A.1 utilise l'Option B transitionnelle. Le flow réel app Flutter (`UnifiedAuthService.signUp`) reste un write Firestore direct. La rule deny-on-create empêche la faille sécurité (auto-vérification) mais le design cible (Option A backend-owned) est repoussé à `TD-LICENSE-REGISTRATION-OWNED`, planifié idéalement avant Sprint 3 Trial pour aligner trial gate sur write path canonique.
+- **Marketplace public visibility** (Finding #5 architecte) : reads sur `pharmacies/{uid}` restent `allow read: if isAuthenticated()`. Filtrer les pharmacies non-verified hors marketplace **listing** sera traité en Sprint 2b (UI filters server-side ou client-side, à trancher en explorer 2b).
+- **Java 21 warning** : `firebase-tools` annonce drop support pour Java < 21 dans v15. Le harness tourne actuellement sur JDK 17 disponible localement. Bump Java à 21 sera nécessaire avant la prochaine major update de firebase-tools. Non bloquant pour 2A.1.
+- **`npm audit`** : 25 vulnérabilités (10 low, 6 moderate, 7 high, 2 critical) reportées par npm sur les dépendances transitives Firebase / rules-unit-testing. Pré-existantes ou amenées par les nouvelles devDeps. Hors scope 2A.1, à traiter dans un audit sécu dédié si besoin.
