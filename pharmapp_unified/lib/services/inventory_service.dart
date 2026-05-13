@@ -15,6 +15,7 @@ import '../models/medicine.dart';
 typedef MarketplacePharmaciesFetcher = Future<List<String>> Function({
   required String countryCode,
   String? cityCode,
+  String? legacyCityName,
 });
 
 class InventoryService {
@@ -31,12 +32,15 @@ class InventoryService {
   static Future<List<String>> _fetchMarketplacePharmacyIdsFromCallable({
     required String countryCode,
     String? cityCode,
+    String? legacyCityName,
   }) async {
     final fn = FirebaseFunctions.instanceFor(region: 'europe-west1')
         .httpsCallable('getMarketplacePharmacies');
     final res = await fn.call<Map<dynamic, dynamic>>({
       'countryCode': countryCode,
       if (cityCode != null) 'cityCode': cityCode,
+      if (legacyCityName != null && legacyCityName.isNotEmpty)
+        'legacyCityName': legacyCityName,
     });
     final raw = res.data['pharmacies'];
     if (raw is! List) return const <String>[];
@@ -224,6 +228,11 @@ class InventoryService {
         eligibleIds = await fetchMarketplacePharmacyIds(
           countryCode: ownCountryCode,
           cityCode: resolvedCityCode,
+          // Sprint 2B.2b architect follow-up — dual-mode for legacy
+          // pharmacies that have only `city` (display name) without
+          // `cityCode` slug. The backend callable unions both result
+          // sets, deduplicated by document id.
+          legacyCityName: legacyCityName,
         );
       } catch (e) {
         debugPrint('⚠️ getMarketplacePharmacies failed: $e');

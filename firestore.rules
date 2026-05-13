@@ -139,15 +139,29 @@ service cloud.firestore {
     match /pharmacies/{userId} {
       // Sprint 2B.2b Marketplace listing contract — split `allow read`
       // into `allow get` (single doc by UID, kept for profile / correction
-      // / cross-pharmacy lookup flows) and `allow list` (queries —
-      // denied to clients so marketplace listing MUST go through the
-      // backend callable `getMarketplacePharmacies`, which filters
-      // ineligible pharmacies before returning them to the caller).
+      // / cross-pharmacy lookup flows) and `allow list` (queries).
       //
-      // Admin SDK bypasses both — Cloud Functions read with the service
-      // account and stay authoritative.
+      // Pharmacy / courier mobile clients are denied listing entirely :
+      // marketplace listing MUST go through the backend callable
+      // `getMarketplacePharmacies`, which filters ineligible pharmacies
+      // server-side before returning them. The Firestore rules emulator
+      // tests REQ-2B2B-001..007 prove this hard-block.
+      //
+      // Admin panel exception (Sprint 2B.2b follow-up after architect
+      // review) : the admin panel is a Flutter Firestore client (not
+      // the Admin SDK) — pharmacy_management_service, license review
+      // screen, admin_dashboard_screen and analytics_service all run
+      // collection scans on `pharmacies`. They are authenticated via
+      // `admins/{uid}` documents (super_admin / admin with permissions
+      // and countryScopes). Country scoping is enforced on the query
+      // side (where('countryCode', whereIn: scopes) — Sprint 2B.1
+      // pattern) ; this rule only checks that the caller is an active
+      // admin so a modified mobile client can't bypass.
+      //
+      // Admin SDK bypasses both rules — Cloud Functions read with the
+      // service account and stay authoritative.
       allow get: if isAuthenticated();
-      allow list: if false;
+      allow list: if isAuthenticated() && isActiveAdmin(request.auth.uid);
       // Sprint 2a F-LICENSE: backend-controlled license fields cannot be
       // mutated by the pharmacy owner client-side. Authoritative write
       // paths are `submitPharmacyLicense` (owner) and

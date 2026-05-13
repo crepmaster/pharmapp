@@ -294,4 +294,76 @@ describe("Sprint 2B.2b — pharmacies collection: allow get vs deny list", () =>
       await assertSucceeds(getDocs(collection(ctx.firestore(), "pharmacies")));
     });
   });
+
+  // ---------------------------------------------------------------------
+  // Sprint 2B.2b architect follow-up :
+  // the admin panel is a Flutter Firestore client (not the Admin SDK).
+  // pharmacy_management_service / license review screen / dashboard /
+  // analytics_service all run collection scans on `pharmacies`. The rule
+  // must therefore admit `allow list` for active admins, while keeping
+  // mobile (pharmacy / courier) clients denied.
+  // ---------------------------------------------------------------------
+
+  test("REQ-2B2B-006: active admin client can list pharmacies", async () => {
+    // Seed an admin doc for ALICE so isActiveAdmin(...) is true.
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), `admins/${ALICE_UID}`), {
+        role: "admin",
+        isActive: true,
+        permissions: ["manage_pharmacies"],
+        countryScopes: ["CM"],
+      });
+      await setDoc(doc(ctx.firestore(), `pharmacies/${ALICE_UID}`), {
+        ...VALID_PHARMACY_BASE,
+        countryCode: "CM",
+      });
+    });
+    const alice = testEnv.authenticatedContext(ALICE_UID);
+    await assertSucceeds(getDocs(collection(alice.firestore(), "pharmacies")));
+  });
+
+  test("REQ-2B2B-007: inactive admin cannot list pharmacies", async () => {
+    // isActive: false → isActiveAdmin(...) returns false.
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), `admins/${ALICE_UID}`), {
+        role: "admin",
+        isActive: false,
+        permissions: ["manage_pharmacies"],
+        countryScopes: ["CM"],
+      });
+      await setDoc(doc(ctx.firestore(), `pharmacies/${ALICE_UID}`), {
+        ...VALID_PHARMACY_BASE,
+        countryCode: "CM",
+      });
+    });
+    const alice = testEnv.authenticatedContext(ALICE_UID);
+    await assertFails(getDocs(collection(alice.firestore(), "pharmacies")));
+  });
+
+  test("REQ-2B2B-008: super_admin (admins doc with role super_admin + isActive) can list", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), `admins/${ALICE_UID}`), {
+        role: "super_admin",
+        isActive: true,
+        permissions: [],
+        countryScopes: [],
+      });
+    });
+    const alice = testEnv.authenticatedContext(ALICE_UID);
+    await assertSucceeds(getDocs(collection(alice.firestore(), "pharmacies")));
+  });
+
+  test("REQ-2B2B-009: pharmacy mobile client (no admins/{uid} doc) cannot list — already covered by 001, retested explicitly", async () => {
+    // Same shape as REQ-2B2B-001 but explicitly proves the mobile path
+    // is still denied after the admin exception was added.
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), `pharmacies/${ALICE_UID}`), {
+        ...VALID_PHARMACY_BASE,
+      });
+    });
+    const mobileClient = testEnv.authenticatedContext("some-pharmacy-uid");
+    await assertFails(
+      getDocs(collection(mobileClient.firestore(), "pharmacies"))
+    );
+  });
 });

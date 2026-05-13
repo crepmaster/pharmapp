@@ -35,49 +35,59 @@ void main() {
   });
 
   group('InventoryService.fetchMarketplacePharmacyIds — seam', () {
-    test('forwards countryCode + cityCode to the underlying fetcher',
+    test('forwards countryCode + cityCode + legacyCityName to the underlying fetcher',
         () async {
       String? receivedCountryCode;
       String? receivedCityCode;
+      String? receivedLegacyCityName;
       InventoryService.fetchMarketplacePharmacyIds = ({
         required String countryCode,
         String? cityCode,
+        String? legacyCityName,
       }) async {
         receivedCountryCode = countryCode;
         receivedCityCode = cityCode;
+        receivedLegacyCityName = legacyCityName;
         return const ['uid-a', 'uid-b'];
       };
 
       final ids = await InventoryService.fetchMarketplacePharmacyIds(
         countryCode: 'GH',
         cityCode: 'accra',
+        legacyCityName: 'Accra',
       );
 
       expect(receivedCountryCode, equals('GH'));
       expect(receivedCityCode, equals('accra'));
+      expect(receivedLegacyCityName, equals('Accra'));
       expect(ids, equals(['uid-a', 'uid-b']));
     });
 
     test(
-        'forwards null cityCode when the caller omits the optional argument',
+        'forwards null cityCode + null legacyCityName when caller omits both',
         () async {
       String? receivedCityCode = 'sentinel';
+      String? receivedLegacyCityName = 'sentinel';
       InventoryService.fetchMarketplacePharmacyIds = ({
         required String countryCode,
         String? cityCode,
+        String? legacyCityName,
       }) async {
         receivedCityCode = cityCode;
+        receivedLegacyCityName = legacyCityName;
         return const [];
       };
 
       await InventoryService.fetchMarketplacePharmacyIds(countryCode: 'CM');
       expect(receivedCityCode, isNull);
+      expect(receivedLegacyCityName, isNull);
     });
 
     test('fetcher returning empty list is honoured', () async {
       InventoryService.fetchMarketplacePharmacyIds = ({
         required String countryCode,
         String? cityCode,
+        String? legacyCityName,
       }) async =>
           const <String>[];
 
@@ -86,6 +96,34 @@ void main() {
         cityCode: 'accra',
       );
       expect(ids, isEmpty);
+    });
+
+    test(
+        'dual-mode : cityCode + legacyCityName both forwarded for legacy pharmacies (Sprint 2B.2b architect follow-up)',
+        () async {
+      String? receivedCityCode;
+      String? receivedLegacyCityName;
+      InventoryService.fetchMarketplacePharmacyIds = ({
+        required String countryCode,
+        String? cityCode,
+        String? legacyCityName,
+      }) async {
+        receivedCityCode = cityCode;
+        receivedLegacyCityName = legacyCityName;
+        return const [];
+      };
+
+      // Simulating the dual-mode call shape that
+      // `getAvailableMedicines` now makes for legacy pharmacies that
+      // still hold a `city` display name without canonical cityCode.
+      await InventoryService.fetchMarketplacePharmacyIds(
+        countryCode: 'GH',
+        cityCode: 'accra',
+        legacyCityName: 'Accra',
+      );
+
+      expect(receivedCityCode, equals('accra'));
+      expect(receivedLegacyCityName, equals('Accra'));
     });
 
     test('seam swap is reversible — tearDown restores production fetcher',

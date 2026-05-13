@@ -482,3 +482,110 @@ describe("getMarketplacePharmacies — output safety + auth + edge cases", () =>
     expect(res.pharmacies.map((p) => p.uid)).toEqual(["accra1"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Sprint 2B.2b architect follow-up — dual-mode (cityCode + legacyCityName).
+// Pharmacies pre-Sprint-2A may carry only the legacy `city` display name
+// without a canonical `cityCode` slug. The callable must therefore accept
+// a second optional filter `legacyCityName` and union the two result sets
+// deduplicated by document id, so legacy pharmacies still appear in
+// `inventory_service.getAvailableMedicines` listings during the transition.
+// ---------------------------------------------------------------------------
+
+describe("getMarketplacePharmacies — dual-mode legacy city support", () => {
+  test("(13) legacyCityName filter surfaces pre-Sprint-2A pharmacies that have only `city`", async () => {
+    setSystemConfigCountries(mandatoryCountries);
+    setPharmacies([
+      {
+        uid: "legacy1",
+        data: {
+          pharmacyName: "Legacy Pharma",
+          countryCode: "GH",
+          // No cityCode. Legacy `city` display name only.
+          city: "Accra",
+          licenseStatus: "verified",
+        },
+      },
+    ]);
+    const res = (await wrapped(
+      authedReq({
+        countryCode: "GH",
+        cityCode: "accra",
+        legacyCityName: "Accra",
+      }) as any
+    )) as { pharmacies: Array<{ uid: string }> };
+    expect(res.pharmacies.map((p) => p.uid)).toEqual(["legacy1"]);
+  });
+
+  test("(14) dual-mode dedup : pharmacy that matches both cityCode and legacy city is returned once", async () => {
+    setSystemConfigCountries(mandatoryCountries);
+    setPharmacies([
+      {
+        uid: "modern1",
+        data: {
+          pharmacyName: "Both fields",
+          countryCode: "GH",
+          cityCode: "accra",
+          city: "Accra",
+          licenseStatus: "verified",
+        },
+      },
+    ]);
+    const res = (await wrapped(
+      authedReq({
+        countryCode: "GH",
+        cityCode: "accra",
+        legacyCityName: "Accra",
+      }) as any
+    )) as { pharmacies: Array<{ uid: string }> };
+    // The canonical query returns modern1, and so would the legacy
+    // query. Without dedup we would see it twice.
+    expect(res.pharmacies).toHaveLength(1);
+    expect(res.pharmacies[0].uid).toBe("modern1");
+  });
+
+  test("(15) legacyCityName empty string → invalid-argument", async () => {
+    setSystemConfigCountries(mandatoryCountries);
+    await expect(
+      wrapped(
+        authedReq({
+          countryCode: "GH",
+          legacyCityName: "",
+        }) as any
+      )
+    ).rejects.toMatchObject({
+      code: expect.stringMatching(/invalid-argument/i),
+    });
+  });
+
+  test("(16) callable without any city filter returns every eligible pharmacy in country", async () => {
+    setSystemConfigCountries(mandatoryCountries);
+    setPharmacies([
+      {
+        uid: "accra1",
+        data: {
+          pharmacyName: "Accra",
+          countryCode: "GH",
+          cityCode: "accra",
+          licenseStatus: "verified",
+        },
+      },
+      {
+        uid: "legacy_only",
+        data: {
+          pharmacyName: "Legacy",
+          countryCode: "GH",
+          city: "Tema",
+          licenseStatus: "verified",
+        },
+      },
+    ]);
+    const res = (await wrapped(authedReq({ countryCode: "GH" }) as any)) as {
+      pharmacies: Array<{ uid: string }>;
+    };
+    // Both pass — the canonical query (no city filter) matches both.
+    expect(res.pharmacies.map((p) => p.uid).sort()).toEqual(
+      ["accra1", "legacy_only"].sort()
+    );
+  });
+});

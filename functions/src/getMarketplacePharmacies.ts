@@ -57,6 +57,16 @@ const COUNTRY_CODE_REGEX = /^[A-Z]{2}$/;
 interface GetMarketplacePharmaciesInput {
   countryCode: string;
   cityCode?: string;
+  /**
+   * Sprint 2B.2b architect follow-up — dual-mode filter for the
+   * city transition period. Pharmacies registered before Sprint 2A
+   * may carry only the legacy `city` (display name) field without
+   * a canonical `cityCode` slug. When the caller supplies both, the
+   * callable unions both result sets (deduplicated) so a legacy
+   * pharmacy is still discoverable for nearby pharmacies running
+   * the new query path. Either field may be omitted independently.
+   */
+  legacyCityName?: string;
 }
 
 /** Listing-safe fields — keep this list strict. */
@@ -93,6 +103,15 @@ export function validateGetMarketplacePharmaciesInput(
     throw new HttpsError(
       "invalid-argument",
       "cityCode, if provided, must be a non-empty slug."
+    );
+  }
+  if (
+    data.legacyCityName !== undefined &&
+    (typeof data.legacyCityName !== "string" || data.legacyCityName.length === 0)
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "legacyCityName, if provided, must be a non-empty string."
     );
   }
 }
@@ -140,6 +159,7 @@ export const getMarketplacePharmacies = onCall<GetMarketplacePharmaciesInput>(
 
     const { countryCode } = input;
     const cityCode = input.cityCode;
+    const legacyCityName = input.legacyCityName;
 
     // Load system_config/main.countries once for fail-closed gate evaluation.
     const sysConfigSnap = await db
@@ -174,39 +194,62 @@ export const getMarketplacePharmacies = onCall<GetMarketplacePharmaciesInput>(
       return { pharmacies: [] as MarketplacePharmacyOutput[] };
     }
 
-    // Query pharmacies for this country (+ optional city).
-    let query = db
+    // Dual-mode listing : the canonical `cityCode` slug query (Sprint
+    // 2A+ docs) is the primary path. If the caller also supplies the
+    // legacy `city` display name, we run a second query on `city` to
+    // cover pre-migration pharmacies and union the two result sets,
+    // deduplicated by document id. This mirrors the pre-2B.2b client
+    // code in `inventory_service.getAvailableMedicines` which did the
+    // same dual lookup directly on Firestore.
+    const queries: Array<Promise<FirebaseFirestore.QuerySnapshot>> = [];
+
+    let canonicalQuery = db
       .collection("pharmacies")
       .where("countryCode", "==", countryCode);
     if (typeof cityCode === "string" && cityCode.length > 0) {
-      query = query.where("cityCode", "==", cityCode);
+      canonicalQuery = canonicalQuery.where("cityCode", "==", cityCode);
+    }
+    queries.push(canonicalQuery.get());
+
+    if (typeof legacyCityName === "string" && legacyCityName.length > 0) {
+      const legacyQuery = db
+        .collection("pharmacies")
+        .where("countryCode", "==", countryCode)
+        .where("city", "==", legacyCityName);
+      queries.push(legacyQuery.get());
     }
 
-    const pharmaciesSnap = await query.get();
+    const snapshots = await Promise.all(queries);
 
     const now = new Date();
+    const seen = new Set<string>();
     const result: MarketplacePharmacyOutput[] = [];
     const resolution: CountryResolution = {
       status: "loaded",
       country: countryConfig,
     };
 
-    for (const doc of pharmaciesSnap.docs) {
-      const data = (doc.data() ?? {}) as Record<string, unknown>;
-      const pharmacyForGate: PharmacyLicenseSnapshot = {
-        countryCode: typeof data.countryCode === "string"
-          ? (data.countryCode as string)
-          : null,
-        licenseStatus: typeof data.licenseStatus === "string"
-          ? (data.licenseStatus as string)
-          : null,
-        licenseGraceEndsAt: (data.licenseGraceEndsAt ?? null) as
-          | PharmacyLicenseSnapshot["licenseGraceEndsAt"],
-      };
-      const gate = evaluateLicenseGate(pharmacyForGate, resolution, now);
-      if (gate.decision !== "allow") continue;
+    for (const snap of snapshots) {
+      for (const doc of snap.docs) {
+        if (seen.has(doc.id)) continue;
+        seen.add(doc.id);
 
-      result.push(projectListingSafe(doc.id, data));
+        const data = (doc.data() ?? {}) as Record<string, unknown>;
+        const pharmacyForGate: PharmacyLicenseSnapshot = {
+          countryCode: typeof data.countryCode === "string"
+            ? (data.countryCode as string)
+            : null,
+          licenseStatus: typeof data.licenseStatus === "string"
+            ? (data.licenseStatus as string)
+            : null,
+          licenseGraceEndsAt: (data.licenseGraceEndsAt ?? null) as
+            | PharmacyLicenseSnapshot["licenseGraceEndsAt"],
+        };
+        const gate = evaluateLicenseGate(pharmacyForGate, resolution, now);
+        if (gate.decision !== "allow") continue;
+
+        result.push(projectListingSafe(doc.id, data));
+      }
     }
 
     return { pharmacies: result };
