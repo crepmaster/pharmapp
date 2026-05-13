@@ -226,5 +226,5 @@ Implémenter :
 - Sprint 2B.1 admin operations : inchangé.
 - Sprint 2B.2a pharmacy UX + Sprint 2B.2b marketplace : inchangés.
 - `subscriptions/{id}` collection : reste backend-only (rule `allow write: if false`). Si conservée, c'est un miroir/audit potentiel — Sprint 3 ne l'alimente pas, mais ne la supprime pas non plus (out of scope).
-- Courier/admin signup : flow client-write Sprint 2A.3 préservé. `SubscriptionCreationService.createTrialSubscription` reste utilisé pour eux par compat héritage (out of scope).
+- Courier/admin signup : flow client-write Sprint 2A.3 préservé (aucun changement au flow Auth/Firestore courier/admin). Le call `SubscriptionCreationService.createTrialSubscription` est désormais **retiré complètement** de `_handleRegistration` pour tous user types (architect MEDIUM follow-up 2026-05-14). Il n'y avait jamais eu d'appel trial légitime pour courier/admin — l'inversion `!=` introduite par la première version de Sprint 3 avait fugacement déclenché une écriture client vers `subscriptions/{id}` (rule-locked backend-only, échouait silencieusement). Le bloc est maintenant supprimé en intégralité.
 - Pas d'upload Firebase Storage. Pas de migration destructive. Pas de deploy prod. Pas de mutation prod.
