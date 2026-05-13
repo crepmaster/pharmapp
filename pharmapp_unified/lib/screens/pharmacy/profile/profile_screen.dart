@@ -1,3 +1,4 @@
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -7,11 +8,21 @@ import '../../../models/pharmacy_user.dart';
 import '../../../models/location_data.dart';
 import '../../../widgets/auth_text_field.dart';
 import '../../location/location_picker_screen.dart';
+import 'license_correction_dialog.dart';
+import 'license_status_section.dart';
 
 /// Comprehensive profile management screen for pharmacies
 /// Allows editing of all profile information including location data
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  /// Sprint 2B.2a test seam — bypass the `submitPharmacyLicense`
+  /// callable for widget tests so the correction dialog can be
+  /// exercised without standing up Firebase Functions.
+  final SubmitLicenseCorrection? submitLicenseCorrectionOverride;
+
+  const ProfileScreen({
+    super.key,
+    this.submitLicenseCorrectionOverride,
+  });
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -19,16 +30,22 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final _formKey = GlobalKey<FormState>();
-  
+
   // Controllers for editable fields only
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
-  
+
   // State variables
   bool _isLoading = false;
   bool _isUpdating = false;
   PharmacyUser? _currentUser;
   PharmacyLocationData? _locationData;
+
+  /// Sprint 2B.2a — raw `pharmacies/{uid}` map kept around so the
+  /// [PharmacyLicenseStatusSection] can read `licenseStatus`,
+  /// `licenseRejectionReason`, `licenseNumber` directly from
+  /// Firestore data (these fields are absent from [PharmacyUser]).
+  Map<String, dynamic>? _pharmacyRawData;
   
   @override
   void initState() {
@@ -54,6 +71,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (authState is Authenticated) {
         // Note: UnifiedAuthBloc uses userData Map, need to reconstruct PharmacyUser
         _currentUser = PharmacyUser.fromMap(authState.userData, authState.user.uid);
+        _pharmacyRawData = Map<String, dynamic>.from(authState.userData);
         _populateFields();
       } else {
         // Reload user data from Firestore
@@ -65,6 +83,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               .get();
           if (doc.exists) {
             _currentUser = PharmacyUser.fromMap(doc.data()!, currentUser.uid);
+            _pharmacyRawData = Map<String, dynamic>.from(doc.data()!);
             _populateFields();
           }
         }
@@ -264,6 +283,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Sprint 2B.2a — Pharmacy license status + correction.
+                    PharmacyLicenseStatusSection(
+                      pharmacyData: _pharmacyRawData,
+                      onSubmitCorrection:
+                          widget.submitLicenseCorrectionOverride ??
+                              _defaultSubmitLicenseCorrection,
+                    ),
+                    const SizedBox(height: 24),
+
                     // Basic Information Section
                     const Text(
                       'Basic Information',
@@ -273,7 +301,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    
+
                     // Pharmacy Name - Read-only display
                     Container(
                       padding: const EdgeInsets.all(16),
@@ -631,5 +659,40 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ],
       ),
     );
+  }
+
+  /// Sprint 2B.2a — production submitter for [PharmacyLicenseStatusSection].
+  ///
+  /// Calls the existing `submitPharmacyLicense` callable (Sprint 2a,
+  /// `europe-west1`) and returns either `null` on success or a
+  /// user-facing error string. Tests inject
+  /// [ProfileScreen.submitLicenseCorrectionOverride] so this path is
+  /// never hit without Firebase.
+  Future<String?> _defaultSubmitLicenseCorrection({
+    required String licenseNumber,
+    String? licenseDocumentUrl,
+    DateTime? licenseExpiryDate,
+  }) async {
+    try {
+      final functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
+      await functions
+          .httpsCallable('submitPharmacyLicense')
+          .call<Map<String, dynamic>>({
+        'licenseNumber': licenseNumber,
+        if (licenseDocumentUrl != null)
+          'licenseDocumentUrl': licenseDocumentUrl,
+        if (licenseExpiryDate != null)
+          'licenseExpiryDate': Timestamp.fromDate(licenseExpiryDate),
+      });
+      // After success, reload the local data so the badge updates.
+      // Async fire-and-forget : a stream wiring would be cleaner but
+      // the existing screen pulls data on `_loadUserData` only.
+      if (mounted) _loadUserData();
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'License submission failed (${e.code}).';
+    } catch (e) {
+      return 'License submission failed : $e';
+    }
   }
 }

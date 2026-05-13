@@ -1,3 +1,5 @@
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pharmapp_shared/services/unified_auth_service.dart';
@@ -6,6 +8,26 @@ import 'package:pharmapp_shared/models/master_data_snapshot.dart';
 import 'package:pharmapp_shared/services/master_data_service.dart';
 import '../../blocs/unified_auth_bloc.dart';
 import '../../services/subscription_creation_service.dart';
+
+/// Sprint 2B.2a — signature of the signUp callable used by the registration
+/// screen. Production passes [UnifiedAuthService.signUp] ; widget tests
+/// pass a stub so the LICENSE_REQUIRED handler can be exercised without
+/// hitting Firebase.
+typedef RegistrationSignUp = Future<UserCredential?> Function({
+  required String email,
+  required String password,
+  required UserType userType,
+  required Map<String, dynamic> profileData,
+});
+
+/// Sprint 2B.2a — signature of the optional trial-subscription side-effect
+/// triggered for pharmacies after a successful signUp. Production passes
+/// [SubscriptionCreationService.createTrialSubscription] ; tests pass a
+/// no-op stub so they don't depend on Firestore.
+typedef CreateTrialSubscription = Future<void> Function(
+  String uid, {
+  required String currency,
+});
 
 // ---------------------------------------------------------------------------
 // Static helpers — no enum dependency on Country / PaymentOperator
@@ -123,11 +145,27 @@ class UnifiedRegistrationScreen extends StatefulWidget {
   /// Stable city slug, e.g. "douala"
   final String cityCode;
 
+  /// Sprint 2B.2a test seam — bypass [MasterDataService.load] in widget
+  /// tests by pre-seeding the snapshot. Production callers never pass it.
+  final MasterDataSnapshot? masterDataOverride;
+
+  /// Sprint 2B.2a test seam — bypass [UnifiedAuthService.signUp] so
+  /// widget tests can throw `LICENSE_REQUIRED` deterministically without
+  /// standing up Firebase Auth + Functions emulators.
+  final RegistrationSignUp? signUpOverride;
+
+  /// Sprint 2B.2a test seam — bypass [SubscriptionCreationService] for the
+  /// trial subscription side-effect (Firestore write) in widget tests.
+  final CreateTrialSubscription? createTrialSubscriptionOverride;
+
   const UnifiedRegistrationScreen({
     super.key,
     required this.userType,
     required this.countryCode,
     required this.cityCode,
+    this.masterDataOverride,
+    this.signUpOverride,
+    this.createTrialSubscriptionOverride,
   });
 
   @override
@@ -163,6 +201,22 @@ class _UnifiedRegistrationScreenState
   final _adminNameController = TextEditingController();
   final _departmentController = TextEditingController();
 
+  // PHARMACY LICENSE (Sprint 2B.2a) — conditional on
+  // `MasterDataCountry.licenseRequired` or LICENSE_REQUIRED re-prompt
+  // after a backend failed-precondition.
+  final _licenseController = TextEditingController();
+  final _licenseFieldFocus = FocusNode();
+
+  /// `true` after backend throws `FirebaseFunctionsException` with
+  /// `details['code'] == 'LICENSE_REQUIRED'` — forces the license input
+  /// to appear even when the local snapshot says the country is non
+  /// mandatory (defends against stale `MasterDataCountry`).
+  bool _forceLicensePrompt = false;
+
+  /// User-visible error shown directly under the license field after a
+  /// LICENSE_REQUIRED re-prompt. Cleared on every successful submit.
+  String? _licensePromptMessage;
+
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   bool _isLoading = false;
@@ -173,14 +227,24 @@ class _UnifiedRegistrationScreenState
   @override
   void initState() {
     super.initState();
-    _loadMasterData();
+    // Sprint 2B.2a — if a test injected an override, seed synchronously
+    // so the first build already shows the conditional license field.
+    if (widget.masterDataOverride != null) {
+      _masterData = widget.masterDataOverride;
+      _prefillDialCodeIfEmpty(widget.masterDataOverride!);
+    } else {
+      _loadMasterData();
+    }
   }
 
   Future<void> _loadMasterData() async {
     final snapshot = await MasterDataService.load();
     if (!mounted) return;
     setState(() => _masterData = snapshot);
+    _prefillDialCodeIfEmpty(snapshot);
+  }
 
+  void _prefillDialCodeIfEmpty(MasterDataSnapshot snapshot) {
     // Prefill phone field with international dial code of the selected country.
     // Only prefill if the user hasn't typed anything yet.
     final dialCode = snapshot.countries[widget.countryCode]?.dialCode ?? '';
@@ -190,6 +254,17 @@ class _UnifiedRegistrationScreenState
         TextPosition(offset: _phoneController.text.length),
       );
     }
+  }
+
+  /// Sprint 2B.2a — `true` when the license field must render in the
+  /// registration form. Reasons : the selected country requires a
+  /// license per master data, OR the backend re-prompted with
+  /// LICENSE_REQUIRED (which sets [_forceLicensePrompt]).
+  bool get _isLicenseFieldVisible {
+    if (widget.userType != UserType.pharmacy) return false;
+    if (_forceLicensePrompt) return true;
+    final mdCountry = _masterData?.countries[widget.countryCode];
+    return mdCountry?.licenseRequired ?? false;
   }
 
   @override
@@ -205,6 +280,8 @@ class _UnifiedRegistrationScreenState
     _licensePlateController.dispose();
     _adminNameController.dispose();
     _departmentController.dispose();
+    _licenseController.dispose();
+    _licenseFieldFocus.dispose();
     super.dispose();
   }
 
@@ -533,7 +610,60 @@ class _UnifiedRegistrationScreenState
             return null;
           },
         ),
+        if (_isLicenseFieldVisible) ...[
+          const SizedBox(height: 16),
+          _buildLicenseField(),
+        ],
       ],
+    );
+  }
+
+  /// Sprint 2B.2a — pharmacy license number input.
+  ///
+  /// Rendered only when [_isLicenseFieldVisible]. Label / help text /
+  /// regex come from the country's [MasterDataCountry] entry, with
+  /// sensible fallbacks when those optional fields are absent. Local
+  /// validation mirrors what the backend `submitPharmacyLicense` callable
+  /// enforces — but the canonical regex check still happens server-side.
+  Widget _buildLicenseField() {
+    final mdCountry = _masterData?.countries[widget.countryCode];
+    final label = (mdCountry?.licenseLabel?.trim().isNotEmpty == true)
+        ? mdCountry!.licenseLabel!
+        : 'Pharmacy License Number';
+    final help = mdCountry?.licenseHelpText?.trim().isNotEmpty == true
+        ? mdCountry!.licenseHelpText!
+        : null;
+    final regexSource = mdCountry?.licenseFormatRegex;
+
+    return TextFormField(
+      key: const Key('license_number_field'),
+      controller: _licenseController,
+      focusNode: _licenseFieldFocus,
+      decoration: InputDecoration(
+        labelText: label,
+        helperText: help,
+        errorText: _licensePromptMessage,
+        prefixIcon: const Icon(Icons.verified_user_outlined),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      validator: (value) {
+        final v = value?.trim() ?? '';
+        if (v.isEmpty) {
+          return 'License required for ${_getCountryDisplayName()}';
+        }
+        if (regexSource != null && regexSource.isNotEmpty) {
+          try {
+            final re = RegExp(regexSource);
+            if (!re.hasMatch(v)) {
+              return 'License format invalid for ${_getCountryDisplayName()}';
+            }
+          } catch (_) {
+            // Malformed regex from master data — surface as warning but
+            // do NOT block the user (canonical validation is server-side).
+          }
+        }
+        return null;
+      },
     );
   }
 
@@ -831,7 +961,10 @@ class _UnifiedRegistrationScreenState
   Future<void> _handleRegistration() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _licensePromptMessage = null;
+    });
 
     try {
       // Resolve the selected provider to obtain methodCode.
@@ -867,7 +1000,19 @@ class _UnifiedRegistrationScreenState
 
       final profileData = _buildProfileData(paymentPreferences);
 
-      final userCredential = await UnifiedAuthService.signUp(
+      // Sprint 2B.2a — attach the license number to the payload whenever
+      // the field is shown (mandatory country OR LICENSE_REQUIRED re-prompt).
+      // The backend callable owns the canonical enforcement (server reads
+      // `system_config/main.countries.{code}.licenseRequired`).
+      if (_isLicenseFieldVisible) {
+        final trimmed = _licenseController.text.trim();
+        if (trimmed.isNotEmpty) {
+          profileData['licenseNumber'] = trimmed;
+        }
+      }
+
+      final signUp = widget.signUpOverride ?? UnifiedAuthService.signUp;
+      final userCredential = await signUp(
         email: _emailController.text.trim(),
         password: _passwordController.text,
         userType: widget.userType,
@@ -880,8 +1025,9 @@ class _UnifiedRegistrationScreenState
             _countryCurrencyMap[widget.countryCode] ??
             _masterData?.countries[widget.countryCode]?.defaultCurrencyCode ??
             'XAF';
-
-        await SubscriptionCreationService.createTrialSubscription(
+        final createTrialFn = widget.createTrialSubscriptionOverride ??
+            SubscriptionCreationService.createTrialSubscription;
+        await createTrialFn(
           userCredential!.user!.uid,
           currency: currency,
         );
@@ -894,6 +1040,50 @@ class _UnifiedRegistrationScreenState
               password: _passwordController.text,
             ),
           );
+    } on FirebaseFunctionsException catch (e) {
+      // Sprint 2B.2a — LICENSE_REQUIRED handler.
+      //
+      // The shared `UnifiedAuthService.signUp` rethrows the
+      // `FirebaseFunctionsException` raised by `createPharmacyRegistration`
+      // (Sprint 2A.3.1) so the structured `details.code` reaches us
+      // untouched. If the backend says `LICENSE_REQUIRED`, we re-render
+      // the form with the license input visible (even if the local
+      // master-data snapshot says non-mandatory), focus it, and keep
+      // every other field intact.
+      if (!mounted) return;
+      final detailsCode =
+          (e.details is Map ? (e.details as Map)['code'] : null)?.toString();
+      if (detailsCode == 'LICENSE_REQUIRED') {
+        setState(() {
+          _isLoading = false;
+          _forceLicensePrompt = true;
+          _licensePromptMessage =
+              'License required for ${_getCountryDisplayName()}';
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            FocusScope.of(context).requestFocus(_licenseFieldFocus);
+          }
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'License required for ${_getCountryDisplayName()}. Please enter your license number.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+      // Any other backend functions error : generic surface, do NOT
+      // re-prompt for license.
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Registration failed: ${e.message ?? e.code}'),
+          backgroundColor: Colors.red,
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);

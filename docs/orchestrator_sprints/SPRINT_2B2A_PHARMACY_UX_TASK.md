@@ -179,3 +179,73 @@ cd pharmapp_unified && flutter analyze && flutter test
 ```
 
 `admin_panel` et `shared` n'ont pas de changement attendu → analyses suffisent.
+
+## Statut final
+
+✅ **Livré 2026-05-13** (orchestrator run `20260513-200915-499497`).
+
+### Registration UI (Lot 1) — Statut final
+
+- `pharmapp_unified/lib/screens/auth/unified_registration_screen.dart` :
+  - 3 test seams ajoutés au constructeur : `masterDataOverride`, `signUpOverride`, `createTrialSubscriptionOverride`. Production passe `null` → wires sur les services statiques existants.
+  - Helper `_isLicenseFieldVisible` (pharmacy + (`MasterDataCountry.licenseRequired` OU `_forceLicensePrompt`)).
+  - Nouveau `_buildLicenseField()` : champ TextFormField avec `licenseLabel` / `licenseHelpText` / regex `licenseFormatRegex` lus depuis master data. Fallback "Pharmacy License Number" si label absent. Validation locale rejette empty + regex mismatch ; canonical enforcement reste server-side (`submitPharmacyLicense` Sprint 2a).
+  - Catch dédié `on FirebaseFunctionsException` : si `details['code'] == 'LICENSE_REQUIRED'`, met `_forceLicensePrompt = true`, focus le champ via `WidgetsBinding.instance.addPostFrameCallback`, snackbar visible. Aucun champ n'est réinitialisé. Tous les autres `FirebaseFunctionsException` → snackbar générique sans re-prompt.
+
+### Profile UI (Lot 2) — Statut final
+
+- Nouveau widget `pharmapp_unified/lib/screens/pharmacy/profile/license_status_section.dart` :
+  - `PharmacyLicenseStatusSection` consomme `Map<String, dynamic>? pharmacyData` (data `pharmacies/{uid}` brute) — aucune dépendance Firebase.
+  - Mapping des 7 statuts canoniques (`not_required` / `pending_verification` / `verified` / `rejected` / `correction_needed` / `grace_period` / `expired`) en badge avec couleur + libellé. Fallback "Pending" pour valeurs inconnues, avec `debugPrint` structuré.
+  - Bouton "Correct license" rendu uniquement si statut ∈ {`rejected`, `correction_needed`}. Ouvre `LicenseCorrectionDialog` avec `initialLicenseNumber` pré-rempli depuis `licenseNumber`.
+  - Helper `createSubmitPharmacyLicenseHandler(callable)` qui adapte le `Future<dynamic> Function(...)` du callable Sprint 2a vers la signature `SubmitLicenseCorrection`.
+- Nouveau dialog `pharmapp_unified/lib/screens/pharmacy/profile/license_correction_dialog.dart` :
+  - Form 3 champs : `licenseNumber` (mandatory), `licenseDocumentUrl` (optionnel), `licenseExpiryDate` (optionnel, format `yyyy-MM-dd`).
+  - Validation locale : numéro vide → erreur "License number is required." ; date format invalide → "Use the format yyyy-MM-dd." ; callback **PAS** invoqué si validation échoue.
+  - Routes le submit via `SubmitLicenseCorrection` callback. Sur succès (return `null`), dialog se ferme. Sur erreur (string retourné), dialog reste ouvert avec message visible, prêt à retry.
+- `pharmapp_unified/lib/screens/pharmacy/profile/profile_screen.dart` :
+  - Nouveau test seam `submitLicenseCorrectionOverride` au constructeur.
+  - Nouveau state field `_pharmacyRawData` (Map brute Firestore) pour alimenter la section license.
+  - Section insérée en haut de `Basic Information`.
+  - Handler `_defaultSubmitLicenseCorrection` qui invoque le callable `submitPharmacyLicense` (Sprint 2a, region europe-west1) + reload via `_loadUserData` sur succès. Couvre `FirebaseFunctionsException` + autres exceptions avec message user-facing.
+
+### Test enablement (Lot 3) — Statut final
+
+- `pharmapp_unified/pubspec.yaml` : `mocktail: ^1.0.4` ajouté en `dev_dependencies`. Aligne avec `shared/` (Sprint 2A.3.1) et `admin_panel/` (Sprint 2B.1).
+- Aucun changement aux dépendances de production.
+
+### Widget tests (Lot 5 — couvert en parallèle avec Lots 1+2)
+
+- `pharmapp_unified/test/screens/auth/unified_registration_screen_test.dart` :
+  - Ajout de 7 nouveaux tests dans 3 groupes "Sprint 2B.2a — …" (sans toucher aux ~22 tests pré-existants) :
+    - Visibilité du champ licence : pays mandatory → visible ; pays non mandatory → caché ; courier role → jamais.
+    - LICENSE_REQUIRED handler : `details['code'] == 'LICENSE_REQUIRED'` → champ apparaît + snackbar + autres champs préservés.
+    - Code FirebaseFunctionsException autre (`internal`) → erreur générique, pas de re-prompt.
+    - Validation : empty rejected, regex mismatch rejected, `signUp` jamais appelé ; régex valide → `signUp` appelé avec `licenseNumber` dans `profileData`.
+- `pharmapp_unified/test/screens/pharmacy/profile_screen_test.dart` (NEW) :
+  - 7 tests `PharmacyLicenseStatusSection — badge mapping` (matrice statuts + unknown + null data).
+  - 3 tests `PharmacyLicenseStatusSection — rejected / correction_needed expose correction button` (reason visible, button visible, dialog prefills `licenseNumber`).
+  - 4 tests `LicenseCorrectionDialog — validation + submission` (empty number, invalid date format, valid happy path, backend error).
+
+### Documentation (Lot 4) — Statut final
+
+- `CLAUDE.md` : Sprint 2B.2a ajouté au tableau historique sprints ; backlog F-LICENSE 2B.2a marqué LIVRÉ + 2B.2b → "Prochain sprint, débloqué par 2B.2a" ; section "ce qui n'est PAS livré" §2 réécrite : UI mobile pharmacy livrée + marketplace 2B.2b en attente.
+- `docs/ACTIVE_DOCS.md` : 2B.2a déplacé en "Sprints closed" ; 2B.2b en "à venir" (prochain).
+- `docs/orchestrator_sprints/README.md` : 2B.2a fermé, 2B.2b débloqué.
+- Ce contrat : section "Statut final" présente (vous la lisez).
+
+### Validation finale
+
+- `cd functions && npm run build && npm run lint && npm test && npm run test:rules` : 204/204 Jest, 22/22 rules, build + lint clean (aucun changement backend).
+- `cd shared && dart analyze` : pas de changement.
+- `cd admin_panel && flutter analyze && flutter test` : 22/22 (inchangé).
+- `cd pharmapp_unified && flutter analyze lib/screens/auth/ lib/screens/pharmacy/profile/` : clean.
+- `cd pharmapp_unified && flutter test test/screens/auth/unified_registration_screen_test.dart test/screens/pharmacy/profile_screen_test.dart` : 21 nouveaux widget tests verts (7 registration + 14 profile/correction).
+
+### Non-régressions
+
+- Pas de touche `admin_panel/**`. Pas de touche `firestore.rules`. Pas de touche callables Sprint 2a / 2A.1 / 2A.2 / 2A.3 / 2B.1. Pas de touche marketplace ni des 6 consumers (`medicine_requests_screen.dart`, `create_proposal_screen.dart`, `exchange_status_screen.dart`, `subscription_screen.dart`, `inventory_service.dart`, `pharmacy_main_screen.dart`) — out of scope 2B.2b.
+- Inscription pays non mandatory : inchangée.
+- Inscription pays mandatory avec licence valide → succès registration ; sans licence côté serveur → handler LICENSE_REQUIRED actif (was : erreur générique).
+- Courier/admin signup : flow client-write Sprint 2A.3 préservé.
+- Aucun deploy prod. Aucune mutation prod.

@@ -72,6 +72,11 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^3.0.0
 
+  # Sprint 2B.2a — widget tests for registration LICENSE_REQUIRED handler
+  # + profile license status + correction flow. Aligns with shared/
+  # (2A.3.1) and admin_panel/ (2B.1).
+  mocktail: ^1.0.4
+
 flutter:
   uses-material-design: true
 

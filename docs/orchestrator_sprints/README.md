@@ -15,8 +15,8 @@ Chaque fichier `SPRINT_*.md` est conçu comme un ticket source autonome pour l'o
 4. `SPRINT_2B_LICENSE_UI_TASK.md` — ⚠️ **SUPERSEDED 2026-05-13** (split en 2B.1 + 2B.2 par décision architecte ; run monolithique `20260513-161632-0b66fb` abandonné)
 4.1. `SPRINT_2B1_ADMIN_LICENSE_OPS_TASK.md` — ✅ fermé (run `20260513-163310-d506b0` + corrections architecte). Admin License Operations livrés : nouveau callable `setCountryLicenseConfig`, admin UI (`countries_tab.dart` + `LicenseConfigDialog` extrait), `pharmacy_license_review_screen.dart`, fix clobber `upsertCountry` (dotted-path), helper `buildLicenseReviewQuerySpec` testable, 22 widget+unit tests, 16 Jest tests callable.
 4.2. `SPRINT_2B2_PHARMACY_UX_AND_MARKETPLACE_TASK.md` — ⚠️ **SUPERSEDED 2026-05-13** (split en 2B.2a + 2B.2b par verdict architecte B ; éviter une revue mixée Pharmacy UX + Marketplace)
-4.2.a. `SPRINT_2B2A_PHARMACY_UX_TASK.md` — Pharmacy UX : registration `LICENSE_REQUIRED` handler + champ licence conditionnel + profile license status + correction flow. **Aucun marketplace**. **Prochain sprint, débloqué par 2B.1**.
-4.2.b. `SPRINT_2B2B_MARKETPLACE_ENFORCEMENT_TASK.md` — Marketplace Enforcement : listing backend-owned + migration 6 consumers Flutter + durcissement `firestore.rules`. Décision `CALLABLE` vs `FLAG` verrouillée dans le contrat (préférence callable sauf triple preuve explorer). **Bloqué jusqu'à clôture 2B.2a**.
+4.2.a. `SPRINT_2B2A_PHARMACY_UX_TASK.md` — ✅ fermé (run `20260513-200915-499497`). Pharmacy UX livré : registration `LICENSE_REQUIRED` handler, `PharmacyLicenseStatusSection`, `LicenseCorrectionDialog` routé sur `submitPharmacyLicense` Sprint 2a, 4 test seams, 21 widget tests. Aucun marketplace touché.
+4.2.b. `SPRINT_2B2B_MARKETPLACE_ENFORCEMENT_TASK.md` — Marketplace Enforcement : listing backend-owned + migration 6 consumers Flutter + durcissement `firestore.rules`. Décision `CALLABLE` vs `FLAG` verrouillée dans le contrat (préférence callable sauf triple preuve explorer). **Prochain sprint, débloqué par 2B.2a**.
 5. `SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md`
 6. `SPRINT_4_MEDICINE_REQUESTS_EXCHANGE_TASK.md`
 7. `SPRINT_5_E2E_CLOSURE_TASK.md`

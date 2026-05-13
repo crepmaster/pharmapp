@@ -1,13 +1,134 @@
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:pharmapp_unified/screens/auth/unified_registration_screen.dart';
 import 'package:pharmapp_unified/blocs/unified_auth_bloc.dart';
 import 'package:pharmapp_shared/services/unified_auth_service.dart';
 import 'package:pharmapp_shared/models/payment_preferences.dart';
 import 'package:pharmapp_shared/services/encryption_service.dart';
+import 'package:pharmapp_shared/models/master_data_snapshot.dart';
+
+/// Sprint 2B.2a — test helpers + groups.
+
+class _MockUnifiedAuthBloc extends Mock implements UnifiedAuthBloc {}
+
+class _FakeUnifiedAuthEvent extends Fake implements UnifiedAuthEvent {}
+
+MasterDataSnapshot _licenseSnapshot({
+  required String countryCode,
+  required bool licenseRequired,
+  String? licenseLabel,
+  String? licenseHelpText,
+  String? licenseFormatRegex,
+}) {
+  final isGh = countryCode == 'GH';
+  final country = MasterDataCountry(
+    code: countryCode,
+    name: isGh ? 'Ghana' : 'Cameroon',
+    dialCode: isGh ? '233' : '237',
+    defaultCurrencyCode: isGh ? 'GHS' : 'XAF',
+    enabled: true,
+    sortOrder: 10,
+    defaultCityCode: isGh ? 'accra' : 'douala',
+    providerIds: const ['p1'],
+    licenseRequired: licenseRequired,
+    licenseLabel: licenseLabel,
+    licenseHelpText: licenseHelpText,
+    licenseFormatRegex: licenseFormatRegex,
+  );
+  final city = MasterDataCity(
+    code: isGh ? 'accra' : 'douala',
+    name: isGh ? 'Accra' : 'Douala',
+    enabled: true,
+    deliveryFee: 0,
+    currencyCode: isGh ? 'GHS' : 'XAF',
+    sortOrder: 10,
+  );
+  final provider = MasterDataProvider(
+    id: 'p1',
+    name: 'Test Provider',
+    countryCode: countryCode,
+    currencyCode: isGh ? 'GHS' : 'XAF',
+    methodCode: isGh ? 'paystack_ghana' : 'mtn_cameroon',
+    enabled: true,
+    displayOrder: 10,
+    requiresMsisdn: true,
+    supportsCollections: true,
+    supportsPayouts: true,
+  );
+  return MasterDataSnapshot(
+    source: MasterDataSource.remote,
+    primaryCountryCode: countryCode,
+    countries: {countryCode: country},
+    citiesByCountry: {
+      countryCode: {city.code: city},
+    },
+    currencies: const {},
+    providers: {provider.id: provider},
+  );
+}
+
+Future<void> _noopTrial(String uid, {required String currency}) async {}
+
+Widget _wrapWithMockBloc(Widget child) {
+  final bloc = _MockUnifiedAuthBloc();
+  when(() => bloc.state).thenReturn(AuthInitial());
+  when(() => bloc.stream)
+      .thenAnswer((_) => const Stream<UnifiedAuthState>.empty());
+  when(() => bloc.add(any())).thenReturn(null);
+  when(() => bloc.close()).thenAnswer((_) async {});
+  return MaterialApp(
+    home: BlocProvider<UnifiedAuthBloc>.value(
+      value: bloc,
+      child: child,
+    ),
+  );
+}
+
+Future<void> _fillCommonAndPayment(
+  WidgetTester tester, {
+  String email = 'test@example.com',
+  String phone = '+237 600000000',
+  String pharmacyName = 'Pharma Alpha',
+  String address = 'Rue 1',
+}) async {
+  // Use a larger logical viewport so the long registration form fits
+  // without needing manual scroll between each interaction. 600 px tall
+  // is the Flutter default; the form is ~1200 px tall.
+  await tester.binding.setSurfaceSize(const Size(1024, 2000));
+  await tester.pumpAndSettle();
+
+  await tester.enterText(
+      find.widgetWithText(TextFormField, 'Email'), email);
+  await tester.enterText(
+      find.widgetWithText(TextFormField, 'Password'), 'Test1234');
+  await tester.enterText(
+      find.widgetWithText(TextFormField, 'Confirm Password'), 'Test1234');
+  await tester.enterText(
+      find.widgetWithText(TextFormField, 'Phone Number'), phone);
+  await tester.enterText(
+      find.widgetWithText(TextFormField, 'Pharmacy Name'), pharmacyName);
+  await tester.enterText(
+      find.widgetWithText(TextFormField, 'Address'), address);
+
+  // Select the unique enabled provider in our master-data snapshot.
+  final dropdown = find.byType(DropdownButtonFormField<String>).last;
+  await tester.ensureVisible(dropdown);
+  await tester.pumpAndSettle();
+  await tester.tap(dropdown);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Test Provider').last);
+  await tester.pumpAndSettle();
+}
 
 void main() {
+  setUpAll(() {
+    registerFallbackValue(_FakeUnifiedAuthEvent());
+  });
+
   Widget createTestWidget(UserType userType) {
     return MaterialApp(
       home: BlocProvider<UnifiedAuthBloc>(
@@ -570,6 +691,267 @@ void main() {
 
       // Should navigate back
       expect(find.text('Go to Registration'), findsOneWidget);
+    });
+  });
+
+  // ===========================================================================
+  // Sprint 2B.2a — License field + LICENSE_REQUIRED handler
+  // ===========================================================================
+
+  group('Sprint 2B.2a — license field visibility', () {
+    testWidgets(
+        'country with licenseRequired=true renders the license field with label from master data',
+        (tester) async {
+      await tester.pumpWidget(_wrapWithMockBloc(
+        UnifiedRegistrationScreen(
+          userType: UserType.pharmacy,
+          countryCode: 'GH',
+          cityCode: 'accra',
+          masterDataOverride: _licenseSnapshot(
+            countryCode: 'GH',
+            licenseRequired: true,
+            licenseLabel: 'Pharmacy Council Number',
+            licenseHelpText: 'PSI registration ID',
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('license_number_field')), findsOneWidget);
+      expect(find.text('Pharmacy Council Number'), findsOneWidget);
+    });
+
+    testWidgets(
+        'country with licenseRequired=false hides the license field',
+        (tester) async {
+      await tester.pumpWidget(_wrapWithMockBloc(
+        UnifiedRegistrationScreen(
+          userType: UserType.pharmacy,
+          countryCode: 'CM',
+          cityCode: 'douala',
+          masterDataOverride:
+              _licenseSnapshot(countryCode: 'CM', licenseRequired: false),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('license_number_field')), findsNothing);
+    });
+
+    testWidgets(
+        'courier role never renders the license field even when master data says licenseRequired=true',
+        (tester) async {
+      await tester.pumpWidget(_wrapWithMockBloc(
+        UnifiedRegistrationScreen(
+          userType: UserType.courier,
+          countryCode: 'GH',
+          cityCode: 'accra',
+          masterDataOverride:
+              _licenseSnapshot(countryCode: 'GH', licenseRequired: true),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('license_number_field')), findsNothing);
+    });
+  });
+
+  group('Sprint 2B.2a — LICENSE_REQUIRED handler', () {
+    testWidgets(
+        'backend throws LICENSE_REQUIRED → license field appears, snackbar shown, other fields preserved',
+        (tester) async {
+      var signUpCalls = 0;
+      Future<UserCredential?> reluctantSignUp({
+        required String email,
+        required String password,
+        required UserType userType,
+        required Map<String, dynamic> profileData,
+      }) async {
+        signUpCalls++;
+        throw FirebaseFunctionsException(
+          code: 'failed-precondition',
+          message: 'License required for this country',
+          details: const {'code': 'LICENSE_REQUIRED'},
+        );
+      }
+
+      await tester.pumpWidget(_wrapWithMockBloc(
+        UnifiedRegistrationScreen(
+          userType: UserType.pharmacy,
+          countryCode: 'CM',
+          cityCode: 'douala',
+          masterDataOverride:
+              _licenseSnapshot(countryCode: 'CM', licenseRequired: false),
+          signUpOverride: reluctantSignUp,
+          createTrialSubscriptionOverride: _noopTrial,
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      // License field NOT shown initially (country says non-mandatory).
+      expect(find.byKey(const Key('license_number_field')), findsNothing);
+
+      await _fillCommonAndPayment(tester);
+
+      // Submit.
+      await tester.tap(
+          find.widgetWithText(ElevatedButton, 'Create Pharmacy Account'));
+      await tester.pumpAndSettle();
+
+      expect(signUpCalls, 1, reason: 'signUp must have been called once.');
+      // License field now visible.
+      expect(find.byKey(const Key('license_number_field')), findsOneWidget);
+      // Other fields preserved.
+      expect(find.text('test@example.com'), findsOneWidget);
+      expect(find.text('Pharma Alpha'), findsOneWidget);
+      // Snackbar visible.
+      expect(
+        find.textContaining('License required for Cameroon'),
+        findsAtLeastNWidgets(1),
+      );
+    });
+
+    testWidgets(
+        'generic FirebaseFunctionsException does NOT force license prompt',
+        (tester) async {
+      Future<UserCredential?> brokenSignUp({
+        required String email,
+        required String password,
+        required UserType userType,
+        required Map<String, dynamic> profileData,
+      }) async {
+        throw FirebaseFunctionsException(
+          code: 'internal',
+          message: 'Internal error',
+        );
+      }
+
+      await tester.pumpWidget(_wrapWithMockBloc(
+        UnifiedRegistrationScreen(
+          userType: UserType.pharmacy,
+          countryCode: 'CM',
+          cityCode: 'douala',
+          masterDataOverride:
+              _licenseSnapshot(countryCode: 'CM', licenseRequired: false),
+          signUpOverride: brokenSignUp,
+          createTrialSubscriptionOverride: _noopTrial,
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      await _fillCommonAndPayment(tester);
+      await tester.tap(
+          find.widgetWithText(ElevatedButton, 'Create Pharmacy Account'));
+      await tester.pumpAndSettle();
+
+      // License field still hidden, generic error path.
+      expect(find.byKey(const Key('license_number_field')), findsNothing);
+      expect(
+        find.textContaining('Registration failed'),
+        findsAtLeastNWidgets(1),
+      );
+    });
+  });
+
+  group('Sprint 2B.2a — license field validation + payload', () {
+    testWidgets(
+        'mandatory country: empty license is rejected then regex mismatch is rejected, no signUp call',
+        (tester) async {
+      Future<UserCredential?> shouldNotBeCalled({
+        required String email,
+        required String password,
+        required UserType userType,
+        required Map<String, dynamic> profileData,
+      }) async {
+        fail('signUp must not be called when license field is invalid.');
+      }
+
+      await tester.pumpWidget(_wrapWithMockBloc(
+        UnifiedRegistrationScreen(
+          userType: UserType.pharmacy,
+          countryCode: 'GH',
+          cityCode: 'accra',
+          masterDataOverride: _licenseSnapshot(
+            countryCode: 'GH',
+            licenseRequired: true,
+            licenseFormatRegex: r'^[A-Z]{2}-\d{4}$',
+          ),
+          signUpOverride: shouldNotBeCalled,
+          createTrialSubscriptionOverride: _noopTrial,
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      await _fillCommonAndPayment(tester,
+          phone: '+233 200000000',
+          pharmacyName: 'Pharma Beta',
+          address: 'High St');
+
+      // Empty license submit → validator rejects.
+      await tester.tap(
+          find.widgetWithText(ElevatedButton, 'Create Pharmacy Account'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('License required for Ghana'),
+          findsAtLeastNWidgets(1));
+
+      // Fill license with a value that fails the regex.
+      await tester.enterText(
+          find.byKey(const Key('license_number_field')), 'ab-1234');
+      await tester.tap(
+          find.widgetWithText(ElevatedButton, 'Create Pharmacy Account'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('License format invalid for Ghana'),
+          findsAtLeastNWidgets(1));
+    });
+
+    testWidgets(
+        'valid license + matching regex → signUp called with licenseNumber inside profileData',
+        (tester) async {
+      Map<String, dynamic>? capturedProfile;
+      Future<UserCredential?> capturingSignUp({
+        required String email,
+        required String password,
+        required UserType userType,
+        required Map<String, dynamic> profileData,
+      }) async {
+        capturedProfile = Map<String, dynamic>.from(profileData);
+        return null;
+      }
+
+      await tester.pumpWidget(_wrapWithMockBloc(
+        UnifiedRegistrationScreen(
+          userType: UserType.pharmacy,
+          countryCode: 'GH',
+          cityCode: 'accra',
+          masterDataOverride: _licenseSnapshot(
+            countryCode: 'GH',
+            licenseRequired: true,
+            licenseFormatRegex: r'^[A-Z]{2}-\d{4}$',
+          ),
+          signUpOverride: capturingSignUp,
+          createTrialSubscriptionOverride: _noopTrial,
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      await _fillCommonAndPayment(tester,
+          phone: '+233 200000000',
+          pharmacyName: 'Pharma Gamma',
+          address: '15 Liberation Rd');
+      await tester.enterText(
+          find.byKey(const Key('license_number_field')), 'GH-0042');
+
+      await tester.tap(
+          find.widgetWithText(ElevatedButton, 'Create Pharmacy Account'));
+      // Use pump() instead of pumpAndSettle(): after signUp resolves
+      // successfully the screen dispatches SignInRequested onto the
+      // (mock) bloc and waits for an Authenticated state that the mock
+      // never emits, so pumpAndSettle would deadlock.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(capturedProfile, isNotNull);
+      expect(capturedProfile!['licenseNumber'], equals('GH-0042'));
     });
   });
 }
