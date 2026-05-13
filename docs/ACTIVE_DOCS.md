@@ -78,19 +78,21 @@ This file lists operational, up-to-date documentation. For deprecated or histori
 - [orchestrator_sprints/SPRINT_2A1_SECURITY_CORRECTION_TASK.md](orchestrator_sprints/SPRINT_2A1_SECURITY_CORRECTION_TASK.md) — ✅ Sprint 2A.1 (3 findings critiques, 2026-05-12).
 - [orchestrator_sprints/SPRINT_2A2_ARCHITECT_FOLLOWUP_TASK.md](orchestrator_sprints/SPRINT_2A2_ARCHITECT_FOLLOWUP_TASK.md) — ✅ Sprint 2A.2 (6 findings additionnels, doc + tests paramétrisés + fail-closed + contract corrections, 2026-05-12).
 - [orchestrator_sprints/SPRINT_2A3_REGISTRATION_BACKEND_OWNED_TASK.md](orchestrator_sprints/SPRINT_2A3_REGISTRATION_BACKEND_OWNED_TASK.md) — ✅ Sprint 2A.3 + 2A.3.1 (registration backend-owned + LICENSE_REQUIRED signal preservation, 2026-05-12).
-- [orchestrator_sprints/SPRINT_2B1_ADMIN_LICENSE_OPS_TASK.md](orchestrator_sprints/SPRINT_2B1_ADMIN_LICENSE_OPS_TASK.md) — ✅ Sprint 2B.1 Admin License Operations (`setCountryLicenseConfig` callable + admin UI license config + pharmacy license review screen + 11 widget tests, 2026-05-13).
+- [orchestrator_sprints/SPRINT_2B1_ADMIN_LICENSE_OPS_TASK.md](orchestrator_sprints/SPRINT_2B1_ADMIN_LICENSE_OPS_TASK.md) — ✅ Sprint 2B.1 Admin License Operations + corrections architecte (`setCountryLicenseConfig` callable, admin UI, pharmacy_license_review, dotted-path upsertCountry fix, scope filter test, 22 widget+unit tests, 2026-05-13).
 
 **Sprints à venir (ordre verrouillé)** :
 
-- [orchestrator_sprints/SPRINT_2B2_PHARMACY_UX_AND_MARKETPLACE_TASK.md](orchestrator_sprints/SPRINT_2B2_PHARMACY_UX_AND_MARKETPLACE_TASK.md) — Sprint 2B.2 Pharmacy UX + Marketplace Enforcement. **Prochain sprint, débloqué par clôture 2B.1.**
+- [orchestrator_sprints/SPRINT_2B2A_PHARMACY_UX_TASK.md](orchestrator_sprints/SPRINT_2B2A_PHARMACY_UX_TASK.md) — Sprint 2B.2a Pharmacy UX (registration LICENSE_REQUIRED + profile + correction flow, aucun marketplace). **Prochain sprint, débloqué par clôture 2B.1.**
+- [orchestrator_sprints/SPRINT_2B2B_MARKETPLACE_ENFORCEMENT_TASK.md](orchestrator_sprints/SPRINT_2B2B_MARKETPLACE_ENFORCEMENT_TASK.md) — Sprint 2B.2b Marketplace Enforcement (listing backend-owned + 6 consumers + rules durcies, décision CALLABLE vs FLAG verrouillée). Bloqué jusqu'à clôture 2B.2a.
 - [orchestrator_sprints/SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md](orchestrator_sprints/SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md) — Sprint 3 (trial subscription, présuppose 2A.3 pour gate sur write path canonique).
 - [orchestrator_sprints/SPRINT_4_MEDICINE_REQUESTS_EXCHANGE_TASK.md](orchestrator_sprints/SPRINT_4_MEDICINE_REQUESTS_EXCHANGE_TASK.md) — Sprint 4 (Bloc 2 P2 exchange mode).
 - [orchestrator_sprints/SPRINT_5_E2E_CLOSURE_TASK.md](orchestrator_sprints/SPRINT_5_E2E_CLOSURE_TASK.md) — Sprint 5 (E2E closure).
 
 **Référence agrégée (ne plus exécuter directement)** :
 
-- [orchestrator_sprints/SPRINT_2_F_LICENSE_TASK.md](orchestrator_sprints/SPRINT_2_F_LICENSE_TASK.md) — Sprint 2 monolithique original. Conservé pour le target model end-to-end. **Remplacé** par 2a + 2A.1 + 2A.2 + 2A.3 + 2B.1 + 2B.2.
-- [orchestrator_sprints/SPRINT_2B_LICENSE_UI_TASK.md](orchestrator_sprints/SPRINT_2B_LICENSE_UI_TASK.md) — Sprint 2B monolithique. **Superseded** par 2B.1 + 2B.2 (décision architecte 2026-05-13).
+- [orchestrator_sprints/SPRINT_2_F_LICENSE_TASK.md](orchestrator_sprints/SPRINT_2_F_LICENSE_TASK.md) — Sprint 2 monolithique original. Conservé pour le target model end-to-end. **Remplacé** par 2a + 2A.1 + 2A.2 + 2A.3 + 2B.1 + 2B.2a + 2B.2b.
+- [orchestrator_sprints/SPRINT_2B_LICENSE_UI_TASK.md](orchestrator_sprints/SPRINT_2B_LICENSE_UI_TASK.md) — Sprint 2B monolithique. **Superseded** par 2B.1 + 2B.2a + 2B.2b (décisions architecte 2026-05-13).
+- [orchestrator_sprints/SPRINT_2B2_PHARMACY_UX_AND_MARKETPLACE_TASK.md](orchestrator_sprints/SPRINT_2B2_PHARMACY_UX_AND_MARKETPLACE_TASK.md) — Sprint 2B.2 monolithique. **Superseded** par 2B.2a + 2B.2b (verdict architecte B, 2026-05-13).
 
 ### Active testing docs (`docs/testing/`)
 

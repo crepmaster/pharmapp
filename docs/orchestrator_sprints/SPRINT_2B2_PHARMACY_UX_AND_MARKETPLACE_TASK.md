@@ -1,5 +1,16 @@
 # Sprint 2B.2 — Pharmacy UX + Marketplace Enforcement
 
+> ⚠️ **SUPERSEDED 2026-05-13** par split en deux contrats isolés (verdict architecte B) :
+>
+> - [SPRINT_2B2A_PHARMACY_UX_TASK.md](SPRINT_2B2A_PHARMACY_UX_TASK.md) — Pharmacy UX (registration LICENSE_REQUIRED handler + profile status + correction flow). À exécuter en premier.
+> - [SPRINT_2B2B_MARKETPLACE_ENFORCEMENT_TASK.md](SPRINT_2B2B_MARKETPLACE_ENFORCEMENT_TASK.md) — Marketplace Enforcement (listing backend-owned + 6 consumers migrés + rules durcies). Décision **CALLABLE vs FLAG** verrouillée dans ce contrat, avec préférence callable sauf preuve triple par l'explorer.
+>
+> Motivation du split : éviter une revue mixée Pharmacy UX + Marketplace (trois surfaces : registration / profile / marketplace consumer migration + choix architectural backend non tranché), pattern identique à 2B → 2B.1 + 2B.2 (2026-05-13).
+>
+> Ce contrat reste préservé pour traçabilité git mais **ne doit plus être exécuté directement**. Reportez-vous aux deux contrats split ci-dessus.
+
+---
+
 À exécuter dans l'orchestrator uniquement, **après** Sprint 2B.1 fermé + APPROVED + finalized.
 
 ## Origine
