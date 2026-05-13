@@ -681,8 +681,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
         'licenseNumber': licenseNumber,
         if (licenseDocumentUrl != null)
           'licenseDocumentUrl': licenseDocumentUrl,
+        // Sprint 2B.2a — backend contract: epoch milliseconds (number),
+        // not a Firestore Timestamp. See submitPharmacyLicense.ts:39
+        // and the validator at :134 which rejects anything non-numeric.
         if (licenseExpiryDate != null)
-          'licenseExpiryDate': Timestamp.fromDate(licenseExpiryDate),
+          'licenseExpiryDate': licenseExpiryDate.millisecondsSinceEpoch,
       });
       // After success, reload the local data so the badge updates.
       // Async fire-and-forget : a stream wiring would be cleaner but

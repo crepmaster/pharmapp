@@ -286,4 +286,96 @@ void main() {
           findsOneWidget);
     });
   });
+
+  // Sprint 2B.2a follow-up — architect HIGH finding.
+  //
+  // Backend `submitPharmacyLicense` (functions/src/submitPharmacyLicense.ts:39)
+  // expects `licenseExpiryDate` to be a `number` of epoch milliseconds and
+  // rejects anything else at line 134. The adapter
+  // `createSubmitPharmacyLicenseHandler` must therefore unwrap the
+  // dialog's `DateTime?` into `int? millisecondsSinceEpoch` before
+  // calling the underlying callable. The earlier shape passed a
+  // Firestore `Timestamp`, which would have produced an
+  // `invalid-argument: licenseExpiryDate must be a number of milliseconds.`
+  // error in production.
+  group('createSubmitPharmacyLicenseHandler — serialises DateTime as epoch millis', () {
+    test('forwards licenseExpiryDateMillis as int when DateTime supplied',
+        () async {
+      int? receivedMillis;
+      String? receivedNumber;
+      String? receivedDocUrl;
+      Object? typeOfReceivedMillis;
+      final handler = createSubmitPharmacyLicenseHandler(({
+        required String licenseNumber,
+        String? licenseDocumentUrl,
+        int? licenseExpiryDateMillis,
+      }) async {
+        receivedNumber = licenseNumber;
+        receivedDocUrl = licenseDocumentUrl;
+        receivedMillis = licenseExpiryDateMillis;
+        typeOfReceivedMillis = licenseExpiryDateMillis?.runtimeType;
+        return null;
+      });
+
+      final expiry = DateTime.utc(2027, 1, 15);
+      final err = await handler(
+        licenseNumber: 'GH-0042',
+        licenseDocumentUrl: 'https://example.com/lic.pdf',
+        licenseExpiryDate: expiry,
+      );
+
+      expect(err, isNull);
+      expect(receivedNumber, equals('GH-0042'));
+      expect(receivedDocUrl, equals('https://example.com/lic.pdf'));
+      expect(
+        receivedMillis,
+        equals(expiry.millisecondsSinceEpoch),
+        reason:
+            'submitPharmacyLicense expects a number of epoch milliseconds, '
+            'not a Firestore Timestamp.',
+      );
+      // Strict type guard : prevents a future regression that would
+      // pass a `Timestamp` (which serialises as an object) through the
+      // adapter and break the backend contract again.
+      expect(typeOfReceivedMillis, equals(int));
+    });
+
+    test('forwards licenseExpiryDateMillis as null when no DateTime supplied',
+        () async {
+      int? receivedMillis = -1; // sentinel
+      bool called = false;
+      final handler = createSubmitPharmacyLicenseHandler(({
+        required String licenseNumber,
+        String? licenseDocumentUrl,
+        int? licenseExpiryDateMillis,
+      }) async {
+        called = true;
+        receivedMillis = licenseExpiryDateMillis;
+        return null;
+      });
+
+      final err = await handler(
+        licenseNumber: 'GH-0042',
+      );
+
+      expect(err, isNull);
+      expect(called, isTrue);
+      expect(receivedMillis, isNull);
+    });
+
+    test('returns an error string when the underlying callable throws',
+        () async {
+      final handler = createSubmitPharmacyLicenseHandler(({
+        required String licenseNumber,
+        String? licenseDocumentUrl,
+        int? licenseExpiryDateMillis,
+      }) async {
+        throw Exception('boom: licenseExpiryDate must be a number of milliseconds.');
+      });
+
+      final err = await handler(licenseNumber: 'GH-0042');
+      expect(err, isNotNull);
+      expect(err, contains('boom'));
+    });
+  });
 }

@@ -10,7 +10,6 @@
 // pharmacy data map that the parent already loads, and forwards the
 // submission to a callback. That keeps it directly testable from
 // widget tests.
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import 'license_correction_dialog.dart';
@@ -224,11 +223,19 @@ class PharmacyLicenseStatusSection extends StatelessWidget {
 /// `submitPharmacyLicense` callable (Sprint 2a). Lives here to keep
 /// the dialog reusable with any submitter (e.g. a different callable
 /// in a future sprint).
+///
+/// Sprint 2B.2a follow-up — the backend callable expects
+/// `licenseExpiryDate` to be **epoch milliseconds** (a `number`), not a
+/// Firestore `Timestamp`. See `functions/src/submitPharmacyLicense.ts`
+/// line 39 (input type doc) and line 134 (validator) which rejects
+/// anything non-numeric. This adapter therefore exposes
+/// `licenseExpiryDateMillis: int?` to its underlying [callable] so the
+/// `Timestamp` <-> `int` mismatch can't happen by accident.
 SubmitLicenseCorrection createSubmitPharmacyLicenseHandler(
   Future<dynamic> Function({
     required String licenseNumber,
     String? licenseDocumentUrl,
-    Timestamp? licenseExpiryDate,
+    int? licenseExpiryDateMillis,
   }) callable,
 ) {
   return ({
@@ -240,9 +247,7 @@ SubmitLicenseCorrection createSubmitPharmacyLicenseHandler(
       await callable(
         licenseNumber: licenseNumber,
         licenseDocumentUrl: licenseDocumentUrl,
-        licenseExpiryDate: licenseExpiryDate == null
-            ? null
-            : Timestamp.fromDate(licenseExpiryDate),
+        licenseExpiryDateMillis: licenseExpiryDate?.millisecondsSinceEpoch,
       );
       return null;
     } catch (e) {
