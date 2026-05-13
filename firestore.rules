@@ -137,7 +137,17 @@ service cloud.firestore {
 
     // Mobile app collections
     match /pharmacies/{userId} {
-      allow read: if isAuthenticated(); // Other pharmacies can read basic profile info
+      // Sprint 2B.2b Marketplace listing contract — split `allow read`
+      // into `allow get` (single doc by UID, kept for profile / correction
+      // / cross-pharmacy lookup flows) and `allow list` (queries —
+      // denied to clients so marketplace listing MUST go through the
+      // backend callable `getMarketplacePharmacies`, which filters
+      // ineligible pharmacies before returning them to the caller).
+      //
+      // Admin SDK bypasses both — Cloud Functions read with the service
+      // account and stay authoritative.
+      allow get: if isAuthenticated();
+      allow list: if false;
       // Sprint 2a F-LICENSE: backend-controlled license fields cannot be
       // mutated by the pharmacy owner client-side. Authoritative write
       // paths are `submitPharmacyLicense` (owner) and

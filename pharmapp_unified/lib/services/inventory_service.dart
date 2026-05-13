@@ -1,14 +1,54 @@
 import 'dart:async' show unawaited;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:pharmapp_shared/pharmapp_shared.dart';
 import '../models/pharmacy_inventory.dart';
 import '../models/medicine.dart';
 
+/// Sprint 2B.2b — pluggable marketplace-pharmacies fetcher. Production
+/// passes a closure that calls the backend callable
+/// `getMarketplacePharmacies` ; tests pass a stub that returns a fixed
+/// list. Keeps the service decoupled from Firebase Functions at test
+/// time, mirrors the seam patterns used in Sprint 2B.1 and 2B.2a.
+typedef MarketplacePharmaciesFetcher = Future<List<String>> Function({
+  required String countryCode,
+  String? cityCode,
+});
+
 class InventoryService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  /// Sprint 2B.2b — overridable for widget tests. Default invokes the
+  /// `getMarketplacePharmacies` callable in `europe-west1` and returns
+  /// the list of eligible UIDs. Production code path is the default.
+  @visibleForTesting
+  static MarketplacePharmaciesFetcher fetchMarketplacePharmacyIds =
+      _fetchMarketplacePharmacyIdsFromCallable;
+
+  static Future<List<String>> _fetchMarketplacePharmacyIdsFromCallable({
+    required String countryCode,
+    String? cityCode,
+  }) async {
+    final fn = FirebaseFunctions.instanceFor(region: 'europe-west1')
+        .httpsCallable('getMarketplacePharmacies');
+    final res = await fn.call<Map<dynamic, dynamic>>({
+      'countryCode': countryCode,
+      if (cityCode != null) 'cityCode': cityCode,
+    });
+    final raw = res.data['pharmacies'];
+    if (raw is! List) return const <String>[];
+    final ids = <String>[];
+    for (final p in raw) {
+      if (p is Map) {
+        final uid = p['uid'];
+        if (uid is String && uid.isNotEmpty) ids.add(uid);
+      }
+    }
+    return ids;
+  }
 
   /// Add medicine to pharmacy inventory.
   ///
@@ -156,27 +196,44 @@ class InventoryService {
 
       debugPrint('🏙️ Pharmacy cityCode: $resolvedCityCode (legacy: $legacyCityName)');
 
-      // Dual-mode query: cityCode (Sprint 2A+ docs) + legacy city (pre-migration docs).
-      // Merging both result sets ensures no pharmacy is missed during the transition.
-      final cityQueries = <Future<QuerySnapshot<Map<String, dynamic>>>>[
-        _firestore
-            .collection('pharmacies')
-            .where('cityCode', isEqualTo: resolvedCityCode)
-            .get(),
-        if (legacyCityName != null && legacyCityName.isNotEmpty)
-          _firestore
-              .collection('pharmacies')
-              .where('city', isEqualTo: legacyCityName)
-              .get(),
-      ];
-      final citySnapshots = await Future.wait(cityQueries);
+      // Sprint 2B.2b — backend-owned marketplace listing.
+      //
+      // Previously this method ran two direct Firestore queries against
+      // `collection('pharmacies').where(cityCode | city, isEqualTo: ...)`
+      // to discover same-city pharmacies. That listing path is now
+      // closed at the rule layer (`allow list: if false` on the
+      // pharmacies collection — see firestore.rules and the rules
+      // emulator tests REQ-2B2B-001..005). Any client-side listing
+      // would now be rejected with `permission-denied`.
+      //
+      // Migration : we delegate the country/city-scoped lookup to the
+      // `getMarketplacePharmacies` callable, which evaluates the
+      // license gate server-side and returns ONLY eligible UIDs. The
+      // owner's own UID is then filtered out before chunking into the
+      // existing `pharmacy_inventory.whereIn(pharmacyId, chunk)` query.
+      // No leak of licenseStatus or rejection reason : the callable
+      // strips those fields before returning.
+      final ownCountryCode = docData['countryCode'] as String?;
+      if (ownCountryCode == null || ownCountryCode.isEmpty) {
+        debugPrint('⚠️ Pharmacy ${user.uid} has no countryCode — cannot list marketplace');
+        yield <PharmacyInventoryItem>[];
+        return;
+      }
+      final List<String> eligibleIds;
+      try {
+        eligibleIds = await fetchMarketplacePharmacyIds(
+          countryCode: ownCountryCode,
+          cityCode: resolvedCityCode,
+        );
+      } catch (e) {
+        debugPrint('⚠️ getMarketplacePharmacies failed: $e');
+        yield <PharmacyInventoryItem>[];
+        return;
+      }
+      debugPrint('📍 Backend returned ${eligibleIds.length} eligible pharmacy UIDs');
 
-      debugPrint('📍 City query returned ${citySnapshots.map((s) => s.docs.length).reduce((a, b) => a + b)} docs (pre-dedup)');
-
-      // ✅ FIX 3: Deduplicate across both result sets, exclude self.
-      final pharmacyIdsInCity = citySnapshots
-          .expand((s) => s.docs.map((d) => d.id))
-          .toSet()
+      // Exclude self.
+      final pharmacyIdsInCity = eligibleIds
           .where((id) => id != user.uid)
           .toList();
 

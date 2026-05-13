@@ -65,6 +65,14 @@ export { createPharmacyRegistration } from "./createPharmacyRegistration.js";
 // scope ; full backend-owned country writes is a future TD).
 export { setCountryLicenseConfig } from "./setCountryLicenseConfig.js";
 
+// ======================= Marketplace Listing (Sprint 2B.2b) =======================
+// Backend-owned listing : returns only pharmacies that pass the license
+// gate for the requested country. The complementary firestore.rules
+// change denies `allow list` on /pharmacies so a modified client can't
+// bypass the filter. UID lookups (allow get) remain authorized for
+// profile / correction / admin flows.
+export { getMarketplacePharmacies } from "./getMarketplacePharmacies.js";
+
 // ======================= Admin Operations (V2A+V2B+V2C) =======================
 export { setPharmacyActive } from "./setPharmacyActive.js";
 export { upsertCity } from "./upsertCity.js";

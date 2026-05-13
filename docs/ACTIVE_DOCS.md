@@ -80,11 +80,11 @@ This file lists operational, up-to-date documentation. For deprecated or histori
 - [orchestrator_sprints/SPRINT_2A3_REGISTRATION_BACKEND_OWNED_TASK.md](orchestrator_sprints/SPRINT_2A3_REGISTRATION_BACKEND_OWNED_TASK.md) — ✅ Sprint 2A.3 + 2A.3.1 (registration backend-owned + LICENSE_REQUIRED signal preservation, 2026-05-12).
 - [orchestrator_sprints/SPRINT_2B1_ADMIN_LICENSE_OPS_TASK.md](orchestrator_sprints/SPRINT_2B1_ADMIN_LICENSE_OPS_TASK.md) — ✅ Sprint 2B.1 Admin License Operations + corrections architecte (`setCountryLicenseConfig` callable, admin UI, pharmacy_license_review, dotted-path upsertCountry fix, scope filter test, 22 widget+unit tests, 2026-05-13).
 - [orchestrator_sprints/SPRINT_2B2A_PHARMACY_UX_TASK.md](orchestrator_sprints/SPRINT_2B2A_PHARMACY_UX_TASK.md) — ✅ Sprint 2B.2a Pharmacy UX (registration `LICENSE_REQUIRED` handler + `PharmacyLicenseStatusSection` + `LicenseCorrectionDialog` + 21 widget tests, 2026-05-13).
+- [orchestrator_sprints/SPRINT_2B2B_MARKETPLACE_ENFORCEMENT_TASK.md](orchestrator_sprints/SPRINT_2B2B_MARKETPLACE_ENFORCEMENT_TASK.md) — ✅ Sprint 2B.2b Marketplace Enforcement (callable `getMarketplacePharmacies` + 18 Jest + rules durcies `allow list: if false` + 5 emulator REQ-2B2B-001..005 + migration `inventory_service` + 4 Dart seam tests, 2026-05-13). **F-LICENSE end-to-end CLOS.**
 
 **Sprints à venir (ordre verrouillé)** :
 
-- [orchestrator_sprints/SPRINT_2B2B_MARKETPLACE_ENFORCEMENT_TASK.md](orchestrator_sprints/SPRINT_2B2B_MARKETPLACE_ENFORCEMENT_TASK.md) — Sprint 2B.2b Marketplace Enforcement (listing backend-owned + 6 consumers + rules durcies, décision CALLABLE vs FLAG verrouillée). **Prochain sprint, débloqué par clôture 2B.2a.**
-- [orchestrator_sprints/SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md](orchestrator_sprints/SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md) — Sprint 3 (trial subscription, présuppose 2A.3 pour gate sur write path canonique).
+- [orchestrator_sprints/SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md](orchestrator_sprints/SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md) — Sprint 3 (trial subscription, présuppose 2A.3 pour gate sur write path canonique). **Prochain sprint, débloqué par clôture F-LICENSE.**
 - [orchestrator_sprints/SPRINT_4_MEDICINE_REQUESTS_EXCHANGE_TASK.md](orchestrator_sprints/SPRINT_4_MEDICINE_REQUESTS_EXCHANGE_TASK.md) — Sprint 4 (Bloc 2 P2 exchange mode).
 - [orchestrator_sprints/SPRINT_5_E2E_CLOSURE_TASK.md](orchestrator_sprints/SPRINT_5_E2E_CLOSURE_TASK.md) — Sprint 5 (E2E closure).
 

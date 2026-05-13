@@ -25,7 +25,17 @@ import {
   assertFails,
   assertSucceeds,
 } from "@firebase/rules-unit-testing";
-import { setDoc, doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  where,
+} from "firebase/firestore";
 
 import {
   PROTECTED_LICENSE_FIELDS,
@@ -204,6 +214,84 @@ describe("Sprint 2A.1 + 2A.2 — F-LICENSE rules: deny client license-field writ
           licenseVerifiedAt: serverTimestamp(),
         })
       );
+    });
+  });
+});
+
+// ===========================================================================
+// Sprint 2B.2b — Marketplace listing hard-block contract
+// ===========================================================================
+
+describe("Sprint 2B.2b — pharmacies collection: allow get vs deny list", () => {
+  /**
+   * The hard-block contract : a modified client must not be able to
+   * list pharmacies (queries are denied). Backend-owned listing goes
+   * through the `getMarketplacePharmacies` callable, which runs with
+   * admin SDK privileges and bypasses these rules. UID lookups via
+   * `getDoc` remain allowed so profile / correction / cross-pharmacy
+   * resolution paths keep working.
+   */
+
+  test("REQ-2B2B-001: authenticated client doing collection list → DENIED", async () => {
+    // Seed two pharmacies via admin SDK bypass so the listing query
+    // would have something to return *if* the rule wasn't blocking it.
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), `pharmacies/${ALICE_UID}`), {
+        ...VALID_PHARMACY_BASE,
+      });
+      await setDoc(doc(ctx.firestore(), `pharmacies/bob`), {
+        ...VALID_PHARMACY_BASE,
+        email: "bob@example.test",
+        pharmacyName: "Bob Pharmacy",
+        phoneNumber: "+237670000002",
+      });
+    });
+    const alice = testEnv.authenticatedContext(ALICE_UID);
+    await assertFails(getDocs(collection(alice.firestore(), "pharmacies")));
+  });
+
+  test("REQ-2B2B-002: authenticated client doing where-query on pharmacies → DENIED", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), `pharmacies/${ALICE_UID}`), {
+        ...VALID_PHARMACY_BASE,
+        countryCode: "GH",
+        cityCode: "accra",
+      });
+    });
+    const alice = testEnv.authenticatedContext(ALICE_UID);
+    await assertFails(
+      getDocs(
+        query(
+          collection(alice.firestore(), "pharmacies"),
+          where("countryCode", "==", "GH")
+        )
+      )
+    );
+  });
+
+  test("REQ-2B2B-003: authenticated client doing getDoc by UID → ALLOWED (profile / correction lookup)", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), `pharmacies/${ALICE_UID}`), {
+        ...VALID_PHARMACY_BASE,
+      });
+    });
+    const alice = testEnv.authenticatedContext(ALICE_UID);
+    await assertSucceeds(
+      getDoc(doc(alice.firestore(), `pharmacies/${ALICE_UID}`))
+    );
+  });
+
+  test("REQ-2B2B-004: unauthenticated client cannot list pharmacies either", async () => {
+    const guest = testEnv.unauthenticatedContext();
+    await assertFails(getDocs(collection(guest.firestore(), "pharmacies")));
+  });
+
+  test("REQ-2B2B-005: admin SDK (rules-bypass) can list pharmacies", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), `pharmacies/${ALICE_UID}`), {
+        ...VALID_PHARMACY_BASE,
+      });
+      await assertSucceeds(getDocs(collection(ctx.firestore(), "pharmacies")));
     });
   });
 });
