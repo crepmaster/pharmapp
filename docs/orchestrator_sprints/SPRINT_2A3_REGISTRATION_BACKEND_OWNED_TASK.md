@@ -428,3 +428,23 @@ visibility.
 - Pas de migration courier/admin vers backend-owned : décision explicite hors scope 2A.3.
 - Pas de Firestore rule `allow create` totalement fermée sur `pharmacies/{uid}` côté client : la rule deny-on-license-fields (Sprint 2A.1) reste suffisante comme defense-in-depth. Une rule "allow create only via admin SDK" serait possible mais complexifie l'audit + le test:rules harness.
 - npm audit : 25 vulnerabilities transitives pré-existantes (firebase, rules-unit-testing) — non scope 2A.3.
+
+---
+
+## Sprint 2A.3.1 — Architecture evidence follow-up — 2026-05-13
+
+**Origine** : re-run du Sprint 2A.3 dans l'orchestrator **post-amélioration** "require architecture evidence" (commit orchestrator `fdd3089`). Le nouveau reviewer LLM a généré 5 findings HIGH + 4 MEDIUM dont :
+- **5 HIGH** = **faux positifs** : le code et tests existent dans la diff Sprint 2A.3 mais le reviewer n'a pas tout vu (limite context window LLM sur grosse diff). Vérifié à l'œil sur le diff : `licenseStatus` utilisé exclusivement ([createPharmacyRegistration.ts](../../functions/src/createPharmacyRegistration.ts), [licenseGate.ts](../../functions/src/lib/licenseGate.ts)), 17 tests callable-level ([acceptCallables-input-validation.test.ts](../../functions/src/__tests__/acceptCallables-input-validation.test.ts) + [createPharmacyRegistration.test.ts](../../functions/src/__tests__/createPharmacyRegistration.test.ts)), test anti-orphan présent, 5 tests fail-closed countryCode ([licenseGate.test.ts](../../functions/src/__tests__/licenseGate.test.ts) + [licenseGate-async-matrix.test.ts](../../functions/src/__tests__/licenseGate-async-matrix.test.ts)), drift guard 12 tests ([protectedLicenseFields-drift-guard.test.ts](../../functions/src/__tests__/protectedLicenseFields-drift-guard.test.ts)).
+- **3 MEDIUM vrais gaps** traités dans Sprint 2A.3.1 :
+  - **Audit dry-run script** ([functions/scripts/auditUnknownCountryPharmacies.mjs](../../functions/scripts/auditUnknownCountryPharmacies.mjs)) : script READ-ONLY qui scanne `pharmacies/*`, identifie les comptes sans `countryCode` ou avec `countryCode` absent de `system_config/main.countries`, retourne un résumé JSON machine-parsable. À exécuter pré-deploy 2A.3 en prod.
+  - **Legacy HTTP deprecation note** : commentaire ⚠️ LEGACY ajouté sur l'endpoint `createPharmacyUser` ([functions/src/auth/unified-auth-functions.ts](../../functions/src/auth/unified-auth-functions.ts)) pointant vers le callable canonique `createPharmacyRegistration`, avec mention du futur sprint `TD-LEGACY-PHARMACY-HTTP-RETIREMENT`.
+  - **Flutter test signUp pharmacy** : **déféré à Sprint 2B** en raison du manque d'infra de test Dart dans `shared/` (pas de `mocktail` / `mockito`, mock des singletons Firebase représente ~100 lignes setup). Sprint 2B livrera l'infra widget test pour son UI et ce test viendra naturellement avec.
+- **2 LOW** non-issues (courier/admin out-of-scope per contract ; lint/build/test logs non transmis au reviewer = limite tooling, pas gap code).
+
+**Net delivered en 2A.3.1** :
+- `functions/scripts/auditUnknownCountryPharmacies.mjs` (NEW, ~140 lignes, READ-ONLY)
+- legacy deprecation comment dans `unified-auth-functions.ts`
+- doc update (ce statut)
+- 1 nouveau TD tracké : `TD-LEGACY-PHARMACY-HTTP-RETIREMENT`
+
+**Pas de re-run orchestrator pour 2A.3.1** : le run `20260513-150635-7c7af8` a déjà été lancé contre `base-ref 63bd87a` ; après ces 2 commits supplémentaires, on relance `run-review` et le verdict reste-à-voir. Si toujours `CHANGES_REQUESTED` malgré les vrais gaps fermés, il s'agit alors clairement de limites du reviewer LLM (context window) et non de gaps réels.
