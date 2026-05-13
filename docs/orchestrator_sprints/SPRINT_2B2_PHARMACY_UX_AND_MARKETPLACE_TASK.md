@@ -43,7 +43,7 @@ Rendre la feature licence end-to-end utilisable côté pharmacie + verrouiller l
 
 ### pharmapp_unified Flutter
 
-- `pharmapp_unified/lib/screens/auth/unified_registration_screen.dart` : 
+- `pharmapp_unified/lib/screens/auth/unified_registration_screen.dart` :
   - lecture `MasterDataCountry.licenseRequired` pour le pays sélectionné → afficher champ licence conditionnel avec `licenseLabel` + `licenseHelpText` + validation regex client-side si `licenseFormatRegex`
   - sur callable error `details.code === 'LICENSE_REQUIRED'` → afficher le champ licence (cas où le snapshot client était stale), focus, et message clair "License required for {country}"
 - `pharmapp_unified/lib/screens/pharmacy/profile/profile_screen.dart` : ajouter section "License status" :

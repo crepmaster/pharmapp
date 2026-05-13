@@ -72,6 +72,59 @@ class LicenseReviewRecord {
   }
 }
 
+/// Pure description of the Firestore filter the license-review screen
+/// applies to the `pharmacies` collection. Exposed so unit tests can
+/// assert the scope rules (super_admin → no country filter ; admin
+/// in-scope → only declared scopes ; admin no-scope → sentinel that
+/// yields zero docs ; > 10 scopes → capped to 10 per the `whereIn`
+/// limit) without standing up a Firestore emulator.
+class LicenseReviewQuerySpec {
+  /// Always `[pending_verification, correction_needed]`.
+  final List<String> statuses;
+
+  /// `null` means "no country filter" (super_admin).
+  /// Empty list is not possible — callers either pass `null` or a
+  /// non-empty list. A scope-less admin is materialised by the special
+  /// sentinel `['__no_scope__']` so the query yields zero docs without
+  /// requiring caller branches.
+  final List<String>? countryScopes;
+
+  const LicenseReviewQuerySpec({
+    required this.statuses,
+    required this.countryScopes,
+  });
+}
+
+/// Pure helper for [_FirebaseLicenseReviewDataSource._buildQuery]. The
+/// helper has no Firebase dependency so the scope rules are testable
+/// in isolation : the widget test on the screen still proves the
+/// end-to-end wiring (params → datasource → cards), but the rules
+/// themselves are validated here without any UI noise.
+LicenseReviewQuerySpec buildLicenseReviewQuerySpec({
+  required bool isSuperAdmin,
+  required List<String> countryScopes,
+}) {
+  const statuses = ['pending_verification', 'correction_needed'];
+  if (isSuperAdmin) {
+    return const LicenseReviewQuerySpec(
+      statuses: statuses,
+      countryScopes: null,
+    );
+  }
+  if (countryScopes.isEmpty) {
+    return const LicenseReviewQuerySpec(
+      statuses: statuses,
+      countryScopes: ['__no_scope__'],
+    );
+  }
+  // Firestore `whereIn` caps at 10. Admins with > 10 country scopes
+  // are unrealistic for this product ; cap defensively.
+  return LicenseReviewQuerySpec(
+    statuses: statuses,
+    countryScopes: countryScopes.take(10).toList(),
+  );
+}
+
 /// Abstract data source for license reviews.
 ///
 /// Production: [_FirebaseLicenseReviewDataSource] (stream from Firestore +
@@ -105,21 +158,15 @@ class _FirebaseLicenseReviewDataSource implements LicenseReviewDataSource {
     required bool isSuperAdmin,
     required List<String> countryScopes,
   }) {
+    final spec = buildLicenseReviewQuerySpec(
+      isSuperAdmin: isSuperAdmin,
+      countryScopes: countryScopes,
+    );
     Query<Map<String, dynamic>> q = _firestore
         .collection('pharmacies')
-        .where('licenseStatus',
-            whereIn: const ['pending_verification', 'correction_needed']);
-    if (!isSuperAdmin) {
-      if (countryScopes.isEmpty) {
-        // Defensive : a non-super-admin with no scopes should see nothing.
-        // We materialise that with a query that yields no docs.
-        q = q.where('countryCode', whereIn: const ['__no_scope__']);
-      } else {
-        // Firestore `whereIn` caps at 10. Admins with > 10 country scopes
-        // are an unrealistic edge case for this product ; cap defensively.
-        final scopes = countryScopes.take(10).toList();
-        q = q.where('countryCode', whereIn: scopes);
-      }
+        .where('licenseStatus', whereIn: spec.statuses);
+    if (spec.countryScopes != null) {
+      q = q.where('countryCode', whereIn: spec.countryScopes);
     }
     return q;
   }

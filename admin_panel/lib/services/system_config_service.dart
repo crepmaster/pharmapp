@@ -90,16 +90,38 @@ class SystemConfigService {
   // COUNTRIES
   // ---------------------------------------------------------------------------
 
+  /// Sprint 2B.1 follow-up — write base country fields as dotted-paths
+  /// so a country edit cannot clobber the 7 license fields written by
+  /// [setCountryLicenseConfigViaCallable].
+  ///
+  /// The previous shape (`'countries.$code': country.toMap()`) replaced
+  /// the whole `countries.{code}` map server-side, deleting every key
+  /// that wasn't in [CountryOption.toMap] — including all licence
+  /// configuration. We now build one `countries.{code}.{field}` entry
+  /// per base key so a write only touches what `toMap()` exposes.
   static Future<bool> upsertCountry(String code, CountryOption country) async {
     try {
-      await _configRef.update({
-        'countries.$code': country.toMap(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      final updates = buildCountryUpsertPayload(code, country);
+      updates['updatedAt'] = FieldValue.serverTimestamp();
+      await _configRef.update(updates);
       return true;
     } catch (e) {
       return false;
     }
+  }
+
+  /// Pure helper for [upsertCountry] — returns the Firestore update map
+  /// that should be passed to `update()`. Exposed so unit tests can
+  /// assert that the payload uses dotted-paths and never includes any
+  /// of the 9 backend-controlled license fields, even indirectly.
+  static Map<String, dynamic> buildCountryUpsertPayload(
+      String code, CountryOption country) {
+    final map = country.toMap();
+    final updates = <String, dynamic>{};
+    map.forEach((key, value) {
+      updates['countries.$code.$key'] = value;
+    });
+    return updates;
   }
 
   static Future<bool> toggleCountry(String code, bool enabled) async {
