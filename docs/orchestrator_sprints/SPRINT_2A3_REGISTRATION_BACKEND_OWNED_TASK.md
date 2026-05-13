@@ -438,13 +438,19 @@ visibility.
 - **3 MEDIUM vrais gaps** traités dans Sprint 2A.3.1 :
   - **Audit dry-run script** ([functions/scripts/auditUnknownCountryPharmacies.mjs](../../functions/scripts/auditUnknownCountryPharmacies.mjs)) : script READ-ONLY qui scanne `pharmacies/*`, identifie les comptes sans `countryCode` ou avec `countryCode` absent de `system_config/main.countries`, retourne un résumé JSON machine-parsable. À exécuter pré-deploy 2A.3 en prod.
   - **Legacy HTTP deprecation note** : commentaire ⚠️ LEGACY ajouté sur l'endpoint `createPharmacyUser` ([functions/src/auth/unified-auth-functions.ts](../../functions/src/auth/unified-auth-functions.ts)) pointant vers le callable canonique `createPharmacyRegistration`, avec mention du futur sprint `TD-LEGACY-PHARMACY-HTTP-RETIREMENT`.
-  - **Flutter test signUp pharmacy** : **déféré à Sprint 2B** en raison du manque d'infra de test Dart dans `shared/` (pas de `mocktail` / `mockito`, mock des singletons Firebase représente ~100 lignes setup). Sprint 2B livrera l'infra widget test pour son UI et ce test viendra naturellement avec.
+  - **Flutter test entrypoint signUp pharmacy** : **LIVRÉ** ([shared/test/services/unified_auth_service_signup_pharmacy_test.dart](../../shared/test/services/unified_auth_service_signup_pharmacy_test.dart), 2 tests, mocktail-based) :
+    1. `signUp(UserType.pharmacy)` route via callable `createPharmacyRegistration` (payload capturé), puis `signInWithEmailAndPassword`, jamais `createUserWithEmailAndPassword` ;
+    2. **Contrat strict architecte 2A.3.1** : `LICENSE_REQUIRED` propage comme `FirebaseFunctionsException` avec `code='failed-precondition'` ET `details.code === 'LICENSE_REQUIRED'` intacts pour que Sprint 2B UI puisse détecter le signal et re-prompt immédiat. **Corrigé en commit follow-up** : la pharmacy branch fait désormais `rethrow` au lieu de re-wrapper en `FirebaseAuthException` (qui aurait dropé `details`).
+  - **mocktail** ajouté en `shared/pubspec.yaml` dev_dep + 3 `@visibleForTesting` setters (`debugAuth`, `debugFunctions`, `resetRateLimitForTest`) dans `unified_auth_service.dart`.
 - **2 LOW** non-issues (courier/admin out-of-scope per contract ; lint/build/test logs non transmis au reviewer = limite tooling, pas gap code).
 
 **Net delivered en 2A.3.1** :
 - `functions/scripts/auditUnknownCountryPharmacies.mjs` (NEW, ~140 lignes, READ-ONLY)
 - legacy deprecation comment dans `unified-auth-functions.ts`
-- doc update (ce statut)
-- 1 nouveau TD tracké : `TD-LEGACY-PHARMACY-HTTP-RETIREMENT`
+- mocktail dev_dep + @visibleForTesting setters dans `unified_auth_service.dart`
+- `shared/test/services/unified_auth_service_signup_pharmacy_test.dart` (NEW, 2 tests, strict contract)
+- pharmacy branch `rethrow` FirebaseFunctionsException (préserve `details.code === 'LICENSE_REQUIRED'`)
+- doc update (ce statut + CLAUDE.md §2 et backlog)
+- 2 nouveaux TD trackés : `TD-LICENSE-REGISTRATION-AUDIT` (BLOQUANT deploy), `TD-LEGACY-PHARMACY-HTTP-RETIREMENT` (Low)
 
-**Pas de re-run orchestrator pour 2A.3.1** : le run `20260513-150635-7c7af8` a déjà été lancé contre `base-ref 63bd87a` ; après ces 2 commits supplémentaires, on relance `run-review` et le verdict reste-à-voir. Si toujours `CHANGES_REQUESTED` malgré les vrais gaps fermés, il s'agit alors clairement de limites du reviewer LLM (context window) et non de gaps réels.
+**Re-run orchestrator** : `20260513-150635-7c7af8` (base-ref `63bd87a`). Verdict iter 3 = APPROVED + FINALIZED après les 3 commits 2A.3.1. La revue architecte humaine post-finalize a ensuite identifié un contrat manqué côté Flutter (`LICENSE_REQUIRED` perdu dans le re-wrapping) — corrigé en 4ᵉ commit 2A.3.1 (rethrow + test strict).

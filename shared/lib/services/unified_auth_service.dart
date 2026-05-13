@@ -148,14 +148,20 @@ class UnifiedAuthService {
         } on FirebaseFunctionsException catch (e) {
           _trackFailedAttempt(email);
           _logAuthFailure('signup', userType.toString(), e.code);
-          // Re-wrap as FirebaseAuthException for backward-compat with
-          // existing UI error handling. The original .code is preserved
-          // in .message so the registration UI in Sprint 2B can detect
-          // LICENSE_REQUIRED via the details.
-          throw FirebaseAuthException(
-            code: e.code,
-            message: e.message ?? 'Registration failed.',
-          );
+          // Sprint 2A.3.1 (architect finding HIGH): preserve the
+          // structured `details.code` (e.g. `LICENSE_REQUIRED`) so the
+          // UI in Sprint 2B can detect it without parsing the human
+          // message. Re-wrapping as FirebaseAuthException previously
+          // dropped the details map, and the outer
+          // `_handleAuthException` converted everything to a generic
+          // String — making LICENSE_REQUIRED indistinguishable from
+          // any other failure.
+          //
+          // The outer try/catch in this function rethrows non-
+          // FirebaseAuthException via `catch (e) { rethrow; }`, so the
+          // FirebaseFunctionsException propagates to the caller with
+          // `e.details['code'] == 'LICENSE_REQUIRED'` intact.
+          rethrow;
         }
       }
 

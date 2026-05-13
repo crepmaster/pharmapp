@@ -117,7 +117,7 @@ Le **flag bloquant** est dans le code :
 
 **Ce qui n'est PAS livré** :
 - **UI complète (Sprint 2B à venir)** : admin panel countries_tab pour configurer license per country, `pharmacy_license_review_screen` pour verify/reject, registration UI conditionnel sur `MasterDataCountry.licenseRequired`, profile license status flow.
-- **Registration canonical path (Sprint 2A.3 à venir, `TD-LICENSE-REGISTRATION-OWNED`)** : `UnifiedAuthService.signUp` Flutter écrit toujours `pharmacies/{uid}` direct. Les rules deny-on-create ferment la faille sécurité (un client modifié ne peut pas s'auto-vérifier) mais le design canonical reste un callable backend-owned qui crée la pharmacie + initialise la licence atomiquement. 2A.3 livre ce refactor avant Sprint 2B.
+- **Registration canonical path** : ✅ **livré en Sprint 2A.3** (callable `createPharmacyRegistration` + Flutter `UnifiedAuthService.signUp` migré pour `UserType.pharmacy`). Le `LICENSE_REQUIRED` signal du backend (`failed-precondition` + `details.code='LICENSE_REQUIRED'`) propage intact côté Flutter via `rethrow` de la `FirebaseFunctionsException` — Sprint 2B UI peut s'abonner sur ce contrat pour re-prompt licence. Courier/admin restent sur l'ancien flow client-write (out of scope par décision architecte 2026-05-13 ; refactor multi-rôles sera un sprint dédié si besoin régulatoire).
 - **Marketplace visibility côté reads (Sprint 2B)** : les pharmacies non-verified post-grâce restent lisibles individuellement (rule `allow read: if isAuthenticated()`). Le filtre marketplace listing est dans le scope 2B.
 
 **Conséquence opérationnelle** : sur un pays mandatory (ex. Ghana avec `licenseRequired=true`), une pharmacie qui s'inscrit aujourd'hui via l'app Flutter atterrit avec `licenseStatus` absent ; le gate marketplace bloque fail-closed toute action exchange/proposal/medicine-request ; la pharmacie doit appeler `submitPharmacyLicense` (callable backend) pour passer `pending_verification`, puis un admin doit `adminVerifyPharmacyLicense` pour qu'elle devienne `verified` et accède au marketplace. **Pas d'UI pour ce flow tant que Sprint 2B n'est pas livré** — donc l'enforcement existe en prod mais l'expérience utilisateur n'est pas finie.
@@ -173,16 +173,16 @@ Pour le détail de Bloc 1 (Inventory Visibility), Bloc 2 Phase 1 (Medicine Reque
 |---|---|---|---|
 | **F-LICENSE (2a backend)** | License pharmacie — fondation backend | Master data fields, helpers, callables submit/verify/backfill, gate marketplace, Firestore rules, tests Jest. Split du Sprint 2 monolithique (architect decision 2026-05-12, voir [docs/orchestrator_sprints/SPRINT_2_SCOPING_PROPOSAL.md](docs/orchestrator_sprints/SPRINT_2_SCOPING_PROPOSAL.md)). | ✅ Livré + corrigé via 2A.1 |
 | **F-LICENSE (2A.1 security correction)** | Findings architecte fermés | rules deny on create + counterparty gate + rules emulator harness 12/12 verts | ✅ Livré |
-| **TD-LICENSE-REGISTRATION-OWNED (Sprint 2A.3)** | Refactor : inscription pharmacy backend-owned | Migrer `UnifiedAuthService.signUp` Flutter → callable backend `createPharmacyRegistration` qui owne la création `pharmacies/{uid}` et l'init licence en lisant `system_config/main.countries.{code}.licenseRequired` côté serveur au moment du create. C'est l'Option A / alpha verrouillée avant 2B pour éviter qu'un snapshot client stale décide l'enforcement licence. | Prochain sprint verrouillé |
-| **F-LICENSE (2b UI)** | License pharmacie — UI admin + mobile | Admin panel country config + license review, pharmacy registration field conditionnel, profile license status & correction flow, widget tests. La registration UI consomme le callable 2A.3 et n'écrit jamais `pharmacies/{uid}` direct. | Bloqué jusqu'à clôture 2A.3 |
+| **TD-LICENSE-REGISTRATION-OWNED (Sprint 2A.3)** | Refactor : inscription pharmacy backend-owned | Migrer `UnifiedAuthService.signUp` Flutter → callable backend `createPharmacyRegistration` qui owne la création `pharmacies/{uid}` et l'init licence en lisant `system_config/main.countries.{code}.licenseRequired` côté serveur au moment du create. C'est l'Option A / alpha verrouillée avant 2B pour éviter qu'un snapshot client stale décide l'enforcement licence. | ✅ Livré (cb20892 + 2A.3.1) |
+| **F-LICENSE (2b UI)** | License pharmacie — UI admin + mobile | Admin panel country config + license review, pharmacy registration field conditionnel, profile license status & correction flow, widget tests. La registration UI consomme le callable 2A.3 et n'écrit jamais `pharmacies/{uid}` direct. UI doit catcher `FirebaseFunctionsException` avec `details.code === 'LICENSE_REQUIRED'` pour re-prompt licence immédiat (contrat 2A.3.1 verrouillé par test entrypoint). | **Prochain sprint** |
 | **F-BLOC2-P2** | Medicine Requests — exchange mode | Lever le blocage purchase-only dans `createMedicineRequest` + `submitMedicineRequestOffer`. Permettre offre = `purchase` **OU** `exchange` (proposition d'échange avec médicament de la pharmacie offrante). Bridge vers `exchange_proposals` canonique. | À spécifier |
 
 ### 🛠️ Sprint planifié
 
 | ID | Sujet | État |
 |---|---|---|
-| **2A.3** | TD-LICENSE-REGISTRATION-OWNED — inscription pharmacie backend-owned, Option A / alpha | Prochain sprint |
-| **2B** | F-LICENSE UI complète + marketplace visibility | Bloqué jusqu'à clôture 2A.3 |
+| **2A.3** | TD-LICENSE-REGISTRATION-OWNED — inscription pharmacie backend-owned, Option A / alpha | ✅ Livré (cb20892) + correction 2A.3.1 (audit script + Flutter test + LICENSE_REQUIRED signal preservation) |
+| **2B** | F-LICENSE UI complète + marketplace visibility | **Prochain sprint** |
 | **3** | Trial subscription aligné licence | Bloqué jusqu'à clôture 2B |
 | **4** | F-BLOC2-P2 exchange mode | Bloqué jusqu'à clôture 3 |
 | **5** | Clôture E2E | Bloqué jusqu'à clôture 4 |

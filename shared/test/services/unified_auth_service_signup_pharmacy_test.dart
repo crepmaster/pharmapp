@@ -136,9 +136,11 @@ void main() {
       expect(credential!.user?.uid, equals('alice-uid'));
     });
 
-    test('LICENSE_REQUIRED from callable propagates as an error AND never falls back to legacy createUser', () async {
-      // Arrange — callable throws like the backend would for a mandatory
-      // country without licenseNumber.
+    test('LICENSE_REQUIRED propagates as FirebaseFunctionsException with details.code intact (architect contract)', () async {
+      // Arrange — callable throws exactly as the backend
+      // `createPharmacyRegistration` does for a mandatory country
+      // without licenseNumber : code='failed-precondition' +
+      // details.code='LICENSE_REQUIRED'.
       when(() => mockCallable.call<Map<String, dynamic>>(any())).thenThrow(
         FirebaseFunctionsException(
           code: 'failed-precondition',
@@ -147,16 +149,18 @@ void main() {
         ),
       );
 
-      // Act + assert — what matters architecturally :
-      // (a) signUp throws (the LICENSE_REQUIRED signal reaches the caller —
-      //     the exact type is mapped by the legacy `_handleAuthException`
-      //     pipeline that already exists for non-pharmacy flows ; we do not
-      //     refactor that here)
-      // (b) signUp DID invoke the callable (the pharmacy branch was
-      //     actually entered, not the legacy path)
-      // (c) signUp did NOT call createUserWithEmailAndPassword — there is
-      //     no silent fallback to the legacy client-side path. This is
-      //     the architectural invariant Sprint 2A.3 guarantees.
+      // Act + assert — the architect's strict contract :
+      //
+      // (a) signUp throws a `FirebaseFunctionsException`, NOT a
+      //     re-wrapped FirebaseAuthException ; this is the type the UI
+      //     in Sprint 2B will catch.
+      // (b) `e.code == 'failed-precondition'` matches the backend HttpsError.
+      // (c) `e.details['code'] == 'LICENSE_REQUIRED'` is preserved so
+      //     the UI can specifically re-prompt for the license number
+      //     instead of showing a generic "registration failed" message.
+      // (d) No silent fallback to the legacy
+      //     `createUserWithEmailAndPassword` path — the canonical
+      //     entrypoint is the only one used.
       await expectLater(
         () => UnifiedAuthService.signUp(
           email: validEmail,
@@ -164,7 +168,14 @@ void main() {
           userType: UserType.pharmacy,
           profileData: validProfile,
         ),
-        throwsA(anything),
+        throwsA(isA<FirebaseFunctionsException>()
+            .having((e) => e.code, 'code', equals('failed-precondition'))
+            .having((e) => e.details, 'details', isA<Map>())
+            .having(
+              (e) => (e.details as Map?)?['code'],
+              'details[\'code\']',
+              equals('LICENSE_REQUIRED'),
+            )),
       );
 
       verify(() => mockFunctions.httpsCallable('createPharmacyRegistration'))

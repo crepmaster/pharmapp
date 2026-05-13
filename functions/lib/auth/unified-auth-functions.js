@@ -19,6 +19,28 @@ function computeInitialLicenseStatus(countryLicenseRequired, licenseNumberProvid
 /**
  * 🏥 Create Pharmacy User
  *
+ * ⚠️ LEGACY (Sprint 2A.3 deprecation note, 2026-05-13).
+ *
+ * As of Sprint 2A.3 (TD-LICENSE-REGISTRATION-OWNED), the canonical write
+ * path for pharmacy registration is the **callable**
+ * `createPharmacyRegistration` (in
+ * `functions/src/createPharmacyRegistration.ts`). The unified Flutter app
+ * (via `shared/lib/services/unified_auth_service.dart`) now routes
+ * `UserType.pharmacy` signups through that callable so the license
+ * gate is enforced SERVER-SIDE at create time, with anti-orphan
+ * protection.
+ *
+ * This HTTP endpoint is **kept active** because :
+ *   - it predates 2A.3 and may be referenced by smoke tests / external
+ *     tools that haven't been migrated yet ;
+ *   - removing it without a verified migration window risks breaking
+ *     out-of-band tooling.
+ *
+ * **Do NOT extend this endpoint with new behavior.** New work should go
+ * into `createPharmacyRegistration`. A future sprint (tracked under
+ * `TD-LEGACY-PHARMACY-HTTP-RETIREMENT`) will remove this endpoint once
+ * traffic has been verified to be zero in prod logs.
+ *
  * Firebase Function to create a pharmacy user using the unified auth service.
  * Provides server-side validation and anti-orphan protection.
  *
