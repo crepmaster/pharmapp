@@ -33,5 +33,8 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
+  # Sprint 2A.3.1: minimal mocking for the new pharmacy registration
+  # callable entrypoint test in unified_auth_service.
+  mocktail: ^1.0.4
 
 flutter:

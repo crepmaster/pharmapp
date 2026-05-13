@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import '../models/unified_user.dart';
 
 /// User types for role-based authentication
@@ -41,7 +42,13 @@ class UserProfile {
 /// - Comprehensive error handling
 /// - Audit logging
 class UnifiedAuthService {
-  static final FirebaseAuth _auth = FirebaseAuth.instance;
+  // Sprint 2A.3.1: dropped the `final` qualifier on `_auth` and
+  // `_functions` so that the @visibleForTesting setters at the bottom
+  // of this class can substitute mock instances. `_firestore` stays
+  // `final` because the new pharmacy registration path no longer
+  // touches Firestore client-side (the callable owns the writes), and
+  // the legacy courier/admin branch is unchanged.
+  static FirebaseAuth _auth = FirebaseAuth.instance;
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   // Sprint 2A.3 TD-LICENSE-REGISTRATION-OWNED: pharmacy registration is
   // now backend-owned via the `createPharmacyRegistration` callable in
@@ -49,13 +56,23 @@ class UnifiedAuthService {
   // initialization (read server-side from system_config) happen inside
   // the callable. The Flutter side only does `signInWithEmailAndPassword`
   // afterwards to obtain a session token.
-  static final FirebaseFunctions _functions =
+  static FirebaseFunctions _functions =
       FirebaseFunctions.instanceFor(region: 'europe-west1');
   
   // Security: Rate limiting tracking
   static final Map<String, DateTime> _lastAttempts = {};
   static const int _maxAttemptsWindow = 60; // seconds
   static const int _maxAttempts = 5;
+
+  // Sprint 2A.3.1 — @visibleForTesting setters for the new pharmacy
+  // registration callable entrypoint test. Production code MUST NOT
+  // call these.
+  @visibleForTesting
+  static set debugAuth(FirebaseAuth value) => _auth = value;
+  @visibleForTesting
+  static set debugFunctions(FirebaseFunctions value) => _functions = value;
+  @visibleForTesting
+  static void resetRateLimitForTest(String email) => _lastAttempts.remove(email);
   
   /// Current authenticated user
   static User? get currentUser => _auth.currentUser;
