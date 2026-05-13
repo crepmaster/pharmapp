@@ -9,18 +9,20 @@ Chaque fichier `SPRINT_*.md` est conçu comme un ticket source autonome pour l'o
 1. `SPRINT_0_DOC_FREEZE_TASK.md` — ✅ fermé 2026-05-12 (run `20260512-000940-c578fa`)
 2. `SPRINT_1_MSISDN_HARDENING_TASK.md` — ✅ fermé 2026-05-12 (run `20260512-065209-a16494`)
 3. `SPRINT_2A_LICENSE_BACKEND_TASK.md` — ✅ fermé fonctionnellement (run `20260512-090822-3bfcff`) ; revue architecte a requis 2A.1 + 2A.2 (voir [SPRINT_2A_ARCHITECT_REVIEW_FINDINGS.md](SPRINT_2A_ARCHITECT_REVIEW_FINDINGS.md))
-3.1. `SPRINT_2A1_SECURITY_CORRECTION_TASK.md` — ✅ fermé (run `20260512-200553-7f698f`) — 3 findings critiques + rules emulator harness
-3.2. `SPRINT_2A2_ARCHITECT_FOLLOWUP_TASK.md` — ✅ fermé (run `20260512-221309-3e615c`) — 6 findings additionnels (doc + tests paramétrisés + fail-closed + contract corrections)
-3.3. `SPRINT_2A3_REGISTRATION_BACKEND_OWNED_TASK.md` — refactor Option A / alpha (TD-LICENSE-REGISTRATION-OWNED), **prochain sprint**
-4. `SPRINT_2B_LICENSE_UI_TASK.md` — bloqué jusqu'à clôture **2A.3** (registration backend-owned doit exister avant l'UI)
+3.1. `SPRINT_2A1_SECURITY_CORRECTION_TASK.md` — ✅ fermé (run `20260512-200553-7f698f`)
+3.2. `SPRINT_2A2_ARCHITECT_FOLLOWUP_TASK.md` — ✅ fermé (run `20260512-221309-3e615c`)
+3.3. `SPRINT_2A3_REGISTRATION_BACKEND_OWNED_TASK.md` — ✅ fermé (run `20260513-150635-7c7af8`) + correction 2A.3.1 (audit script + Flutter entrypoint test + LICENSE_REQUIRED signal preservation), pushed sur origin/main
+4. `SPRINT_2B_LICENSE_UI_TASK.md` — ⚠️ **SUPERSEDED 2026-05-13** (split en 2B.1 + 2B.2 par décision architecte ; run monolithique `20260513-161632-0b66fb` abandonné)
+4.1. `SPRINT_2B1_ADMIN_LICENSE_OPS_TASK.md` — Admin License Operations (countries_tab license config + pharmacy_license_review_screen + setCountryLicenseConfig callable). **Prochain sprint**.
+4.2. `SPRINT_2B2_PHARMACY_UX_AND_MARKETPLACE_TASK.md` — Pharmacy UX + Marketplace Enforcement. **Bloqué jusqu'à clôture 2B.1**.
 5. `SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md`
 6. `SPRINT_4_MEDICINE_REQUESTS_EXCHANGE_TASK.md`
 7. `SPRINT_5_E2E_CLOSURE_TASK.md`
 
 Le contrat monolithique `SPRINT_2_F_LICENSE_TASK.md` est conservé comme
 référence agrégée (modèle cible country + pharmacy + critères de done
-end-to-end) mais **n'est plus exécuté** directement. Il a été split en
-2a (backend) + 2b (UI) sur décision architecte.
+end-to-end) mais **n'est plus exécuté** directement. Idem pour
+`SPRINT_2B_LICENSE_UI_TASK.md` (superseded par 2B.1 + 2B.2).
 
 ## Contrat global
 

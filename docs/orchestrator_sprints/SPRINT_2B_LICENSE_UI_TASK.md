@@ -1,4 +1,15 @@
-# Sprint 2b — F-LICENSE UI Integration
+# Sprint 2b — F-LICENSE UI Integration (⚠️ SUPERSEDED 2026-05-13)
+
+> ⚠️ **Ce contrat est superseded** par le split architecte du 2026-05-13.
+> Ne plus exécuter directement.
+>
+> Voir :
+> - [SPRINT_2B1_ADMIN_LICENSE_OPS_TASK.md](SPRINT_2B1_ADMIN_LICENSE_OPS_TASK.md) — Admin License Operations
+> - [SPRINT_2B2_PHARMACY_UX_AND_MARKETPLACE_TASK.md](SPRINT_2B2_PHARMACY_UX_AND_MARKETPLACE_TASK.md) — Pharmacy UX + Marketplace Enforcement (hard-dep sur 2B.1)
+>
+> Le run monolithique `20260513-161632-0b66fb` lancé ce jour est abandonné.
+>
+> Le contenu ci-dessous est conservé comme **référence du modèle cible end-to-end** mais le scope réel d'exécution est split en 2 contrats dédiés ; chaque sub-sprint a sa propre matrice evidence.
 
 À exécuter dans l'orchestrator uniquement, **après** que Sprint 2A.3
 (TD-LICENSE-REGISTRATION-OWNED, Option A backend-owned registration)

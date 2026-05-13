@@ -174,7 +174,8 @@ Pour le détail de Bloc 1 (Inventory Visibility), Bloc 2 Phase 1 (Medicine Reque
 | **F-LICENSE (2a backend)** | License pharmacie — fondation backend | Master data fields, helpers, callables submit/verify/backfill, gate marketplace, Firestore rules, tests Jest. Split du Sprint 2 monolithique (architect decision 2026-05-12, voir [docs/orchestrator_sprints/SPRINT_2_SCOPING_PROPOSAL.md](docs/orchestrator_sprints/SPRINT_2_SCOPING_PROPOSAL.md)). | ✅ Livré + corrigé via 2A.1 |
 | **F-LICENSE (2A.1 security correction)** | Findings architecte fermés | rules deny on create + counterparty gate + rules emulator harness 12/12 verts | ✅ Livré |
 | **TD-LICENSE-REGISTRATION-OWNED (Sprint 2A.3)** | Refactor : inscription pharmacy backend-owned | Migrer `UnifiedAuthService.signUp` Flutter → callable backend `createPharmacyRegistration` qui owne la création `pharmacies/{uid}` et l'init licence en lisant `system_config/main.countries.{code}.licenseRequired` côté serveur au moment du create. C'est l'Option A / alpha verrouillée avant 2B pour éviter qu'un snapshot client stale décide l'enforcement licence. | ✅ Livré (cb20892 + 2A.3.1) |
-| **F-LICENSE (2b UI)** | License pharmacie — UI admin + mobile | Admin panel country config + license review, pharmacy registration field conditionnel, profile license status & correction flow, widget tests. La registration UI consomme le callable 2A.3 et n'écrit jamais `pharmacies/{uid}` direct. UI doit catcher `FirebaseFunctionsException` avec `details.code === 'LICENSE_REQUIRED'` pour re-prompt licence immédiat (contrat 2A.3.1 verrouillé par test entrypoint). | **Prochain sprint** |
+| **F-LICENSE (2B.1) Admin License Operations** | Super admin configure `licenseRequired` par pays + admin review/verify/reject licences pharmacie | Toggle + 6 inputs license fields sur countries_tab (écriture via nouveau callable `setCountryLicenseConfig`) ; nouvel écran `pharmacy_license_review_screen` listant pending_verification/correction_needed par countryScopes ; widget tests admin + Jest tests callable | **Prochain sprint** (split décision architecte 2026-05-13) |
+| **F-LICENSE (2B.2) Pharmacy UX + Marketplace Enforcement** | Registration UI conditionnel + LICENSE_REQUIRED handler + profile/correction flow + marketplace listing backend-owned | UI mobile inscription mandatory re-prompt LICENSE_REQUIRED (contrat 2A.3.1) ; profile license status + correction via `submitPharmacyLicense` ; nouveau callable `getMarketplacePharmacies` (ou flag `marketplaceVisible` trigger) ; migration des 6 consumers Flutter ; widget tests pharmapp_unified | Bloqué jusqu'à clôture 2B.1 |
 | **F-BLOC2-P2** | Medicine Requests — exchange mode | Lever le blocage purchase-only dans `createMedicineRequest` + `submitMedicineRequestOffer`. Permettre offre = `purchase` **OU** `exchange` (proposition d'échange avec médicament de la pharmacie offrante). Bridge vers `exchange_proposals` canonique. | À spécifier |
 
 ### 🛠️ Sprint planifié
@@ -182,7 +183,8 @@ Pour le détail de Bloc 1 (Inventory Visibility), Bloc 2 Phase 1 (Medicine Reque
 | ID | Sujet | État |
 |---|---|---|
 | **2A.3** | TD-LICENSE-REGISTRATION-OWNED — inscription pharmacie backend-owned, Option A / alpha | ✅ Livré (cb20892) + correction 2A.3.1 (audit script + Flutter test + LICENSE_REQUIRED signal preservation) |
-| **2B** | F-LICENSE UI complète + marketplace visibility | **Prochain sprint** |
+| **2B.1** | F-LICENSE Admin License Operations (countries_tab license config + pharmacy_license_review + setCountryLicenseConfig callable) | **Prochain sprint** |
+| **2B.2** | F-LICENSE Pharmacy UX + Marketplace Enforcement (registration UI + profile + correction + getMarketplacePharmacies + 6 consumer migrations) | Bloqué jusqu'à clôture 2B.1 |
 | **3** | Trial subscription aligné licence | Bloqué jusqu'à clôture 2B |
 | **4** | F-BLOC2-P2 exchange mode | Bloqué jusqu'à clôture 3 |
 | **5** | Clôture E2E | Bloqué jusqu'à clôture 4 |
