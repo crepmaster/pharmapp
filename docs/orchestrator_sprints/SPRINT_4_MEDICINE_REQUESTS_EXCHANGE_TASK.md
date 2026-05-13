@@ -16,6 +16,53 @@
 - `acceptOffer(exchange)` vérifie et réserve atomiquement les deux items.
 - Frais coursier conservés en 50/50.
 
+### Décisions verrouillées (mise à jour 2026-05-14, pre-run-start)
+
+> Ces points sont **verrouillés par l'architecte avant run-start** (pré-lock à partir de la note des 5 ambiguïtés write path / read path entre `medicine_requests` et `exchange_proposals`). L'explorer doit confirmer les impacts mais NE doit PAS re-débattre ni proposer d'alternative. Exécuter le verrou.
+
+1. **Forme canonique des documents — pas de nouveaux champs `mode`/`mode-bis`**
+   - Conserver le champ existant `requestMode` sur `medicine_requests/{id}`. **Ne pas** ajouter un second champ `mode`.
+   - Conserver le champ existant `offerType` sur `medicine_request_offers/{id}`. **Ne pas** ajouter un second champ mode côté offer.
+   - `medicine_request_offers.inventoryItemId` + `inventorySnapshot` + `offeredQuantity` = item que le seller **fournit** au requester. Donc l'item qui satisfait `request.medicineId`. Cette sémantique reste identique entre `purchase` et `exchange`.
+   - Pour `offerType === 'exchange'` uniquement, ajouter un sous-objet `exchangeItem` = item **demandé par le seller en retour** (l'item que la requester pharmacy doit donner au seller). Shape : `{ medicineId, medicineName, dosage, form, quantity, expiryDate, lotNumber }`.
+   - **Amendement architecte (critical)** : à l'acceptation `exchange`, **la requester doit fournir ou confirmer un `exchangeInventoryItemId` exact**, owned par elle, validé contre `exchangeItem` (médicament + dosage + form match, quantity suffisante). Sans cet ID, on ne peut pas réserver atomiquement un stock réel. Ce paramètre devient mandatory dans le payload `acceptMedicineRequestOffer` pour le mode `exchange`.
+
+2. **Exclusivité stricte request / offer**
+   - `offerType` **doit être strictement égal à** `request.requestMode`.
+   - `purchase` request **refuse** offer `exchange` → `failed-precondition` côté `submitMedicineRequestOffer`.
+   - `exchange` request **refuse** offer `purchase` → `failed-precondition` côté `submitMedicineRequestOffer`.
+   - Aucun mode `either`. Aucune tolérance hybride.
+
+3. **Bridge canonique — option A bornée**
+   - Créer ou étendre un helper transactionnel `functions/src/lib/exchangePipeline.ts` qui centralise la validation, la réservation `availableQuantity -> reservedQuantity`, et la shape canonique d'un `exchange_proposals/{id}`.
+   - `createExchangeProposal` ET `acceptMedicineRequestOffer(exchange)` doivent passer par ce helper et produire **le même contrat `exchange_proposals`** consommé par `acceptExchangeProposal`, `cancelExchangeProposal`, `completeExchangeDelivery`.
+   - **Pas de callable-vers-callable** (firebase pattern anti-pattern : pas de `httpsCallable().call()` depuis un autre callable backend).
+   - **Pas de duplication inline** du flow exchange entre les deux callables.
+
+4. **License gate counterparty — symétrique**
+   - `acceptMedicineRequestOffer(exchange)` doit fail-closed sur :
+     - requester pharmacy introuvable.
+     - seller pharmacy introuvable.
+     - `assertLicenseAllowsMarketplace(requesterUid)` ko.
+     - `assertLicenseAllowsMarketplace(sellerUid)` ko.
+     - n'importe quel ID counterparty manquant dans le payload ou le document.
+   - **Tests obligatoires** : matrice license counterparty sur les deux côtés (requester verified mais seller rejected → deny ; seller verified mais requester rejected → deny ; les deux verified → allow).
+
+5. **Hold / réservation — réutilisation stricte du schéma existant**
+   - **Ne pas inventer un nouveau schéma de hold.** Le pattern actuel `createExchangeProposal` est : `pharmacy_inventory/{id}.availableQuantity` décrémenté et `reservedQuantity` incrémenté **uniquement sur `details.exchangeInventoryItemId`** (l'item de la counterparty B). L'item seller racine `inventoryItemId` n'est PAS hold à l'acceptation : il est juste vérifié à l'accept et décrémenté à `completeExchangeDelivery`.
+   - `acceptMedicineRequestOffer(exchange)` suit **exactement le même schéma** :
+     - L'`exchangeItem` (item demandé par seller, fourni par requester via `exchangeInventoryItemId`) → réservé à l'acceptation (`availableQuantity -= offeredQuantity` ; `reservedQuantity += offeredQuantity`).
+     - L'`inventoryItemId` (item seller racine, fourni au requester) → vérifié à accept, décrémenté à `completeExchangeDelivery` via le pipeline existant.
+   - **Conséquence sur scope** : single sprint préservé. Si l'explorer juge qu'une réservation symétrique stricte des deux items dès acceptation est nécessaire, c'est **STOP** et split obligatoire en 4a (backend pipeline + complete/cancel settlement) + 4b (UI). L'architecte garde le contrôle sur ce trade-off.
+
+6. **Frais coursier** : 50/50 préservé. Aucune modification à `delivery.courierFee` ou son split.
+
+7. **Snapshots inventaire** : `inventorySnapshot` côté offer reste rempli au moment de `submitOffer` (mirror `pharmacy_inventory` au time T). Pour `exchangeItem`, le snapshot n'a PAS lieu d'être au submit (le seller ne décide pas l'item exact que la requester va lui donner — il décrit juste un besoin). Le snapshot complet de l'item échangé arrive à l'acceptation, dans le `details.exchangeInventorySnapshot` du proposal créé.
+
+8. **UI** : `medicine_requests_screen.dart` + `medicine_request_service.dart` + models gagnent les champs nécessaires. Pas de nouveau screen. Toggle `Purchase | Exchange` au create request + au submit offer. À l'accept exchange, pop-up qui demande à la requester de **picker** un item de son propre inventaire pour fournir l'`exchangeInventoryItemId` (le snapshot inventaire est lu en local pour le sélecteur).
+
+9. **Pas de split de sprint** sous réserve du lock #5. Si #5 dérive, escalation immédiate.
+
 ## Périmètre autorisé
 
 - `functions/src/createMedicineRequest.ts`
@@ -92,4 +139,3 @@ Implémenter :
 - `cd functions && npm run build && npm run lint && npm test`
 - `cd pharmapp_unified && flutter analyze`
 - tests ciblés UI/service si disponibles
-
