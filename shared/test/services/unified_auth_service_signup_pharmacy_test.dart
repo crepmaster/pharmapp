@@ -14,9 +14,15 @@
 ///      `signInWithEmailAndPassword`. The legacy
 ///      `createUserWithEmailAndPassword` path MUST NOT be invoked.
 ///   2. When the callable throws a `FirebaseFunctionsException`
-///      (e.g. `LICENSE_REQUIRED`), `signUp` re-wraps it as a
-///      `FirebaseAuthException` so existing UI error handling keeps
-///      working without modification.
+///      with `details.code === 'LICENSE_REQUIRED'` (the backend
+///      signal that a pharmacy license is required for the selected
+///      country), `signUp` rethrows the exception unchanged so the
+///      structured `details` map reaches the UI in Sprint 2B and
+///      enables an immediate license re-prompt. The previous
+///      implementation (in the first 2A.3.1 attempt) re-wrapped as
+///      `FirebaseAuthException` which silently dropped `details` ;
+///      the architect's review caught that contract break and the
+///      fix is what this test pins.
 ///
 /// Out of scope here (deferred to Sprint 2B widget tests) :
 ///   - happy/sad paths for courier and admin sign-up
