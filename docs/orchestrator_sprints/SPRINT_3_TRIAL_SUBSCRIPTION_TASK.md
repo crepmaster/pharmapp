@@ -146,10 +146,12 @@ Implémenter :
 ### Backend (Lots 1+2+3)
 
 - **Nouveau helper transactionnel idempotent `startTrialForPharmacy`** ([functions/src/lib/startTrialForPharmacy.ts](../../functions/src/lib/startTrialForPharmacy.ts)) :
-  - Exporte `shouldStartTrial({subscriptionStatus})` pur (idempotence rule testable hors Firestore), `computeTrialEndDate(start, days)` pur (date math testable), `startTrialForPharmacy(db, uid, {trialDurationDays = 30})` async.
-  - `runTransaction` : lit `pharmacies/{uid}`, vérifie `subscriptionStatus` n'est ni `'trial'` ni `'active'`, écrit atomiquement `{hasActiveSubscription: true, subscriptionStatus: 'trial', subscriptionPlan: 'basic', subscriptionStartDate, subscriptionEndDate, updatedAt}`.
-  - Idempotence stricte : `'trial'` / `'active'` → return `{started:false, reason:'already_active'}` sans mutation. Pas de double trial. Pas d'extension de fenêtre. Pas de re-write.
-  - Retour discriminé : `'started'`, `'already_active'`, `'pharmacy_not_found'`.
+  - Exporte `shouldStartTrial({subscriptionStatus, subscriptionStartDate})` pur (idempotence rule testable hors Firestore — architect-locked 2026-05-14), `computeTrialEndDate(start, days)` pur (date math testable), `startTrialForPharmacy(db, uid, {trialDurationDays = 30})` async.
+  - **Invariant idempotence (architect HIGH 2026-05-14)** : "ONE trial per pharmacy, ever". La décision regarde **deux signaux** :
+    - le statut courant : `'trial'` / `'active'` → no-op, reason `'already_active'`.
+    - une **trace positive** d'un trial passé : `subscriptionStartDate != null` → no-op, reason `'trial_already_consumed'`. C'est cette deuxième garde qui empêche qu'une pharmacie `expired` / `cancelled` / unknown-post-trial puisse réclamer une 2e fenêtre via re-verify licence, ré-init, ou tout futur trigger.
+  - `runTransaction` : lit `pharmacies/{uid}`, applique la décision via `shouldStartTrial(...)`, et seulement si `start: true` écrit atomiquement `{hasActiveSubscription: true, subscriptionStatus: 'trial', subscriptionPlan: 'basic', subscriptionStartDate, subscriptionEndDate, updatedAt}`.
+  - Retour discriminé `StartTrialResult.reason` : `'started'` | `'already_active'` | `'trial_already_consumed'` | `'pharmacy_not_found'`.
 - **`createPharmacyRegistration`** modifié ([functions/src/createPharmacyRegistration.ts](../../functions/src/createPharmacyRegistration.ts)) :
   - Import `Timestamp` + constante `TRIAL_DURATION_DAYS = 30`.
   - Bloc subscription defaults remplacé par logique conditionnelle sur `licenseStatus` (sortie de `computeInitialPharmacyLicenseStatus`) :
@@ -162,12 +164,17 @@ Implémenter :
   - `reject` / `correction_needed` : le helper trial n'est PAS appelé.
   - Le retour inclut `trialStarted: boolean` pour audit côté caller.
 
-### Tests Jest (Lots 1+2+3 — total +22)
+### Tests Jest (Lots 1+2+3 — total +25 incluant correction architect HIGH 2026-05-14)
 
-- [functions/src/\_\_tests\_\_/startTrialForPharmacy.test.ts](../../functions/src/__tests__/startTrialForPharmacy.test.ts) — **14 tests** :
-  - 6 `shouldStartTrial` pur : `trial`/`active` → false (no-op) ; `pendingPayment`, `trial_pending_license`, missing/null, unknown → true (start).
+- [functions/src/\_\_tests\_\_/startTrialForPharmacy.test.ts](../../functions/src/__tests__/startTrialForPharmacy.test.ts) — **18 tests** (was 14 → +4 sur l'invariant `trial_already_consumed`) :
+  - 8 `shouldStartTrial` pur :
+    - `trial` / `active` → `{start:false, reason:'already_active'}`.
+    - `pendingPayment` / `trial_pending_license` / null / missing + pas de `subscriptionStartDate` → `{start:true}`.
+    - `expired` SANS `subscriptionStartDate` → `{start:true}` (defensive baseline data-loss).
+    - `expired` AVEC `subscriptionStartDate` → `{start:false, reason:'trial_already_consumed'}` (architect HIGH).
+    - Future-proofing : `cancelled` / `terminated` / `unknown` + `subscriptionStartDate` → tous `trial_already_consumed`.
   - 2 `computeTrialEndDate` pur : default 30j ; custom N jours.
-  - 6 `startTrialForPharmacy` async : pharmacy doc absent → `pharmacy_not_found`, `pendingPayment` → writes trial fields, `trial_pending_license` → writes trial fields (canonical license-verify flow), `trial` → no-op, `active` → no-op, custom `trialDurationDays` propagation.
+  - 8 `startTrialForPharmacy` async : pharmacy doc absent → `pharmacy_not_found`, `pendingPayment` → writes trial fields, `trial_pending_license` → writes trial fields (canonical license-verify flow), `trial` → no-op `already_active`, `active` → no-op `already_active`, `expired` + past `subscriptionStartDate` Timestamp → no-op `trial_already_consumed`, `cancelled` + raw millis `subscriptionStartDate` → no-op `trial_already_consumed`, custom `trialDurationDays` propagation.
 - [functions/src/\_\_tests\_\_/createPharmacyRegistration.test.ts](../../functions/src/__tests__/createPharmacyRegistration.test.ts) — **+2 tests Sprint 3** (15/15 total, was 13/13) :
   - Non-mandatory → `subscriptionStatus='trial'` + `hasActiveSubscription=true` + dates 30j set, vérifié via `lastPharmacyDocWritten()` helper qui inspecte le batch.set.
   - Mandatory + licence fournie → `subscriptionStatus='trial_pending_license'` + `hasActiveSubscription=false` + dates nulles, `licenseStatus` préservé.
@@ -189,8 +196,9 @@ Implémenter :
 ### Flutter (Lots 4+6)
 
 - [pharmapp_unified/lib/screens/auth/unified_registration_screen.dart](../../pharmapp_unified/lib/screens/auth/unified_registration_screen.dart) :
-  - `_handleRegistration` modifié : le call `SubscriptionCreationService.createTrialSubscription` est désormais conditionné sur `widget.userType != UserType.pharmacy`. Pharmacy passe par le callable backend uniquement (Sprint 2A.3 + Sprint 3 trial init dans `createPharmacyRegistration`). Courier/admin legacy préservés.
-  - Commentaire explicatif inline référence le contrat Sprint 3.
+  - **Architect MEDIUM follow-up 2026-05-14** — le bloc `SubscriptionCreationService.createTrialSubscription` est **retiré complètement** de `_handleRegistration`. La première version Sprint 3 inversait la condition `==/!=` au lieu de supprimer, ce qui déclenchait l'écriture client (rule-bloquée) pour courier/admin. Le retrait propre supprime aussi : le typedef `CreateTrialSubscription`, le champ widget `createTrialSubscriptionOverride` (test seam Sprint 2B.2a devenu mort), l'import `subscription_creation_service.dart`, la constante `_countryCurrencyMap` (sole consumer = trial call retiré), et le binding `userCredential` (sole consumer = trial call retiré — `signUp(...)` est désormais `await` sans nom de retour).
+  - Pharmacy passe 100% par `createPharmacyRegistration` (Sprint 2A.3 + Sprint 3 trial init). Courier/admin : aucun appel trial côté client (il n'y en avait jamais eu de légitime, le service écrivait dans une collection rule-locked backend-only).
+  - Tests Sprint 2B.2a : `_noopTrial` helper retiré + 4 lignes `createTrialSubscriptionOverride: _noopTrial` retirées du fichier de test. 7/7 widget tests Sprint 2B.2a passent toujours.
 - [pharmapp_unified/lib/screens/pharmacy/subscription_screen.dart](../../pharmapp_unified/lib/screens/pharmacy/subscription_screen.dart) :
   - Nouveau state field `_pharmacySubscriptionStatus` lu depuis `pharmacies/{uid}.subscriptionStatus` dans `_loadSubscription`.
   - Nouveau widget `_buildTrialPendingLicenseBanner()` (key `trial_pending_license_banner`) : Container orange avec icône `hourglass_top`, titre "Trial pending license verification" + texte explicatif "Your 30-day trial will start as soon as an administrator verifies your pharmacy licence. Marketplace actions are temporarily disabled.".
@@ -205,7 +213,7 @@ Implémenter :
 
 ### Validations finales
 
-- `cd functions && npm run build && npm run lint && npm test` : **247/247 Jest** (was 226 → +21), build + lint clean.
+- `cd functions && npm run build && npm run lint && npm test` : **251/251 Jest** (was 226 → +25 incluant 4 tests architect HIGH 2026-05-14), build + lint clean.
 - `cd functions && npm run test:rules` : **34/34** rules emulator (was 31 → +3 Sprint 3).
 - `cd shared && dart analyze` : pas de changement (Sprint 3 ne touche pas `shared/`).
 - `cd admin_panel && flutter analyze && flutter test` : pas de changement.
