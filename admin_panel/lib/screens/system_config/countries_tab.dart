@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/system_config.dart';
 import '../../models/country_option.dart';
 import '../../services/system_config_service.dart';
+import 'license_config_dialog.dart';
 
 class CountriesTab extends StatelessWidget {
   final SystemConfigV1 config;
@@ -121,6 +122,26 @@ class CountriesTab extends StatelessWidget {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // Sprint 2B.1 — License Configuration button. Opens a
+            // dedicated dialog whose Save action goes through the
+            // backend callable `setCountryLicenseConfig`, NOT the
+            // direct-Firestore `upsertCountry`. The visual badge below
+            // the IconButton reflects the current licenseRequired flag.
+            Tooltip(
+              message: country.licenseRequired
+                  ? 'License REQUIRED for this country'
+                  : 'License not required',
+              child: IconButton(
+                icon: Icon(
+                  country.licenseRequired
+                      ? Icons.verified_user
+                      : Icons.verified_user_outlined,
+                  size: 20,
+                  color: country.licenseRequired ? Colors.green : Colors.grey,
+                ),
+                onPressed: () => _showLicenseConfigDialog(context, country),
+              ),
+            ),
             IconButton(
               icon: const Icon(Icons.edit, size: 20),
               onPressed: () => _showEditCountryDialog(context, country),
@@ -213,6 +234,23 @@ class CountriesTab extends StatelessWidget {
             child: const Text('Add'),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Sprint 2B.1 — License configuration dialog.
+  ///
+  /// Delegates the dialog body to [LicenseConfigDialog] so widget tests
+  /// can drive the validation rules and Save callback without depending
+  /// on Firebase. Save is routed through the backend callable, never a
+  /// direct Firestore write.
+  void _showLicenseConfigDialog(BuildContext context, CountryOption country) {
+    showDialog(
+      context: context,
+      builder: (ctx) => LicenseConfigDialog(
+        country: country,
+        onSubmit: SystemConfigService.setCountryLicenseConfigViaCallable,
+        onSaved: onChanged,
       ),
     );
   }

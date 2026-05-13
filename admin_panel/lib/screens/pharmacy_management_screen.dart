@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/pharmacy_user.dart';
 import '../models/subscription.dart';
 import '../services/pharmacy_management_service.dart';
+import 'pharmacy_license_review_screen.dart';
 
 class PharmacyManagementScreen extends StatefulWidget {
   /// Country scopes for this admin.
@@ -56,6 +57,25 @@ class _PharmacyManagementScreenState extends State<PharmacyManagementScreen> {
                 ),
               ),
               const Spacer(),
+              // Sprint 2B.1 — Entry point to the license review workflow.
+              // Same RBAC inputs (countryScopes, isSuperAdmin) are
+              // forwarded so the new screen's Firestore query is scoped
+              // identically.
+              OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => PharmacyLicenseReviewScreen(
+                        countryScopes: widget.countryScopes,
+                        isSuperAdmin: widget.isSuperAdmin,
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.fact_check_outlined),
+                label: const Text('License Reviews'),
+              ),
+              const SizedBox(width: 12),
               ElevatedButton.icon(
                 onPressed: () {
                   _showCreatePharmacyDialog(context);

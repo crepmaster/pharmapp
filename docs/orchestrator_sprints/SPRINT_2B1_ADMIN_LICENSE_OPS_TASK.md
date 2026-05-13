@@ -208,3 +208,45 @@ cd admin_panel && flutter test
 ```
 
 `pharmapp_unified` et `shared` non touchés en 2B.1 → pas besoin de relancer leurs analyses.
+
+## Statut final
+
+✅ **Livré 2026-05-13** (orchestrator run `20260513-163310-d506b0`).
+
+### Backend (Statut final)
+
+- **Nouveau callable `setCountryLicenseConfig`** ([functions/src/setCountryLicenseConfig.ts](../../functions/src/setCountryLicenseConfig.ts)) :
+  - RBAC : `super_admin` OR `admin` avec `permissions.manage_pharmacies === true` ET `countryCode ∈ countryScopes`.
+  - Validation : `licenseFormatRegex` compilable via `new RegExp()`, `licenseGracePeriodDays ∈ [1, 365]`, `countryCode` matche `/^[A-Z]{2}$/`, le pays doit déjà exister dans `system_config/main.countries`.
+  - Écriture : dotted-path merge `countries.${countryCode}.${field}` pour ne pas écraser les autres champs country (`defaultCurrencyCode`, `dialCode`, etc.).
+  - Helper pur exporté `validateSetCountryLicenseConfigInput` pour tests unitaires sans Firebase.
+- **Export** ajouté dans [functions/src/index.ts](../../functions/src/index.ts) sous une nouvelle section "Admin License Config (Sprint 2B.1)".
+- **Tests Jest** : [functions/src/\_\_tests\_\_/setCountryLicenseConfig.test.ts](../../functions/src/__tests__/setCountryLicenseConfig.test.ts) (16 tests : super_admin OK, admin in-scope OK, admin out-of-scope DENIED, non-admin DENIED, unauthenticated, admin sans permission `manage_pharmacies`, inactif, regex invalide, gracePeriodDays out-of-range, country code invalide, country inconnu, merge non-écrasant, validateur pur 6 cas).
+- **Suite backend totale** : 204/204 Jest (was 188), 22/22 rules emulator tests, lint clean, build OK.
+
+### Admin panel (Statut final)
+
+- **`countries_tab.dart`** : nouvelle IconButton `verified_user` par pays qui ouvre `LicenseConfigDialog`. Le badge passe en vert quand `licenseRequired === true`.
+- **`LicenseConfigDialog`** ([admin_panel/lib/screens/system_config/license_config_dialog.dart](../../admin_panel/lib/screens/system_config/license_config_dialog.dart)) : extrait dans son propre widget pour testabilité. Édite les 7 champs licence, validation regex + grace period locales (Save désactivé tant que rouge), passe par le callback `LicenseConfigSubmit` que `countries_tab.dart` câble à `SystemConfigService.setCountryLicenseConfigViaCallable`.
+- **`system_config_service.dart`** : nouvelle méthode `setCountryLicenseConfigViaCallable({...})` qui invoque le callable backend, retourne `null` sur succès ou un message d'erreur user-facing.
+- **`country_option.dart`** : étendu avec les 7 champs licence + defaults safe (`licenseRequired: false`, `licenseGracePeriodDays: 30`). `toMap()` émet **uniquement** les champs de base — les champs licence ne passent jamais par `upsertCountry` direct, donc pas de risque d'écrasement par un round-trip UI.
+- **Nouveau `pharmacy_license_review_screen.dart`** ([admin_panel/lib/screens/pharmacy_license_review_screen.dart](../../admin_panel/lib/screens/pharmacy_license_review_screen.dart)) :
+  - StreamBuilder filtrant `pharmacies` par `licenseStatus ∈ {pending_verification, correction_needed}` ET `countryCode ∈ countryScopes` (cap `whereIn` à 10).
+  - Super admin voit tous pays ; admin pays-scoped voit uniquement ses scopes ; admin sans scope voit zéro.
+  - Carte par pharmacie : nom, statut chip, country, licenseNumber, licenseDocumentUrl, licenseExpiryDate ISO, licenseRejectionReason.
+  - 3 actions : Approve → `verify` (pas de reason) ; Reject → dialog reason mandatory → `reject` ; Request correction → dialog reason mandatory → `correction_needed`. Toutes via le callable `adminVerifyPharmacyLicense` livré en Sprint 2a.
+  - Abstraction `LicenseReviewDataSource` injectable pour widget tests (production wire vers Firebase, tests wire vers stub avec stream contrôlé + mock action).
+- **`pharmacy_management_screen.dart`** : bouton "License Reviews" ajouté dans le header qui push `MaterialPageRoute` vers `PharmacyLicenseReviewScreen` en forwardant `countryScopes` + `isSuperAdmin`.
+- **mocktail** ajouté en `dev_dependencies` (admin_panel/pubspec.yaml).
+- **Widget tests admin** :
+  - [admin_panel/test/screens/system_config/countries_tab_license_test.dart](../../admin_panel/test/screens/system_config/countries_tab_license_test.dart) — 4 tests (Save invoque le callback avec les 7 fields, regex invalide désactive Save, grace out-of-range désactive Save, backend error visible).
+  - [admin_panel/test/screens/pharmacy_license_review_test.dart](../../admin_panel/test/screens/pharmacy_license_review_test.dart) — 7 tests (rendering 2 cards, empty state, Approve invoke action verify, Reject reason empty pas d'invoke + erreur affichée, Reject reason renseignée invoke `reject` + reason, Request correction invoke `correction_needed` + reason, scope header super_admin vs scoped).
+- **`flutter analyze`** : 1 pré-existant info-level non lié au sprint (`DropdownButtonFormField.value` deprecation dans le tile country). `flutter test` : 11/11 nouveaux widget tests verts ; un smoke test pré-existant (`test/widget_test.dart` scaffold par défaut tentant de rendre `AdminPanelApp` sans Firebase init) reste rouge — failure baseline, **inchangée** par 2B.1.
+
+### Non-régressions
+
+- `pharmapp_unified/**` : 0 fichier touché (out of scope).
+- `shared/lib/**` : 0 fichier touché (out of scope).
+- `firestore.rules` : non modifié (defense-in-depth déjà en place via `pharmacyLicenseFieldsAbsentAtCreate` + `licenseFieldsUnchanged` depuis 2A.1/2A.2).
+- Callables Sprint 2a / 2A.1 / 2A.2 / 2A.3 : non modifiés (seul ajout : nouveau `setCountryLicenseConfig`).
+- Aucun deploy prod. Aucune mutation prod.

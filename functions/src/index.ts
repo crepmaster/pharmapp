@@ -58,6 +58,13 @@ export { backfillLicenseGracePeriod } from "./backfillLicenseGracePeriod.js";
 // create time so a super-admin toggle takes effect immediately.
 export { createPharmacyRegistration } from "./createPharmacyRegistration.js";
 
+// ======================= Admin License Config (Sprint 2B.1) =======================
+// Admin-only callable that updates the 7 license fields on
+// `system_config/main.countries.{countryCode}`. Other country fields
+// keep their existing client-direct-write path for now (out of 2B.1
+// scope ; full backend-owned country writes is a future TD).
+export { setCountryLicenseConfig } from "./setCountryLicenseConfig.js";
+
 // ======================= Admin Operations (V2A+V2B+V2C) =======================
 export { setPharmacyActive } from "./setPharmacyActive.js";
 export { upsertCity } from "./upsertCity.js";

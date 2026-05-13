@@ -126,6 +126,55 @@ class SystemConfigService {
     }
   }
 
+  /// Sprint 2B.1 — Update the 7 license fields on a country via backend
+  /// callable `setCountryLicenseConfig`. Other country fields keep
+  /// their existing client-direct-write path (`upsertCountry`).
+  ///
+  /// Pass only the fields you want to update (dotted-path merge on
+  /// backend side). The callable enforces RBAC (super_admin OR admin
+  /// with `manage_pharmacies` permission + `countryCode ∈ countryScopes`).
+  ///
+  /// Returns `null` on success, a user-facing error message on failure.
+  static Future<String?> setCountryLicenseConfigViaCallable({
+    required String countryCode,
+    bool? licenseRequired,
+    String? licenseLabel,
+    String? licenseHelpText,
+    bool? licenseVerificationRequired,
+    String? licenseFormatRegex,
+    bool? licenseDocumentRequired,
+    int? licenseGracePeriodDays,
+  }) async {
+    try {
+      final callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
+          .httpsCallable('setCountryLicenseConfig');
+      final payload = <String, dynamic>{'countryCode': countryCode};
+      if (licenseRequired != null) {
+        payload['licenseRequired'] = licenseRequired;
+      }
+      if (licenseLabel != null) payload['licenseLabel'] = licenseLabel;
+      if (licenseHelpText != null) payload['licenseHelpText'] = licenseHelpText;
+      if (licenseVerificationRequired != null) {
+        payload['licenseVerificationRequired'] = licenseVerificationRequired;
+      }
+      if (licenseFormatRegex != null) {
+        payload['licenseFormatRegex'] = licenseFormatRegex;
+      }
+      if (licenseDocumentRequired != null) {
+        payload['licenseDocumentRequired'] = licenseDocumentRequired;
+      }
+      if (licenseGracePeriodDays != null) {
+        payload['licenseGracePeriodDays'] = licenseGracePeriodDays;
+      }
+      await callable.call<Map<String, dynamic>>(payload);
+      return null; // success
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'An error occurred while saving the license configuration.';
+    } catch (e) {
+      return 'Unexpected error: $e';
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // CITIES — V2B: all writes go through backend callable `upsertCity`.
   // No hard delete — use enabled=false to deactivate.
