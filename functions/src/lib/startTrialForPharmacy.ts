@@ -41,30 +41,60 @@ const DEFAULT_TRIAL_DURATION_DAYS = 30;
 
 export interface StartTrialResult {
   /** `true` if the helper wrote the trial fields ; `false` if a trial
-   * was already running and the helper was a no-op (idempotence). */
+   * was already running OR had already been consumed in the past. */
   started: boolean;
-  /** Audit reason — `'already_active'`, `'started'`, or
-   * `'pharmacy_not_found'`. */
+  /** Audit reason :
+   * - `'started'` : trial fields were written, end-date = now + N days.
+   * - `'already_active'` : `subscriptionStatus` is already `trial` or
+   *   `active`, no-op.
+   * - `'trial_already_consumed'` : the pharmacy ran a trial before
+   *   (a `subscriptionStartDate` is set) and the current status is
+   *   post-trial (e.g. `expired`, `cancelled`). NEVER re-issue a 2nd
+   *   trial — Sprint 3 architect HIGH finding (2026-05-14).
+   * - `'pharmacy_not_found'` : the pharmacies/{uid} doc is missing.
+   */
   reason:
     | "started"
     | "already_active"
+    | "trial_already_consumed"
     | "pharmacy_not_found";
 }
 
 /**
  * Pure decision helper — extracted so the idempotence rule can be
- * unit-tested without Firestore. Returns `true` if the helper should
- * write the trial fields, `false` if it must no-op.
+ * unit-tested without Firestore. Returns the structured decision so
+ * callers can audit the no-op reason.
+ *
+ * Architect-locked (2026-05-14 HIGH finding) : the idempotence
+ * invariant is "ONE trial per pharmacy, ever". A pharmacy whose trial
+ * has expired / been cancelled / otherwise consumed must NOT be able
+ * to claim a fresh 30-day window via a re-verify (mandatory country),
+ * a profile reset, or a future admin operation. We therefore inspect
+ * BOTH the current status AND the presence of a past
+ * `subscriptionStartDate`. If a trial start date was ever written,
+ * the pharmacy has consumed its quota and the helper no-ops with the
+ * dedicated `trial_already_consumed` reason.
  *
  * Inputs are the bare flat fields the helper inspects on
  * `pharmacies/{uid}`. Any other shape is treated as "no trial yet".
  */
 export function shouldStartTrial(args: {
   subscriptionStatus?: string | null;
-}): boolean {
+  /** `subscriptionStartDate` flat field. Any truthy value (Timestamp,
+   * Date, number, object) is treated as proof a trial has previously
+   * been granted. `null` / `undefined` means "no trial yet". */
+  subscriptionStartDate?: unknown;
+}): { start: true } | { start: false; reason: "already_active" | "trial_already_consumed" } {
   const s = args.subscriptionStatus;
-  if (s === "trial" || s === "active") return false;
-  return true;
+  if (s === "trial" || s === "active") {
+    return { start: false, reason: "already_active" };
+  }
+  if (args.subscriptionStartDate != null) {
+    // Past trial detected via the start-date field — Sprint 3 HIGH
+    // architect invariant. Refuse the second issuance.
+    return { start: false, reason: "trial_already_consumed" };
+  }
+  return { start: true };
 }
 
 /**
@@ -111,13 +141,19 @@ export async function startTrialForPharmacy(
       typeof data.subscriptionStatus === "string"
         ? (data.subscriptionStatus as string)
         : null;
+    const subscriptionStartDate = data.subscriptionStartDate ?? null;
 
-    if (!shouldStartTrial({ subscriptionStatus })) {
-      logger.info("startTrialForPharmacy: already active, no-op", {
+    const decision = shouldStartTrial({
+      subscriptionStatus,
+      subscriptionStartDate,
+    });
+    if (!decision.start) {
+      logger.info("startTrialForPharmacy: no-op", {
         uid,
         subscriptionStatus,
+        reason: decision.reason,
       });
-      return { started: false, reason: "already_active" as const };
+      return { started: false, reason: decision.reason };
     }
 
     const startedAt = new Date();

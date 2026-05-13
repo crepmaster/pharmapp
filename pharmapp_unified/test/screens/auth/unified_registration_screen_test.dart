@@ -71,7 +71,10 @@ MasterDataSnapshot _licenseSnapshot({
   );
 }
 
-Future<void> _noopTrial(String uid, {required String currency}) async {}
+// Sprint 3 (2026-05-14) — `_noopTrial` helper removed along with the
+// `createTrialSubscriptionOverride` test seam : the trial-subscription
+// side effect no longer runs in `_handleRegistration` for any user
+// type, so widget tests don't need to stub it any more.
 
 Widget _wrapWithMockBloc(Widget child) {
   final bloc = _MockUnifiedAuthBloc();
@@ -783,7 +786,6 @@ void main() {
           masterDataOverride:
               _licenseSnapshot(countryCode: 'CM', licenseRequired: false),
           signUpOverride: reluctantSignUp,
-          createTrialSubscriptionOverride: _noopTrial,
         ),
       ));
       await tester.pumpAndSettle();
@@ -834,7 +836,6 @@ void main() {
           masterDataOverride:
               _licenseSnapshot(countryCode: 'CM', licenseRequired: false),
           signUpOverride: brokenSignUp,
-          createTrialSubscriptionOverride: _noopTrial,
         ),
       ));
       await tester.pumpAndSettle();
@@ -877,7 +878,6 @@ void main() {
             licenseFormatRegex: r'^[A-Z]{2}-\d{4}$',
           ),
           signUpOverride: shouldNotBeCalled,
-          createTrialSubscriptionOverride: _noopTrial,
         ),
       ));
       await tester.pumpAndSettle();
@@ -929,7 +929,6 @@ void main() {
             licenseFormatRegex: r'^[A-Z]{2}-\d{4}$',
           ),
           signUpOverride: capturingSignUp,
-          createTrialSubscriptionOverride: _noopTrial,
         ),
       ));
       await tester.pumpAndSettle();

@@ -78,28 +78,74 @@ beforeEach(() => {
 });
 
 describe("shouldStartTrial — pure", () => {
-  test('subscriptionStatus="trial" → no-op (false)', () => {
-    expect(shouldStartTrial({ subscriptionStatus: "trial" })).toBe(false);
+  test('subscriptionStatus="trial" → no-op (already_active)', () => {
+    expect(shouldStartTrial({ subscriptionStatus: "trial" })).toEqual({
+      start: false,
+      reason: "already_active",
+    });
   });
-  test('subscriptionStatus="active" → no-op (false)', () => {
-    expect(shouldStartTrial({ subscriptionStatus: "active" })).toBe(false);
+  test('subscriptionStatus="active" → no-op (already_active)', () => {
+    expect(shouldStartTrial({ subscriptionStatus: "active" })).toEqual({
+      start: false,
+      reason: "already_active",
+    });
   });
-  test('subscriptionStatus="pendingPayment" → start (true)', () => {
-    expect(shouldStartTrial({ subscriptionStatus: "pendingPayment" })).toBe(
-      true
-    );
+  test('subscriptionStatus="pendingPayment" + no start date → start', () => {
+    expect(shouldStartTrial({ subscriptionStatus: "pendingPayment" })).toEqual({
+      start: true,
+    });
   });
-  test('subscriptionStatus="trial_pending_license" → start (true)', () => {
+  test('subscriptionStatus="trial_pending_license" + no start date → start (canonical license-verify flow)', () => {
     expect(
       shouldStartTrial({ subscriptionStatus: "trial_pending_license" })
-    ).toBe(true);
+    ).toEqual({ start: true });
   });
-  test("subscriptionStatus missing/null → start (true)", () => {
-    expect(shouldStartTrial({})).toBe(true);
-    expect(shouldStartTrial({ subscriptionStatus: null })).toBe(true);
+  test("subscriptionStatus missing/null + no start date → start", () => {
+    expect(shouldStartTrial({})).toEqual({ start: true });
+    expect(shouldStartTrial({ subscriptionStatus: null })).toEqual({
+      start: true,
+    });
   });
-  test('unknown status (e.g. "expired") → start (true) — defensive', () => {
-    expect(shouldStartTrial({ subscriptionStatus: "expired" })).toBe(true);
+
+  // Sprint 3 architect HIGH finding (2026-05-14) :
+  // the invariant "one trial per pharmacy, ever" must be enforced via
+  // a positive trace (subscriptionStartDate set), not only via the
+  // current subscriptionStatus. A pharmacy whose status is `expired`
+  // (or `cancelled`, or any future post-trial label) but has a past
+  // subscriptionStartDate has already consumed its 30-day quota and
+  // MUST NOT be granted a second trial.
+
+  test('subscriptionStatus="expired" + NO start date → start (defensive — no past trial recorded)', () => {
+    // Defensive baseline : if somehow the status is "expired" but no
+    // subscriptionStartDate was ever written, we have no evidence the
+    // trial was consumed. The helper grants the trial — this is the
+    // safer behaviour for the pharmacy in case of data loss.
+    expect(shouldStartTrial({ subscriptionStatus: "expired" })).toEqual({
+      start: true,
+    });
+  });
+
+  test('subscriptionStatus="expired" + subscriptionStartDate set → no-op (trial_already_consumed)', () => {
+    expect(
+      shouldStartTrial({
+        subscriptionStatus: "expired",
+        subscriptionStartDate: { toMillis: () => 1700000000000 },
+      })
+    ).toEqual({ start: false, reason: "trial_already_consumed" });
+  });
+
+  test('any past status with subscriptionStartDate set → trial_already_consumed', () => {
+    // Future-proofing : whatever post-trial label appears later
+    // (cancelled, terminated, churned, …), the start-date trace is
+    // enough to short-circuit.
+    for (const status of ["expired", "cancelled", "terminated", "unknown"]) {
+      expect(
+        shouldStartTrial({
+          subscriptionStatus: status,
+          subscriptionStartDate: 1700000000000,
+        })
+      ).toEqual({ start: false, reason: "trial_already_consumed" });
+    }
   });
 });
 
@@ -170,6 +216,44 @@ describe("startTrialForPharmacy — transactional, idempotent", () => {
     });
     const res = await startTrialForPharmacy(fakeDb as any, "uid-paid");
     expect(res).toEqual({ started: false, reason: "already_active" });
+    expect(fakeUpdate).not.toHaveBeenCalled();
+  });
+
+  // Sprint 3 architect HIGH finding (2026-05-14) :
+  // an expired pharmacy with a past subscriptionStartDate must NOT be
+  // granted a fresh trial when the admin re-verifies its licence (e.g.
+  // pharmacy got verified → trial → expired → admin re-verifies after
+  // a renewal). The pharmacy already consumed its quota.
+
+  test('expired + past subscriptionStartDate → no-op, reason=trial_already_consumed', async () => {
+    fakeGet.mockResolvedValueOnce({
+      exists: true,
+      data: () => ({
+        subscriptionStatus: "expired",
+        subscriptionStartDate: { toMillis: () => 1700000000000 },
+      }),
+    });
+    const res = await startTrialForPharmacy(fakeDb as any, "uid-consumed");
+    expect(res).toEqual({
+      started: false,
+      reason: "trial_already_consumed",
+    });
+    expect(fakeUpdate).not.toHaveBeenCalled();
+  });
+
+  test('unknown status + past subscriptionStartDate → no-op, reason=trial_already_consumed (future-proofing)', async () => {
+    fakeGet.mockResolvedValueOnce({
+      exists: true,
+      data: () => ({
+        subscriptionStatus: "cancelled",
+        subscriptionStartDate: 1700000000000,
+      }),
+    });
+    const res = await startTrialForPharmacy(fakeDb as any, "uid-cancelled");
+    expect(res).toEqual({
+      started: false,
+      reason: "trial_already_consumed",
+    });
     expect(fakeUpdate).not.toHaveBeenCalled();
   });
 

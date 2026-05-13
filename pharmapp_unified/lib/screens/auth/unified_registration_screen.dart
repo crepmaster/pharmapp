@@ -7,7 +7,6 @@ import 'package:pharmapp_shared/models/payment_preferences.dart';
 import 'package:pharmapp_shared/models/master_data_snapshot.dart';
 import 'package:pharmapp_shared/services/master_data_service.dart';
 import '../../blocs/unified_auth_bloc.dart';
-import '../../services/subscription_creation_service.dart';
 
 /// Sprint 2B.2a — signature of the signUp callable used by the registration
 /// screen. Production passes [UnifiedAuthService.signUp] ; widget tests
@@ -20,27 +19,19 @@ typedef RegistrationSignUp = Future<UserCredential?> Function({
   required Map<String, dynamic> profileData,
 });
 
-/// Sprint 2B.2a — signature of the optional trial-subscription side-effect
-/// triggered for pharmacies after a successful signUp. Production passes
-/// [SubscriptionCreationService.createTrialSubscription] ; tests pass a
-/// no-op stub so they don't depend on Firestore.
-typedef CreateTrialSubscription = Future<void> Function(
-  String uid, {
-  required String currency,
-});
+// Sprint 3 (2026-05-14) — `CreateTrialSubscription` typedef removed.
+// Trial subscription is now 100% backend-owned via
+// `createPharmacyRegistration` ; no client-side trial creation
+// remains in this screen.
 
 // ---------------------------------------------------------------------------
 // Static helpers — no enum dependency on Country / PaymentOperator
 // ---------------------------------------------------------------------------
 
-/// ISO 3166-1 alpha-2 → default currency code.
-const _countryCurrencyMap = {
-  'CM': 'XAF',
-  'KE': 'KES',
-  'TZ': 'TZS',
-  'UG': 'UGX',
-  'NG': 'NGN',
-};
+// Sprint 3 (2026-05-14) — `_countryCurrencyMap` removed : it served
+// only the now-defunct client-side trial subscription path. Currency
+// resolution stays on `MasterDataCountry.defaultCurrencyCode` for
+// every other consumer.
 
 /// ISO 3166-1 alpha-2 → legacy Country enum name expected by existing readers.
 ///
@@ -154,10 +145,6 @@ class UnifiedRegistrationScreen extends StatefulWidget {
   /// standing up Firebase Auth + Functions emulators.
   final RegistrationSignUp? signUpOverride;
 
-  /// Sprint 2B.2a test seam — bypass [SubscriptionCreationService] for the
-  /// trial subscription side-effect (Firestore write) in widget tests.
-  final CreateTrialSubscription? createTrialSubscriptionOverride;
-
   const UnifiedRegistrationScreen({
     super.key,
     required this.userType,
@@ -165,7 +152,6 @@ class UnifiedRegistrationScreen extends StatefulWidget {
     required this.cityCode,
     this.masterDataOverride,
     this.signUpOverride,
-    this.createTrialSubscriptionOverride,
   });
 
   @override
@@ -1012,7 +998,11 @@ class _UnifiedRegistrationScreenState
       }
 
       final signUp = widget.signUpOverride ?? UnifiedAuthService.signUp;
-      final userCredential = await signUp(
+      // Sprint 3 — the UserCredential return value is no longer needed
+      // here. Trial subscription init was the only consumer of the
+      // returned uid, and it moved entirely to the
+      // `createPharmacyRegistration` callable (Sprint 2A.3 + Sprint 3).
+      await signUp(
         email: _emailController.text.trim(),
         password: _passwordController.text,
         userType: widget.userType,
@@ -1020,27 +1010,20 @@ class _UnifiedRegistrationScreenState
       );
 
       // Sprint 3 — trial subscription init for pharmacies is now
-      // backend-owned (the `createPharmacyRegistration` callable seeds
-      // the flat fields on `pharmacies/{uid}` directly, conditional on
-      // the licence policy). The previous client-side
-      // `SubscriptionCreationService.createTrialSubscription` was
-      // writing to `subscriptions/{id}` which `firestore.rules` locks
-      // backend-only — silently failing in practice. We retain the
-      // legacy client call for `UserType.courier` and `UserType.admin`
-      // only ; those flows are out of Sprint 3 scope.
-      if (widget.userType != UserType.pharmacy &&
-          userCredential?.user != null) {
-        final currency =
-            _countryCurrencyMap[widget.countryCode] ??
-            _masterData?.countries[widget.countryCode]?.defaultCurrencyCode ??
-            'XAF';
-        final createTrialFn = widget.createTrialSubscriptionOverride ??
-            SubscriptionCreationService.createTrialSubscription;
-        await createTrialFn(
-          userCredential!.user!.uid,
-          currency: currency,
-        );
-      }
+      // backend-owned (`createPharmacyRegistration` seeds the flat
+      // fields on `pharmacies/{uid}` directly, conditional on the
+      // licence policy). The previous client-side
+      // `SubscriptionCreationService.createTrialSubscription` only
+      // ever made sense for pharmacies (other roles have no trial),
+      // and it wrote to `subscriptions/{id}` which `firestore.rules`
+      // locks backend-only — silently failing.
+      //
+      // Sprint 3 architect-locked correction (2026-05-14) : drop the
+      // call entirely. The seam (`createTrialSubscriptionOverride`)
+      // and typedef (`CreateTrialSubscription`) are also removed
+      // because no production path nor test uses them anymore.
+      // Courier / admin registration NEVER triggered the trial
+      // helper before this sprint and continue not to.
 
       if (!mounted) return;
       context.read<UnifiedAuthBloc>().add(
