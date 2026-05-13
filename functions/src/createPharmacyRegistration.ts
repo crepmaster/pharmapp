@@ -39,11 +39,14 @@
 
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getAuth } from "firebase-admin/auth";
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 
 const auth = getAuth();
 const db = getFirestore();
+
+// Sprint 3 — trial subscription policy.
+const TRIAL_DURATION_DAYS = 30;
 
 interface CreatePharmacyRegistrationInput {
   email?: string;
@@ -208,6 +211,30 @@ export const createPharmacyRegistration = onCall<CreatePharmacyRegistrationInput
 
       // ---- 4. Write Firestore docs (users + pharmacies + wallet) ---------
       const now = FieldValue.serverTimestamp();
+
+      // Sprint 3 — trial subscription init aligned with license verification.
+      //
+      // Architect-locked (2026-05-13) :
+      //   - Pays non mandatory (licenseStatus === 'not_required') :
+      //     trial démarre immédiatement à l'inscription. 30j garantis.
+      //   - Pays mandatory + licence fournie (licenseStatus ===
+      //     'pending_verification') : subscriptionStatus =
+      //     'trial_pending_license', `hasActiveSubscription = false`.
+      //     Le trial démarrera quand `adminVerifyPharmacyLicense` flip
+      //     `licenseStatus -> 'verified'` via le helper
+      //     `startTrialForPharmacy`. La pharmacie ne consomme PAS son
+      //     trial pendant cette attente.
+      //
+      // Client-side `SubscriptionCreationService.createTrialSubscription`
+      // est retiré pour `UserType.pharmacy` (Sprint 3 client-side cleanup) :
+      // ce callable est désormais la seule source de vérité.
+      const isTrialActiveAtRegistration =
+        licenseStatus === "not_required";
+      const trialStartDate = new Date();
+      const trialEndDate = new Date(
+        trialStartDate.getTime() + TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000
+      );
+
       const pharmacyDoc: Record<string, unknown> = {
         email,
         pharmacyName,
@@ -218,13 +245,18 @@ export const createPharmacyRegistration = onCall<CreatePharmacyRegistrationInput
         isActive: true,
         createdAt: now,
         updatedAt: now,
-        // Subscription defaults — mirrors the existing client-side write,
-        // so Sprint 3 Trial logic can layer on top without surprise.
-        hasActiveSubscription: false,
-        subscriptionStatus: "pendingPayment",
-        subscriptionPlan: null,
-        subscriptionStartDate: null,
-        subscriptionEndDate: null,
+        // Sprint 3 — subscription fields branched on license status.
+        hasActiveSubscription: isTrialActiveAtRegistration,
+        subscriptionStatus: isTrialActiveAtRegistration
+          ? "trial"
+          : "trial_pending_license",
+        subscriptionPlan: isTrialActiveAtRegistration ? "basic" : null,
+        subscriptionStartDate: isTrialActiveAtRegistration
+          ? Timestamp.fromDate(trialStartDate)
+          : null,
+        subscriptionEndDate: isTrialActiveAtRegistration
+          ? Timestamp.fromDate(trialEndDate)
+          : null,
         // License init — backend-controlled, never client-writable.
         licenseStatus,
         licenseCountryCode: countryCode,

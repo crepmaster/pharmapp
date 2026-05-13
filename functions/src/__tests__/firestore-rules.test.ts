@@ -367,3 +367,94 @@ describe("Sprint 2B.2b — pharmacies collection: allow get vs deny list", () =>
     );
   });
 });
+
+// ===========================================================================
+// Sprint 3 — `trial_pending_license` MUST NOT satisfy hasActiveSubscription()
+// ===========================================================================
+
+describe("Sprint 3 — trial_pending_license is NOT an active subscription", () => {
+  /**
+   * Architect-locked : a pharmacy registering in a mandatory-licence
+   * country sits on `subscriptionStatus = 'trial_pending_license'`
+   * until an admin verifies its licence. During that window, the
+   * pharmacy MUST NOT be granted marketplace actions — i.e. the
+   * subscription-gated rules (`exchange_proposals.create`,
+   * `pharmacy_inventory.create`, ...) must fail.
+   *
+   * The existing rule helper `hasActiveSubscription()` lists
+   * `subscriptionStatus == 'active'` OR `subscriptionStatus == 'trial'`.
+   * `trial_pending_license` matches neither and is therefore denied
+   * by construction. This test pins that behaviour : a future
+   * contributor who adds `trial_pending_license` to the `OR` chain
+   * would silently open the gate, and this test would catch it.
+   */
+  const FUTURE_DATE_ISO = new Date(Date.now() + 86400000).toISOString();
+
+  test("REQ-3-001: pharmacy with subscriptionStatus='trial_pending_license' CANNOT create exchange_proposals", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), `pharmacies/${ALICE_UID}`), {
+        ...VALID_PHARMACY_BASE,
+        hasActiveSubscription: false,
+        subscriptionStatus: "trial_pending_license",
+        subscriptionPlan: null,
+      });
+    });
+    const alice = testEnv.authenticatedContext(ALICE_UID);
+    await assertFails(
+      setDoc(
+        doc(alice.firestore(), `exchange_proposals/draft-1`),
+        {
+          fromPharmacyId: ALICE_UID,
+          toPharmacyId: "bob",
+          createdAt: new Date(),
+        }
+      )
+    );
+  });
+
+  test("REQ-3-002: pharmacy with subscriptionStatus='trial' AND future endDate CAN create exchange_proposals", async () => {
+    // Sanity check / regression guard : the existing trial gate still
+    // works the way Sprint 3 expects.
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), `pharmacies/${ALICE_UID}`), {
+        ...VALID_PHARMACY_BASE,
+        hasActiveSubscription: true,
+        subscriptionStatus: "trial",
+        subscriptionPlan: "basic",
+        subscriptionEndDate: new Date(FUTURE_DATE_ISO),
+      });
+    });
+    const alice = testEnv.authenticatedContext(ALICE_UID);
+    await assertSucceeds(
+      setDoc(
+        doc(alice.firestore(), `exchange_proposals/draft-2`),
+        {
+          fromPharmacyId: ALICE_UID,
+          toPharmacyId: "bob",
+          createdAt: new Date(),
+        }
+      )
+    );
+  });
+
+  test("REQ-3-003: pharmacy with subscriptionStatus='trial_pending_license' CANNOT create pharmacy_inventory", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), `pharmacies/${ALICE_UID}`), {
+        ...VALID_PHARMACY_BASE,
+        hasActiveSubscription: false,
+        subscriptionStatus: "trial_pending_license",
+        subscriptionPlan: null,
+      });
+    });
+    const alice = testEnv.authenticatedContext(ALICE_UID);
+    await assertFails(
+      setDoc(
+        doc(alice.firestore(), `pharmacy_inventory/inv-pending-1`),
+        {
+          pharmacyId: ALICE_UID,
+          medicineName: "Test",
+        }
+      )
+    );
+  });
+});

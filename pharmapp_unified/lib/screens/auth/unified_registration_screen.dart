@@ -1019,8 +1019,17 @@ class _UnifiedRegistrationScreenState
         profileData: profileData,
       );
 
-      // Create 30-day trial subscription for new pharmacies.
-      if (widget.userType == UserType.pharmacy && userCredential?.user != null) {
+      // Sprint 3 — trial subscription init for pharmacies is now
+      // backend-owned (the `createPharmacyRegistration` callable seeds
+      // the flat fields on `pharmacies/{uid}` directly, conditional on
+      // the licence policy). The previous client-side
+      // `SubscriptionCreationService.createTrialSubscription` was
+      // writing to `subscriptions/{id}` which `firestore.rules` locks
+      // backend-only — silently failing in practice. We retain the
+      // legacy client call for `UserType.courier` and `UserType.admin`
+      // only ; those flows are out of Sprint 3 scope.
+      if (widget.userType != UserType.pharmacy &&
+          userCredential?.user != null) {
         final currency =
             _countryCurrencyMap[widget.countryCode] ??
             _masterData?.countries[widget.countryCode]?.defaultCurrencyCode ??

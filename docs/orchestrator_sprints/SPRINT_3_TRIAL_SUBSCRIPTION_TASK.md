@@ -138,3 +138,85 @@ Implémenter :
 - `cd functions && npm run build && npm run lint && npm test`
 - `cd pharmapp_unified && flutter analyze`
 - tests ciblés si disponibles
+
+## Statut final
+
+✅ **Livré 2026-05-14** (orchestrator run `20260513-214326-e4322f`).
+
+### Backend (Lots 1+2+3)
+
+- **Nouveau helper transactionnel idempotent `startTrialForPharmacy`** ([functions/src/lib/startTrialForPharmacy.ts](../../functions/src/lib/startTrialForPharmacy.ts)) :
+  - Exporte `shouldStartTrial({subscriptionStatus})` pur (idempotence rule testable hors Firestore), `computeTrialEndDate(start, days)` pur (date math testable), `startTrialForPharmacy(db, uid, {trialDurationDays = 30})` async.
+  - `runTransaction` : lit `pharmacies/{uid}`, vérifie `subscriptionStatus` n'est ni `'trial'` ni `'active'`, écrit atomiquement `{hasActiveSubscription: true, subscriptionStatus: 'trial', subscriptionPlan: 'basic', subscriptionStartDate, subscriptionEndDate, updatedAt}`.
+  - Idempotence stricte : `'trial'` / `'active'` → return `{started:false, reason:'already_active'}` sans mutation. Pas de double trial. Pas d'extension de fenêtre. Pas de re-write.
+  - Retour discriminé : `'started'`, `'already_active'`, `'pharmacy_not_found'`.
+- **`createPharmacyRegistration`** modifié ([functions/src/createPharmacyRegistration.ts](../../functions/src/createPharmacyRegistration.ts)) :
+  - Import `Timestamp` + constante `TRIAL_DURATION_DAYS = 30`.
+  - Bloc subscription defaults remplacé par logique conditionnelle sur `licenseStatus` (sortie de `computeInitialPharmacyLicenseStatus`) :
+    - `'not_required'` (pays non mandatory) → trial actif inline : `hasActiveSubscription=true`, `subscriptionStatus='trial'`, dates `Timestamp.fromDate(now)` et `now+30j`.
+    - `'pending_verification'` (pays mandatory + licence fournie) → `subscriptionStatus='trial_pending_license'`, `hasActiveSubscription=false`, pas de dates.
+- **`adminVerifyPharmacyLicense`** modifié ([functions/src/adminVerifyPharmacyLicense.ts](../../functions/src/adminVerifyPharmacyLicense.ts)) :
+  - Import `startTrialForPharmacy` depuis `./lib/startTrialForPharmacy.js`.
+  - Après `pharmacyRef.update(update)`, si `action === 'verify'`, appelle `startTrialForPharmacy(db, pharmacyId.trim())` dans un try/catch.
+  - Trial failure (transaction conflict, network) loggée mais ne propage pas — la verify licence ne doit JAMAIS être annulée parce que le trial helper a planté. L'admin peut retry verify ; idempotence garantit la safety.
+  - `reject` / `correction_needed` : le helper trial n'est PAS appelé.
+  - Le retour inclut `trialStarted: boolean` pour audit côté caller.
+
+### Tests Jest (Lots 1+2+3 — total +22)
+
+- [functions/src/\_\_tests\_\_/startTrialForPharmacy.test.ts](../../functions/src/__tests__/startTrialForPharmacy.test.ts) — **14 tests** :
+  - 6 `shouldStartTrial` pur : `trial`/`active` → false (no-op) ; `pendingPayment`, `trial_pending_license`, missing/null, unknown → true (start).
+  - 2 `computeTrialEndDate` pur : default 30j ; custom N jours.
+  - 6 `startTrialForPharmacy` async : pharmacy doc absent → `pharmacy_not_found`, `pendingPayment` → writes trial fields, `trial_pending_license` → writes trial fields (canonical license-verify flow), `trial` → no-op, `active` → no-op, custom `trialDurationDays` propagation.
+- [functions/src/\_\_tests\_\_/createPharmacyRegistration.test.ts](../../functions/src/__tests__/createPharmacyRegistration.test.ts) — **+2 tests Sprint 3** (15/15 total, was 13/13) :
+  - Non-mandatory → `subscriptionStatus='trial'` + `hasActiveSubscription=true` + dates 30j set, vérifié via `lastPharmacyDocWritten()` helper qui inspecte le batch.set.
+  - Mandatory + licence fournie → `subscriptionStatus='trial_pending_license'` + `hasActiveSubscription=false` + dates nulles, `licenseStatus` préservé.
+- [functions/src/\_\_tests\_\_/adminVerifyPharmacyLicense.test.ts](../../functions/src/__tests__/adminVerifyPharmacyLicense.test.ts) (NEW) — **5 tests wire-up** :
+  - `action='verify'` → `startTrialForPharmacy` appelé avec le `pharmacyId`.
+  - `action='reject'` → helper PAS appelé.
+  - `action='correction_needed'` → helper PAS appelé.
+  - `action='verify'` sur trial déjà actif → helper retourne `{started:false, already_active}`, callable resolves OK avec `trialStarted=false`.
+  - `action='verify'` + helper throws → callable resolves OK quand même, le pharmacy update licence a déjà été commité avant le call trial.
+
+### Firestore rules (Lot 5)
+
+- [firestore.rules](../../firestore.rules) inchangé — la rule existante `hasActiveSubscription()` (lignes 9-22) lit `subscriptionStatus == 'active' || subscriptionStatus == 'trial'`, donc `'trial_pending_license'` ne matche déjà PAS. Aucun changement nécessaire.
+- [functions/src/\_\_tests\_\_/firestore-rules.test.ts](../../functions/src/__tests__/firestore-rules.test.ts) — **+3 tests Sprint 3** (34/34 total, was 31/31) :
+  - **REQ-3-001** : pharmacie avec `subscriptionStatus='trial_pending_license'` → create `exchange_proposals` DENIED.
+  - **REQ-3-002** : pharmacie avec `subscriptionStatus='trial'` + `subscriptionEndDate` futur → create `exchange_proposals` ALLOWED (regression guard sur la rule trial gate existante).
+  - **REQ-3-003** : pharmacie avec `subscriptionStatus='trial_pending_license'` → create `pharmacy_inventory` DENIED (couvre la deuxième surface gated par `hasActiveSubscription()`).
+
+### Flutter (Lots 4+6)
+
+- [pharmapp_unified/lib/screens/auth/unified_registration_screen.dart](../../pharmapp_unified/lib/screens/auth/unified_registration_screen.dart) :
+  - `_handleRegistration` modifié : le call `SubscriptionCreationService.createTrialSubscription` est désormais conditionné sur `widget.userType != UserType.pharmacy`. Pharmacy passe par le callable backend uniquement (Sprint 2A.3 + Sprint 3 trial init dans `createPharmacyRegistration`). Courier/admin legacy préservés.
+  - Commentaire explicatif inline référence le contrat Sprint 3.
+- [pharmapp_unified/lib/screens/pharmacy/subscription_screen.dart](../../pharmapp_unified/lib/screens/pharmacy/subscription_screen.dart) :
+  - Nouveau state field `_pharmacySubscriptionStatus` lu depuis `pharmacies/{uid}.subscriptionStatus` dans `_loadSubscription`.
+  - Nouveau widget `_buildTrialPendingLicenseBanner()` (key `trial_pending_license_banner`) : Container orange avec icône `hourglass_top`, titre "Trial pending license verification" + texte explicatif "Your 30-day trial will start as soon as an administrator verifies your pharmacy licence. Marketplace actions are temporarily disabled.".
+  - Banner rendu conditionnellement au-dessus du `_buildCurrentStatusCard()` quand `_pharmacySubscriptionStatus == 'trial_pending_license'`.
+
+### Documentation (Lot 7)
+
+- `CLAUDE.md` : Sprint 3 ajouté au tableau historique sprints. Section "ce qui n'est PAS livré" §3 (Trial subscription auto-création absente) **remplacée** par bloc "✅ Trial subscription livré Sprint 3 (2026-05-14)" qui pointe les artefacts.
+- `docs/ACTIVE_DOCS.md` : Sprint 3 déplacé en "Sprints closed". Sprint 4 noté "Prochain sprint, débloqué".
+- `docs/orchestrator_sprints/README.md` : ligne 5 (`SPRINT_3`) marquée fermée avec résumé.
+- Ce contrat : section "Statut final" présente.
+
+### Validations finales
+
+- `cd functions && npm run build && npm run lint && npm test` : **247/247 Jest** (was 226 → +21), build + lint clean.
+- `cd functions && npm run test:rules` : **34/34** rules emulator (was 31 → +3 Sprint 3).
+- `cd shared && dart analyze` : pas de changement (Sprint 3 ne touche pas `shared/`).
+- `cd admin_panel && flutter analyze && flutter test` : pas de changement.
+- `cd pharmapp_unified && flutter analyze` : clean sur les 2 fichiers touchés (`unified_registration_screen.dart`, `subscription_screen.dart`).
+- `git diff --check` : clean.
+
+### Non-régressions
+
+- Sprint 2a / 2A.1 / 2A.2 / 2A.3 callables licence : inchangés (consommation seule).
+- Sprint 2B.1 admin operations : inchangé.
+- Sprint 2B.2a pharmacy UX + Sprint 2B.2b marketplace : inchangés.
+- `subscriptions/{id}` collection : reste backend-only (rule `allow write: if false`). Si conservée, c'est un miroir/audit potentiel — Sprint 3 ne l'alimente pas, mais ne la supprime pas non plus (out of scope).
+- Courier/admin signup : flow client-write Sprint 2A.3 préservé. `SubscriptionCreationService.createTrialSubscription` reste utilisé pour eux par compat héritage (out of scope).
+- Pas d'upload Firebase Storage. Pas de migration destructive. Pas de deploy prod. Pas de mutation prod.

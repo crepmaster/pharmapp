@@ -19,6 +19,8 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 
+import { startTrialForPharmacy } from "./lib/startTrialForPharmacy.js";
+
 const db = getFirestore();
 
 type AdminAction = "verify" | "reject" | "correction_needed";
@@ -126,9 +128,46 @@ export const adminVerifyPharmacyLicense = onCall<AdminVerifyInput>(
       callerUid,
     });
 
+    // Sprint 3 — start the 30-day trial subscription on the transition
+    // `licenseStatus -> 'verified'`. Idempotent : a second `verify`
+    // (e.g. admin double-clicks, or a previously rejected pharmacy that
+    // resubmits + gets verified again) does NOT restart or extend the
+    // trial — the helper returns `{ started:false, reason:'already_active' }`.
+    //
+    // Architect-locked (2026-05-13) :
+    //   - only triggered for `action === 'verify'`.
+    //   - the pharmacy doc reload happens inside `startTrialForPharmacy`'s
+    //     transaction so we read the fresh `subscriptionStatus` post-update.
+    //   - we log the outcome so ops can audit per-pharmacy that the
+    //     trial fired (or was a no-op).
+    let trialResult: Awaited<ReturnType<typeof startTrialForPharmacy>> | null =
+      null;
+    if (action === "verify") {
+      try {
+        trialResult = await startTrialForPharmacy(db, pharmacyId.trim());
+        logger.info("adminVerifyPharmacyLicense: trial outcome", {
+          pharmacyId,
+          callerUid,
+          trialStarted: trialResult.started,
+          trialReason: trialResult.reason,
+        });
+      } catch (err) {
+        // Trial failure must NOT undo the licence verify decision. We
+        // log it for ops follow-up and continue : the admin can retry
+        // verify later (idempotence guarantees safety) or contact
+        // support to start the trial manually.
+        logger.error("adminVerifyPharmacyLicense: trial start failed", {
+          pharmacyId,
+          callerUid,
+          err: String(err),
+        });
+      }
+    }
+
     return {
       ok: true,
       licenseStatus: newStatus,
+      trialStarted: trialResult?.started ?? false,
     };
   }
 );

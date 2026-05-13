@@ -17,8 +17,8 @@ Chaque fichier `SPRINT_*.md` est conçu comme un ticket source autonome pour l'o
 4.2. `SPRINT_2B2_PHARMACY_UX_AND_MARKETPLACE_TASK.md` — ⚠️ **SUPERSEDED 2026-05-13** (split en 2B.2a + 2B.2b par verdict architecte B ; éviter une revue mixée Pharmacy UX + Marketplace)
 4.2.a. `SPRINT_2B2A_PHARMACY_UX_TASK.md` — ✅ fermé (run `20260513-200915-499497`). Pharmacy UX livré : registration `LICENSE_REQUIRED` handler, `PharmacyLicenseStatusSection`, `LicenseCorrectionDialog` routé sur `submitPharmacyLicense` Sprint 2a, 4 test seams, 21 widget tests. Aucun marketplace touché.
 4.2.b. `SPRINT_2B2B_MARKETPLACE_ENFORCEMENT_TASK.md` — ✅ fermé (run `20260513-205611-69104d`). Décision CALLABLE retenue. Nouveau callable `getMarketplacePharmacies` + 18 tests Jest ; firestore.rules `allow list: if false` + 5 emulator tests REQ-2B2B-001..005 ; migration `inventory_service.getAvailableMedicines` via seam ; les 5 autres consumers étaient des lookups UID, inchangés. **F-LICENSE end-to-end clos.**
-5. `SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md`
-6. `SPRINT_4_MEDICINE_REQUESTS_EXCHANGE_TASK.md`
+5. `SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md` — ✅ fermé (run `20260513-214326-e4322f`). Trial subscription backend-owned aligné avec license verification. Helper transactionnel idempotent `startTrialForPharmacy` + wire-up `createPharmacyRegistration` (trial actif si non mandatory, `trial_pending_license` si mandatory) + wire-up `adminVerifyPharmacyLicense` (verify déclenche trial idempotent, reject/correction non) + retrait `SubscriptionCreationService` client-side pour pharmacy + banner UI `trial_pending_license` + 3 rules emulator REQ-3-001..003.
+6. `SPRINT_4_MEDICINE_REQUESTS_EXCHANGE_TASK.md` — **Prochain sprint, débloqué par clôture Sprint 3.**
 7. `SPRINT_5_E2E_CLOSURE_TASK.md`
 
 Le contrat monolithique `SPRINT_2_F_LICENSE_TASK.md` est conservé comme

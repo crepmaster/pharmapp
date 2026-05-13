@@ -21,6 +21,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   String _currencySymbol = 'FCFA'; // Default to XAF
   String _currencyCode = 'XAF'; // Canonical ISO currency for plan lookup
 
+  /// Sprint 3 — flat-field subscription status read from
+  /// `pharmacies/{uid}.subscriptionStatus`. This is the canonical
+  /// runtime source consumed by `firestore.rules :: hasActiveSubscription()`,
+  /// and the UI mirrors it so the user sees the same truth the gates
+  /// enforce. Possible values include : `trial`, `active`,
+  /// `trial_pending_license`, `expired`, or `pendingPayment`.
+  String? _pharmacySubscriptionStatus;
+
   /// Maps ISO 3166-1 alpha-2 country codes to (currencyCode, displaySymbol).
   /// Used when the pharmacy document has the canonical `countryCode` field
   /// (Sprint 2A+), avoiding an async MasterDataService call in this screen.
@@ -52,6 +60,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     if (pharmacyDoc.exists) {
       final data = pharmacyDoc.data();
       if (data != null) {
+        // Sprint 3 — capture the canonical subscriptionStatus flat field
+        // for the trial / trial_pending_license banner.
+        final rawStatus = data['subscriptionStatus'];
+        if (rawStatus is String) {
+          _pharmacySubscriptionStatus = rawStatus;
+        }
         // Prefer the canonical countryCode field (written by Sprint 2A+ flow).
         // Fall back to the legacy country enum-name string for older profiles.
         final isoCode = data['countryCode'] as String?;
@@ -96,6 +110,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (_pharmacySubscriptionStatus ==
+                      'trial_pending_license')
+                    _buildTrialPendingLicenseBanner(),
                   _buildCurrentStatusCard(),
                   const SizedBox(height: 24),
                   Text(
@@ -134,6 +151,53 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 ],
               ),
             ),
+    );
+  }
+
+  /// Sprint 3 — informational banner shown when the pharmacy is sitting
+  /// on `subscriptionStatus = 'trial_pending_license'`. The 30-day trial
+  /// will not start until an admin verifies the licence ; the gates
+  /// (`firestore.rules :: hasActiveSubscription()`) treat this state as
+  /// "no active subscription", so marketplace actions are blocked
+  /// regardless of what the user might expect.
+  Widget _buildTrialPendingLicenseBanner() {
+    return Container(
+      key: const Key('trial_pending_license_banner'),
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
+        border: Border.all(color: Colors.orange.shade300),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.hourglass_top, color: Colors.orange.shade800),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Trial pending license verification',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.orange.shade900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Your 30-day trial will start as soon as an administrator '
+                  'verifies your pharmacy licence. Marketplace actions are '
+                  'temporarily disabled.',
+                  style: TextStyle(color: Colors.orange.shade900),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 

@@ -53,6 +53,11 @@ jest.mock("firebase-admin/firestore", () => ({
   FieldValue: {
     serverTimestamp: jest.fn(() => "mock-timestamp"),
   },
+  // Sprint 3 — Timestamp.fromDate is now called from
+  // createPharmacyRegistration to seed trial subscription dates.
+  Timestamp: {
+    fromDate: jest.fn((d: Date) => ({ __ts: d.getTime() })),
+  },
 }));
 
 jest.mock("firebase-functions/logger", () => ({
@@ -225,6 +230,66 @@ describe("createPharmacyRegistration callable — Sprint 2A.3", () => {
     });
     expect(mockCreateUser).not.toHaveBeenCalled();
   });
+
+// ---------------------------------------------------------------------------
+// Sprint 3 — trial subscription init aligned with license verification.
+// Architect-locked in SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md (decisions #2/#5).
+// ---------------------------------------------------------------------------
+
+function lastPharmacyDocWritten(): Record<string, unknown> {
+  // The batch.set is called 3 times per registration : users/{uid},
+  // pharmacies/{uid}, wallets/{uid}. We pick the pharmacy entry by
+  // looking up the call whose second argument has a `pharmacyName`.
+  for (const call of mockBatchSet.mock.calls) {
+    const [, payload] = call as [unknown, Record<string, unknown>];
+    if (payload && typeof payload === "object" && "pharmacyName" in payload) {
+      return payload;
+    }
+  }
+  throw new Error("No pharmacies batch.set call captured.");
+}
+
+describe("Sprint 3 — trial subscription init at registration", () => {
+  test('non-mandatory country → subscriptionStatus="trial", hasActiveSubscription=true, dates set', async () => {
+    setSysConfig({ CM: { licenseRequired: false } });
+    mockCreateUser.mockResolvedValueOnce({ uid: "alice-non-mandatory" });
+
+    await wrapped({ data: BASE_INPUT } as any);
+
+    const pharmacyDoc = lastPharmacyDocWritten();
+    expect(pharmacyDoc.subscriptionStatus).toBe("trial");
+    expect(pharmacyDoc.hasActiveSubscription).toBe(true);
+    expect(pharmacyDoc.subscriptionPlan).toBe("basic");
+    expect(pharmacyDoc.subscriptionStartDate).toBeDefined();
+    expect(pharmacyDoc.subscriptionEndDate).toBeDefined();
+    // 30-day duration expressed as a Timestamp.fromDate({__ts: ms}).
+    const start = (pharmacyDoc.subscriptionStartDate as { __ts: number }).__ts;
+    const end = (pharmacyDoc.subscriptionEndDate as { __ts: number }).__ts;
+    expect(end - start).toBe(30 * 24 * 60 * 60 * 1000);
+  });
+
+  test('mandatory country + license provided → subscriptionStatus="trial_pending_license", hasActiveSubscription=false, no dates', async () => {
+    setSysConfig({ GH: { licenseRequired: true } });
+    mockCreateUser.mockResolvedValueOnce({ uid: "ghana-pending" });
+
+    const input = {
+      ...BASE_INPUT,
+      licenseNumber: "PMC-12345",
+      profileData: { ...BASE_INPUT.profileData, countryCode: "GH" },
+    };
+    await wrapped({ data: input } as any);
+
+    const pharmacyDoc = lastPharmacyDocWritten();
+    expect(pharmacyDoc.subscriptionStatus).toBe("trial_pending_license");
+    expect(pharmacyDoc.hasActiveSubscription).toBe(false);
+    expect(pharmacyDoc.subscriptionPlan).toBeNull();
+    expect(pharmacyDoc.subscriptionStartDate).toBeNull();
+    expect(pharmacyDoc.subscriptionEndDate).toBeNull();
+    // License init unchanged (Sprint 2A.3 contract preserved).
+    expect(pharmacyDoc.licenseStatus).toBe("pending_verification");
+    expect(pharmacyDoc.licenseNumber).toBe("PMC-12345");
+  });
+});
 
   test("countryCode unknown in system_config → failed-precondition", async () => {
     setSysConfig({ CM: { licenseRequired: false } });
