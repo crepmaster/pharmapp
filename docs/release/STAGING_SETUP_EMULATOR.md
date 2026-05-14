@@ -172,9 +172,25 @@ Tests garde-fous validés au moment du livrable Sprint 5 phase 1 :
      — requis par le dropdown d'inscription qui filtre sur `countryCode`.
 2. Pas de pharmacies pré-seedées : les scénarios S1/S2/S3 les créent via
    les flows réels (`createPharmacyRegistration`).
-3. Pour S4/S5 : créer **après** les inscriptions S1+S2+S3, manuellement
-   via Emulator UI — inventaire de Pharmacy CM-B (3 items WHO) + Pharmacy
-   CM-A (2 items pour exchange retour).
+3. Pour S4/S5 : utiliser [functions/scripts/seedInventory.mjs](../../functions/scripts/seedInventory.mjs)
+   après avoir créé 2 pharmacies via le flow normal (S2-CM). Le script
+   crée 3 items WHO chez le seller + 2 items chez le buyer (utilisés
+   comme "monnaie d'échange" pour S5). Garde-fous symétriques au seed
+   system_config (FIRESTORE_EMULATOR_HOST + project demo-* + sellerUid
+   et buyerUid non vides et distincts). Idempotent.
+
+```powershell
+# Récupérer les UIDs via Emulator UI Auth (http://localhost:4000/auth)
+# puis :
+$env:FIRESTORE_EMULATOR_HOST="127.0.0.1:8080"
+node .\functions\scripts\seedInventory.mjs `
+  --project=demo-pharmapp `
+  --sellerUid=<CM-B-uid> `
+  --buyerUid=<CM-A-uid>
+```
+
+Le credit wallet du buyer pour S4 se fait via SandboxTestingScreen côté
+Flutter (utilisable depuis le commit `c94af53` — emulator HTTP routing).
 
 ### 5.4 Snapshot import/export
 
