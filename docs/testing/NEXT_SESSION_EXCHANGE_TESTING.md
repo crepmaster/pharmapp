@@ -1,5 +1,18 @@
 # Exchange Workflow Testing Plan - Next Session
 
+> ⚠️ **STALE (2026-05-14, Sprint 5 truth cleanup)** — ce plan référence
+> `createExchangeHold` / `exchangeCapture` comme functions actives, ce qui
+> n'est plus le cas depuis la migration vers `createExchangeProposal` +
+> `acceptExchangeProposal` + `completeExchangeDelivery` (Bloc 1/2). Ces
+> trois HTTP endpoints legacy survivent dans `index.ts` mais ne sont
+> jamais appelés par l'UI (dead code, voir TD-LEGACY-PHARMACY-HTTP-RETIREMENT
+> dans `CLAUDE.md`).
+>
+> **Pour la recette E2E courante, utiliser** :
+> [`docs/release/SPRINT_5_E2E_CLOSURE_PLAN.md`](../release/SPRINT_5_E2E_CLOSURE_PLAN.md).
+>
+> Ce document reste préservé pour traçabilité historique uniquement.
+
 ## 🎯 Objective
 Test complete peer-to-peer medicine exchange workflow with city-based isolation
 
