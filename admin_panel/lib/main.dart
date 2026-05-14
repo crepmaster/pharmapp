@@ -1,19 +1,58 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'firebase_options.dart';
 import 'blocs/admin_auth_bloc.dart';
 import 'screens/admin_login_screen.dart';
 import 'screens/admin_dashboard_screen.dart';
 
+// Sprint 5 phase 1 — emulator wiring gated by --dart-define flags. Same
+// pattern as `pharmapp_unified/lib/main.dart` (commit 4d6c91d). Build
+// prod never sees `useEmulator=true`, so admin_panel prod never resolves
+// to localhost. To run admin_panel against the local Firebase Emulator
+// Suite (S3 admin verify scenario) :
+//
+//   cd admin_panel
+//   flutter run -d chrome --web-port=8087 \
+//     --dart-define=USE_EMULATOR=true \
+//     --dart-define=FIREBASE_PROJECT_ID=demo-pharmapp
+//
+// `firebase_options.dart` hardcodes the prod `projectId` ('mediexchange').
+// We override it via synthetic FirebaseOptions when `USE_EMULATOR=true`
+// so admin_panel sees the same emulator namespace as pharmapp_unified
+// and the seed scripts.
+const _useEmulator = bool.fromEnvironment('USE_EMULATOR');
+const _emulatorProjectId =
+    String.fromEnvironment('FIREBASE_PROJECT_ID', defaultValue: 'demo-pharmapp');
+const _emulatorHost =
+    String.fromEnvironment('EMULATOR_HOST', defaultValue: 'localhost');
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
+    options: _useEmulator
+        ? const FirebaseOptions(
+            apiKey: 'demo-api-key',
+            appId: '1:123:web:demo',
+            messagingSenderId: '123',
+            projectId: _emulatorProjectId,
+            authDomain: 'localhost',
+          )
+        : DefaultFirebaseOptions.currentPlatform,
   );
-  
+
+  if (_useEmulator) {
+    await FirebaseAuth.instance.useAuthEmulator(_emulatorHost, 9099);
+    FirebaseFirestore.instance.useFirestoreEmulator(_emulatorHost, 8080);
+    FirebaseFunctions.instanceFor(region: 'europe-west1')
+        .useFunctionsEmulator(_emulatorHost, 5001);
+  }
+
   runApp(const AdminPanelApp());
 }
 
