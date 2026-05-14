@@ -203,7 +203,7 @@ Pour le détail de Bloc 1 (Inventory Visibility), Bloc 2 Phase 1 (Medicine Reque
 | **2B.2** | F-LICENSE Pharmacy UX + Marketplace Enforcement (registration UI + profile + correction + getMarketplacePharmacies + 6 consumer migrations) | Bloqué jusqu'à clôture 2B.1 |
 | **3** | Trial subscription aligné licence | ✅ Livré (2026-05-14) |
 | **4** | F-BLOC2-P2 exchange mode | ✅ Livré (2026-05-14, orchestrator run `20260513-235401-167aae`, commit `3ffd67f`) |
-| **5** | Clôture E2E | ✅ Livré CONDITIONAL PASS (2026-05-14) — recette staging à exécuter pour passer à PASS |
+| **5** | Clôture E2E | ✅ Livré CONDITIONAL PASS (2026-05-14) — stratégie hybride architecte : phase 1 emulator local pour stabilisation + phase 2 real Firebase staging (`mediexchange-staging`) pour transition PASS. Voir [docs/release/STAGING_SETUP_EMULATOR.md](docs/release/STAGING_SETUP_EMULATOR.md) + [docs/release/STAGING_SETUP_FIREBASE_PROJECT.md](docs/release/STAGING_SETUP_FIREBASE_PROJECT.md) |
 
 ### 🧹 Tech debt
 

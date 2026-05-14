@@ -254,14 +254,30 @@ les **collections à vérifier** et les **critères PASS/FAIL**.
 
 ## 4. Critères globaux PASS / CONDITIONAL PASS / BLOCKED
 
+> 🔒 **Décision architecte 2026-05-14 — Stratégie hybride** :
+>
+> - **Phase 1 — Emulator local** ([STAGING_SETUP_EMULATOR.md](STAGING_SETUP_EMULATOR.md)) :
+>   débloque rapidement la recette sans coût ni risque prod. Couvre 8/8
+>   scénarios côté logique mais **ne suffit pas** comme preuve PASS.
+>   But : détecter et corriger les bugs évidents, stabiliser la
+>   checklist.
+> - **Phase 2 — Real Firebase staging project** ([STAGING_SETUP_FIREBASE_PROJECT.md](STAGING_SETUP_FIREBASE_PROJECT.md)) :
+>   recette complète sur un projet Firebase isolé (`mediexchange-staging`).
+>   Seule cette phase peut faire transiter Sprint 5 de
+>   `CONDITIONAL PASS → PASS`.
+
 ### PASS
 
-- Tous les 8 scénarios passent sur staging avec preuves collectées :
+**Sprint 5 transite à PASS uniquement après recette sur real Firebase
+staging, pas après émulateur seul.**
+
+- Tous les 8 scénarios passent **sur `mediexchange-staging`** avec
+  preuves collectées dans `docs/release/evidence/SPRINT_5_staging_<date>/` :
   - screenshots UI (au moins 1 par scénario).
   - exports Firestore (proposalId, deliveryId, ledger entries).
   - logs Cloud Functions (filtrer par `requestId` / `proposalId`).
 - 0 issue critique remontée par audit Ghana.
-- Drift audit `remote_only=0`, `local_only=0` post-deploy.
+- Drift audit `remote_only=0`, `local_only=0` post-deploy staging.
 
 ### CONDITIONAL PASS (statut actuel Sprint 5 — 2026-05-14)
 

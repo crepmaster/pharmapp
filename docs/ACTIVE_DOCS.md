@@ -44,6 +44,8 @@ This file lists operational, up-to-date documentation. For deprecated or histori
 ### Release plans (`docs/release/`)
 
 - [release/SPRINT_5_E2E_CLOSURE_PLAN.md](release/SPRINT_5_E2E_CLOSURE_PLAN.md) — Sprint 5 E2E recipe (8 scénarios, flow A `createExchangeProposal` vs flow B `medicine_request` explicitement nommés, pre-requis staging, commandes, critères PASS/CONDITIONAL PASS/BLOCKED).
+- [release/STAGING_SETUP_EMULATOR.md](release/STAGING_SETUP_EMULATOR.md) — Phase 1 stratégie hybride (Firebase Emulator Suite local, gratuit, ~30 min setup). Couvre 8/8 scénarios logique mais **insuffisant** comme preuve PASS.
+- [release/STAGING_SETUP_FIREBASE_PROJECT.md](release/STAGING_SETUP_FIREBASE_PROJECT.md) — Phase 2 stratégie hybride (vrai projet `mediexchange-staging`, ~2h setup, billing Spark/Blaze selon besoin webhooks). **Seule phase qui transite Sprint 5 en PASS** (architect lock 2026-05-14).
 - [release/SPRINT_5_MONITORING_7D.md](release/SPRINT_5_MONITORING_7D.md) — Sprint 5 post-deploy 7j runbook (7 checks Cloud Logging + Firestore, cadence J+0/1/3/7, seuils d'alerte, escalation P0..P3). Runbook manuel — pas de deploy auto (lock #5).
 
 ### Admin runbooks (`docs/admin/`)

@@ -220,9 +220,15 @@ Artefacts livrés :
 - Script audit read-only : [functions/scripts/auditGhanaLicenseReadiness.mjs](../../functions/scripts/auditGhanaLicenseReadiness.mjs) — testé `--help` + exit 2 sur `--project` manquant.
 - Runbook monitoring 7j : [docs/release/SPRINT_5_MONITORING_7D.md](../release/SPRINT_5_MONITORING_7D.md) — 7 checks Cloud Logging + Firestore, cadence J+0/1/3/7, seuils P0..P3.
 
+**Stratégie hybride architecte 2026-05-14 (post-livraison initiale)** :
+
+- **Phase 1 — Emulator local** : [docs/release/STAGING_SETUP_EMULATOR.md](../release/STAGING_SETUP_EMULATOR.md). Débloque rapidement la recette sans coût ni risque prod. Couvre 8/8 scénarios côté logique. **Ne suffit pas** comme preuve PASS.
+- **Phase 2 — Real Firebase staging project** : [docs/release/STAGING_SETUP_FIREBASE_PROJECT.md](../release/STAGING_SETUP_FIREBASE_PROJECT.md). Recette complète sur `mediexchange-staging`. **Seule cette phase peut faire transiter Sprint 5 en PASS.**
+
 **Recette staging non exécutée** au moment de la livraison du sprint (pas
 d'environnement staging confirmé). Le verdict deviendra `PASS` après
-exécution des 8 scénarios + collecte des preuves dans `docs/release/evidence/SPRINT_5_<date>/`.
+exécution des 8 scénarios sur real Firebase staging + collecte des preuves
+dans `docs/release/evidence/SPRINT_5_staging_<date>/`.
 
 6 décisions architecte pré-lock respectées intégralement : sprint de
 preuve sans feature, truth cleanup obligatoire fait, deux flows ne sont
