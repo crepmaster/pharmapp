@@ -1,18 +1,55 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'firebase_options.dart';
 import 'navigation/role_router.dart';
 import 'blocs/unified_auth_bloc.dart';
 import 'screens/landing/app_selection_screen.dart';
 
+// Sprint 5 phase 1 — emulator wiring gated by --dart-define flags. The
+// production build never sees `useEmulator=true`, so the prod app never
+// resolves localhost. To run against the local Firebase Emulator Suite :
+//
+//   flutter run -d chrome --web-port=8086 \
+//     --dart-define=USE_EMULATOR=true \
+//     --dart-define=FIREBASE_PROJECT_ID=demo-pharmapp
+//
+// `firebase_options.dart` hardcodes the prod `projectId` ('mediexchange'),
+// so we MUST override `projectId` in `FirebaseOptions` when using the
+// emulator — otherwise the seed (which writes to `demo-pharmapp`) and the
+// app (which would read from `mediexchange`) would look at different
+// emulator namespaces.
+const _useEmulator = bool.fromEnvironment('USE_EMULATOR');
+const _emulatorProjectId =
+    String.fromEnvironment('FIREBASE_PROJECT_ID', defaultValue: 'demo-pharmapp');
+const _emulatorHost =
+    String.fromEnvironment('EMULATOR_HOST', defaultValue: 'localhost');
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
+    options: _useEmulator
+        ? const FirebaseOptions(
+            apiKey: 'demo-api-key',
+            appId: '1:123:web:demo',
+            messagingSenderId: '123',
+            projectId: _emulatorProjectId,
+            authDomain: 'localhost',
+          )
+        : DefaultFirebaseOptions.currentPlatform,
   );
+
+  if (_useEmulator) {
+    await FirebaseAuth.instance.useAuthEmulator(_emulatorHost, 9099);
+    FirebaseFirestore.instance.useFirestoreEmulator(_emulatorHost, 8080);
+    FirebaseFunctions.instanceFor(region: 'europe-west1')
+        .useFunctionsEmulator(_emulatorHost, 5001);
+  }
 
   runApp(const PharmAppUnified());
 }

@@ -221,6 +221,7 @@ Pour le détail de Bloc 1 (Inventory Visibility), Bloc 2 Phase 1 (Medicine Reque
 | **TD-MSISDN-AUDIT** | **Pre-deploy audit (Sprint 1 follow-up)** — avant push prod de `createWithdrawalRequest`, vérifier que tous les `system_config/main.mobileMoneyProviders.*` avec `enabled=true ET supportsPayouts=true` ont `methodCode` non-vide. Sans cet audit, le strictness 3.2c-β peut bloquer des retraits pour providers historiquement mal configurés. Audit read-only via Firestore console ou script script (commit `7c3df07`). | **BLOQUANT pour deploy** | ~30min |
 | **TD-LICENSE-REGISTRATION-AUDIT** | **Pre-deploy audit (Sprint 2A.3 follow-up)** — avant push prod du callable `createPharmacyRegistration` + gate fail-closed sur unknown country, lancer le script `functions/scripts/auditUnknownCountryPharmacies.mjs` pour compter les pharmacies actuellement en prod sans `countryCode` ou avec `countryCode` absent de `system_config/main.countries`. Ces comptes seront refusés par le gate post-deploy → décision produit nécessaire (migration data, backfill grace-period ciblé, ou activation progressive pays par pays). Script livré en Sprint 2A.3.1 (commit suivant). | **BLOQUANT pour deploy** | ~30min |
 | **TD-LEGACY-PHARMACY-HTTP-RETIREMENT** | Retirer l'endpoint HTTP legacy `createPharmacyUser` (Sprint 2A.3.1 a ajouté un commentaire de deprecation, le canonical path est désormais `createPharmacyRegistration`). À planifier après vérification que les logs prod montrent 0 trafic sur l'ancien endpoint sur une fenêtre stable (~1-2 mois post-2B). | Low | ~1h |
+| **TD-SANDBOX-SCREEN-EMULATOR** | **(Sprint 5 phase 1 follow-up)** — `pharmapp_unified/lib/screens/.../SandboxTestingScreen.dart` contient une URL Functions hardcodée vers la prod (`europe-west1-mediexchange`), ce qui empêche son usage dans le flow Flutter contre émulateur. Pour S4/S5 recette, créditer les wallets via Emulator UI Firestore directement. Refactor : utiliser `FirebaseFunctions.instance.httpsCallable(...)` au lieu d'une URL hardcodée, pour que le wiring emulator (`useFunctionsEmulator`) intercepte. | Medium | ~1h |
 
 ### ❓ Décisions produit en attente
 
@@ -260,7 +261,7 @@ cd admin_panel && flutter run -d chrome --web-port=8087
 # Backend functions
 cd functions && npm run build      # tsc clean
 cd functions && npm test           # 338+ tests (excludes firestore rules tests)
-cd functions && npm run test:rules # Firestore rules emulator tests (requires Java 17+, ~10s startup)
+cd functions && npm run test:rules # Firestore rules emulator tests (requires Java 21+ with firebase-tools 15.x, ~10s startup)
 cd functions && npm run serve      # emulator (functions only)
 ```
 

@@ -45,8 +45,12 @@ Firebase.
 ## 2. Prérequis machine
 
 - Node 22+ (`node --version`).
-- Java 17+ pour Firestore emulator + Auth emulator (`java -version`).
-- Firebase CLI ≥ 13 (`firebase --version`). Si absent : `npm install -g firebase-tools`.
+- Java 21+ pour Firebase Emulator Suite avec firebase-tools 15.x
+  (`java -version`). Sur cette machine, firebase-tools 15.18 refuse Java
+  17. Si plusieurs JDK coexistent, vérifier `where java` et mettre le JDK
+  21+ en tête du `PATH` ou définir `JAVA_HOME` dans le terminal de recette.
+- Firebase CLI 15.x (`firebase --version`). Si absent :
+  `npm install -g firebase-tools`.
 - Flutter 3.13+ pour lancer l'app mobile en mode emulator (`flutter --version`).
 
 ---
@@ -122,29 +126,37 @@ main les documents listés en 5.3 ci-dessous. Plus rapide qu'un script
 quand on lance la recette pour la première fois et qu'on veut
 expérimenter les valeurs.
 
-### 5.2 Option B — Script de seed dédié (à créer lors de la recette si besoin)
+### 5.2 Option B — Script de seed dédié ([functions/scripts/seedEmulator.mjs](../../functions/scripts/seedEmulator.mjs))
 
-Si tu veux rejouer plusieurs fois la recette à partir d'un état propre,
-créer un script local lors de la recette. Le fichier n'existe pas dans
-le repo aujourd'hui — c'est un livrable optionnel de la phase de
-stabilisation, à committer (ou pas) selon utilité opérationnelle.
-
-Esquisse de l'API attendue :
+Livré et testé en phase 1 (Windows 11 + Node 22 + firebase-tools 15.18 +
+JDK 25, le 2026-05-14). Idempotent (`set` avec `merge:true`) — peut être
+ré-exécuté sans casser l'état seedé.
 
 ```bash
-# Pré-requis : émulateur démarré + FIRESTORE_EMULATOR_HOST exporté
+# Pré-requis : émulateur démarré dans une autre fenêtre
+firebase emulators:start --only firestore,auth,functions --project=demo-pharmapp
+
+# Puis dans une 2e fenêtre :
 export FIRESTORE_EMULATOR_HOST=localhost:8080
 export FIREBASE_AUTH_EMULATOR_HOST=localhost:9099
-
-# functions/scripts/seedEmulator.mjs — emulator-only, refuse de tourner
-# si FIRESTORE_EMULATOR_HOST est absent (garde-fou anti-prod).
 node functions/scripts/seedEmulator.mjs --project=demo-pharmapp
 ```
 
-Le script doit échouer fail-closed si :
+**3 garde-fous anti-prod** (tous doivent passer, sinon exit 2) :
 
-- `FIRESTORE_EMULATOR_HOST` n'est pas défini, OU
-- `--project` ne commence pas par `demo-` ou ne matche pas `mediexchange-staging`.
+1. `FIRESTORE_EMULATOR_HOST` doit être défini.
+2. `--project` doit commencer par `demo-`.
+3. Confirmation visuelle des valeurs cibles avant écriture.
+
+Tests garde-fous validés au moment du livrable Sprint 5 phase 1 :
+
+| Test | Attendu | Résultat |
+|---|---|---|
+| `--help` | exit 0, aide affichée | ✅ |
+| Sans env var ni `--project` | exit 2, "GUARD 1 FAILED" | ✅ |
+| Env var set, sans `--project` | exit 2, "GUARD 2 FAILED" | ✅ |
+| Env var set, `--project=mediexchange` (non-demo) | exit 2, "GUARD 2 FAILED" | ✅ |
+| Env var + `--project=demo-pharmapp` (légitime) | exit 0, document écrit | ✅ |
 
 ### 5.3 Contenu attendu du seed (manuel ou script)
 
@@ -172,39 +184,122 @@ git : c'est de la state locale.
 
 ## 6. Configuration app Flutter pour pointer sur émulateur
 
-Dans `pharmapp_unified/lib/main.dart` (ou équivalent), ajouter en dev
-seulement :
+✅ **Livré Sprint 5 phase 1.** Le wiring est dans
+[`pharmapp_unified/lib/main.dart`](../../pharmapp_unified/lib/main.dart) et
+**gated** par `--dart-define=USE_EMULATOR=true`. La build prod ne voit
+jamais `useEmulator=true`, donc l'app prod ne résout jamais `localhost`.
 
-```dart
-if (kDebugMode) {
-  FirebaseAuth.instance.useAuthEmulator('localhost', 9099);
-  FirebaseFirestore.instance.useFirestoreEmulator('localhost', 8080);
-  FirebaseFunctions.instanceFor(region: 'europe-west1')
-      .useFunctionsEmulator('localhost', 5001);
-}
-```
+### 6.1 Point critique — projectId doit matcher
 
-> ⚠️ **Ne pas commit ce bloc** — temporaire pour la recette. Restaurer
-> après chaque session emulator.
-> Mieux : guard derrière une variable d'environnement
-> `--dart-define=USE_EMULATOR=true`.
+`firebase_options.dart` hardcode `projectId: 'mediexchange'` (prod). Mais
+le seed écrit dans `demo-pharmapp`. Si tu ne surcharges pas le projectId
+en mode emulator, l'app et le seed regardent **deux namespaces différents**
+dans l'émulateur, ce qui produit des comportements incompréhensibles
+(documents invisibles, callables qui réussissent mais l'app ne voit rien).
+
+Le wiring committé résout ce problème en construisant des `FirebaseOptions`
+synthétiques (apiKey/appId factices, `projectId` aligné sur le seed) quand
+`USE_EMULATOR=true`.
+
+### 6.2 Dart-defines disponibles
+
+| Flag | Default | Rôle |
+|---|---|---|
+| `USE_EMULATOR` | `false` | Active le wiring localhost |
+| `FIREBASE_PROJECT_ID` | `demo-pharmapp` | Doit matcher `--project=` passé au seed et à l'émulateur |
+| `EMULATOR_HOST` | `localhost` | Pour cas atypiques (ex : Docker, WSL) |
 
 ---
 
-## 7. Exécution des 8 scénarios
+## 7. Procédure 3 terminaux PowerShell
 
-Suivre [SPRINT_5_E2E_CLOSURE_PLAN.md](SPRINT_5_E2E_CLOSURE_PLAN.md)
-section 3, scénarios 1 à 8.
+Architect-recommended setup pour exécuter les 8 scénarios contre
+l'émulateur.
 
-Adaptations émulateur :
+### Terminal 1 — émulateur
+
+```powershell
+cd C:\Users\aebon\projects\pharmapp-mobile
+
+# Si java -version renvoie encore 17, pointer explicitement un JDK 21+.
+# Exemple local validé :
+$env:JAVA_HOME="C:\Program Files\Eclipse Adoptium\jdk-25.0.0.36-hotspot"
+$env:PATH="$env:JAVA_HOME\bin;$env:PATH"
+
+cd functions
+npm run build
+cd ..
+firebase emulators:start --only firestore,auth,functions --project=demo-pharmapp
+```
+
+Attendre le banner `All emulators ready! It is now safe to connect your app.`
+puis laisser tourner.
+
+### Terminal 2 — seed
+
+```powershell
+cd C:\Users\aebon\projects\pharmapp-mobile
+$env:FIRESTORE_EMULATOR_HOST="localhost:8080"
+$env:FIREBASE_AUTH_EMULATOR_HOST="localhost:9099"
+node .\functions\scripts\seedEmulator.mjs --project=demo-pharmapp
+```
+
+Doit afficher `system_config/main written successfully`. Garder le
+terminal ouvert pour relancer le seed entre runs si besoin.
+
+### Terminal 3 — app Flutter web
+
+```powershell
+cd C:\Users\aebon\projects\pharmapp-mobile\pharmapp_unified
+flutter run -d chrome --web-port=8086 `
+  --dart-define=USE_EMULATOR=true `
+  --dart-define=FIREBASE_PROJECT_ID=demo-pharmapp
+```
+
+Ouvre Chrome sur `http://localhost:8086`. Les 3 instances Firebase
+(Auth, Firestore, Functions) sont automatiquement re-routées vers
+l'émulateur via le wiring conditionnel de `main.dart`.
+
+### Premier flow à tester (suggestion architecte)
+
+- Choisir **Pharmacy** sur la landing page.
+- Tenter une inscription **Ghana sans licence**.
+  - Attendu : snackbar `LICENSE_REQUIRED`, aucun doc `pharmacies/{uid}`
+    visible sur `http://localhost:4000/firestore`.
+- Refaire l'inscription **Ghana avec licence `GH-1234`**.
+  - Attendu : doc `pharmacies/{uid}` créé avec `licenseStatus='pending_verification'`
+    et `subscriptionStatus='trial_pending_license'`.
+
+### Adaptations émulateur
 
 - **S3 Admin verify** : créer un user admin manuellement via
   l'UI emulator Auth (`http://localhost:4000/auth`) avec custom claims
   `{ role: 'admin', countryScopes: ['GH'], permissions: ['manage_pharmacies'] }`.
-- **S4/S5 Wallet sandbox** : appeler `sandboxCredit` callable pour
-  créditer les wallets avant exécution.
+- **S4/S5 Wallet sandbox** : ⚠️ **NE PAS** utiliser `SandboxTestingScreen`
+  côté Flutter — il contient une URL Functions hardcodée vers la prod
+  (`europe-west1-mediexchange`). Créditer les wallets via l'Emulator UI
+  Firestore (créer un doc `wallets/{uid}` à la main) ou via un script
+  local Admin SDK. À fixer dans un futur micro-sprint (TD à ouvrir).
 - **S8 Withdrawal** : `sandboxAdvanceWithdrawal` simule le PSP — pas
   de webhook réel requis.
+
+### Smoke backend-only Scénario 4
+
+`functions/scripts/smokeScenario4.mjs` orchestre le Scénario 4
+medicine-request purchase contre Auth + Functions + Firestore emulators :
+inscription CM-A/CM-B via `createPharmacyRegistration`, seed wallet +
+inventory, puis `createMedicineRequest` → `submitMedicineRequestOffer` →
+`acceptMedicineRequestOffer`.
+
+Validé le 2026-05-14 avec firebase-tools 15.18 + JDK 25 : script exit 0,
+13 assertions end-state pass. Commande PowerShell :
+
+```powershell
+cd C:\Users\aebon\projects\pharmapp-mobile
+$env:JAVA_HOME="C:\Program Files\Eclipse Adoptium\jdk-25.0.0.36-hotspot"
+$env:PATH="$env:JAVA_HOME\bin;$env:PATH"
+firebase emulators:exec --only firestore,auth,functions --project=demo-pharmapp "cmd /c node functions/scripts/seedEmulator.mjs --project=demo-pharmapp && node functions/scripts/smokeScenario4.mjs --project=demo-pharmapp"
+```
 
 ---
 
