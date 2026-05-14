@@ -161,10 +161,15 @@ Tests garde-fous validés au moment du livrable Sprint 5 phase 1 :
 ### 5.3 Contenu attendu du seed (manuel ou script)
 
 1. `system_config/main` :
-   - `countries.CM = { licenseRequired: false, defaultCurrencyCode: 'XAF' }`
-   - `countries.GH = { licenseRequired: true, licenseFormatRegex: '^GH-\\d{4}$', licenseGracePeriodDays: 30, defaultCurrencyCode: 'GHS' }`
-   - `citiesByCountry.CM.douala = { deliveryFee: 1000, exchangeFee: 1200 }`
-   - `citiesByCountry.GH.accra = { deliveryFee: 2000 }` (laisser exchangeFee absent pour tester fallback × 1.2 = 2400)
+   - `schemaVersion = 1`, `primaryCountryCode = 'CM'` — requis pour que
+     `MasterDataService` utilise la config Firestore au lieu du fallback
+     statique.
+   - `countries.CM = { code: 'CM', enabled: true, name: 'Cameroon', dialCode: '237', defaultCurrencyCode: 'XAF', defaultCityCode: 'douala', providerIds: ['mtn_momo_cm'], licenseRequired: false }`
+   - `countries.GH = { code: 'GH', enabled: true, name: 'Ghana', dialCode: '233', defaultCurrencyCode: 'GHS', defaultCityCode: 'accra', providerIds: ['mtn_momo_gh'], licenseRequired: true, licenseFormatRegex: '^GH-\\d{4}$', licenseGracePeriodDays: 30 }`
+   - `citiesByCountry.CM.douala = { code: 'douala', name: 'Douala', enabled: true, deliveryFee: 1000, exchangeFee: 1200, currencyCode: 'XAF' }`
+   - `citiesByCountry.GH.accra = { code: 'accra', name: 'Accra', enabled: true, deliveryFee: 2000, currencyCode: 'GHS' }` (laisser exchangeFee absent pour tester fallback × 1.2 = 2400)
+   - `mobileMoneyProviders.mtn_momo_cm` et `mtn_momo_gh` séparés par pays
+     — requis par le dropdown d'inscription qui filtre sur `countryCode`.
 2. Pas de pharmacies pré-seedées : les scénarios S1/S2/S3 les créent via
    les flows réels (`createPharmacyRegistration`).
 3. Pour S4/S5 : créer **après** les inscriptions S1+S2+S3, manuellement
@@ -275,11 +280,13 @@ l'émulateur via le wiring conditionnel de `main.dart`.
 - **S3 Admin verify** : créer un user admin manuellement via
   l'UI emulator Auth (`http://localhost:4000/auth`) avec custom claims
   `{ role: 'admin', countryScopes: ['GH'], permissions: ['manage_pharmacies'] }`.
-- **S4/S5 Wallet sandbox** : ⚠️ **NE PAS** utiliser `SandboxTestingScreen`
-  côté Flutter — il contient une URL Functions hardcodée vers la prod
-  (`europe-west1-mediexchange`). Créditer les wallets via l'Emulator UI
-  Firestore (créer un doc `wallets/{uid}` à la main) ou via un script
-  local Admin SDK. À fixer dans un futur micro-sprint (TD à ouvrir).
+- **S4/S5 Wallet sandbox** : ✅ `SandboxTestingScreen` est utilisable sur
+  emulator depuis le micro-sprint emulator HTTP routing (2026-05-14). Les
+  4 services HTTP côté Flutter (`AuthenticatedHttpService`,
+  `SandboxTestingScreen`, `ExchangeService`, `SecureSubscriptionService`)
+  délèguent maintenant à `AuthenticatedHttpService.functionsBaseUrl`,
+  getter gated par `--dart-define=USE_EMULATOR=true`. La build prod élide
+  la branche emulator par tree-shaking.
 - **S8 Withdrawal** : `sandboxAdvanceWithdrawal` simule le PSP — pas
   de webhook réel requis.
 

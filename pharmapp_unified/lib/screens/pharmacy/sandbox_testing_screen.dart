@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
+import 'package:pharmapp_shared/services/authenticated_http_service.dart';
 
 /// 🧪 SANDBOX TESTING SCREEN - REMOVE BEFORE PRODUCTION
 ///
@@ -17,7 +18,10 @@ class SandboxTestingScreen extends StatefulWidget {
 }
 
 class _SandboxTestingScreenState extends State<SandboxTestingScreen> {
-  static const String functionsUrl = 'https://europe-west1-mediexchange.cloudfunctions.net';
+  // Sprint 5 phase 1 emulator HTTP routing — was a local `const String`
+  // hardcoded to prod, now delegates to `AuthenticatedHttpService.functionsBaseUrl`
+  // which honors `--dart-define=USE_EMULATOR=true` for local emulator runs.
+  String get functionsUrl => AuthenticatedHttpService.functionsBaseUrl;
 
   final _creditAmountController = TextEditingController(text: '10000');
   final _debitAmountController = TextEditingController(text: '5000');

@@ -2,9 +2,20 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:pharmapp_shared/services/authenticated_http_service.dart';
 
+/// ⚠️ Sprint 5 phase 1 note (2026-05-14) : this service is DEAD-CODE. The
+/// three HTTP endpoints it targets (`createExchangeHold`, `exchangeCapture`,
+/// `exchangeCancel`) are legacy on the backend (see TD-LEGACY-PHARMACY-HTTP-RETIREMENT
+/// in CLAUDE.md). No UI surface calls `ExchangeService.*` anymore — the
+/// canonical exchange flow goes through `createExchangeProposal` /
+/// `acceptExchangeProposal` (Bloc 1) or `medicine_request_service.dart`
+/// (Bloc 2). Patched here so the file does not keep a hardcoded prod URL
+/// laying around, but slated for removal alongside the backend dead-code
+/// retirement.
 class ExchangeService {
-  static const String functionsUrl = 'https://europe-west1-mediexchange.cloudfunctions.net';
+  // Was `static const`, now delegates to AuthenticatedHttpService.
+  static String get functionsUrl => AuthenticatedHttpService.functionsBaseUrl;
   static final FirebaseAuth _auth = FirebaseAuth.instance;
 
   static Future<Map<String, String>> _authHeaders() async {

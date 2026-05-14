@@ -6,7 +6,11 @@ import 'authenticated_http_service.dart';
 /// Handles wallet operations for pharmacies, couriers, and admins consistently.
 /// All HTTP calls send Firebase Bearer token for backend auth enforcement.
 class UnifiedWalletService {
-  static const String _baseUrl = AuthenticatedHttpService.functionsBaseUrl;
+  // Sprint 5 phase 1 emulator HTTP routing — was `static const`, now
+  // a getter so it tracks `AuthenticatedHttpService.functionsBaseUrl`
+  // (also a getter, USE_EMULATOR-gated). Const referencing a getter
+  // is not allowed in Dart, hence the change.
+  static String get _baseUrl => AuthenticatedHttpService.functionsBaseUrl;
 
   // ======================= COMMON WALLET OPERATIONS =======================
 

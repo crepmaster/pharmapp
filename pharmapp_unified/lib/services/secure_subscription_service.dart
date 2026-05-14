@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:pharmapp_shared/services/authenticated_http_service.dart';
 
 /// Error categories for subscription validation results.
 /// Used to distinguish business errors from infrastructure errors.
@@ -17,7 +18,10 @@ enum AccessErrorCategory {
 /// Uses server-side validation functions to prevent client-side bypass attacks
 /// ALL subscription validation is now done server-side for maximum security
 class SecureSubscriptionService {
-  static const String _baseUrl = 'https://europe-west1-mediexchange.cloudfunctions.net';
+  // Sprint 5 phase 1 emulator HTTP routing — was a `static const String`
+  // hardcoded to prod, now delegates to `AuthenticatedHttpService.functionsBaseUrl`
+  // which honors `--dart-define=USE_EMULATOR=true` for local emulator runs.
+  static String get _baseUrl => AuthenticatedHttpService.functionsBaseUrl;
   static final FirebaseAuth _auth = FirebaseAuth.instance;
 
   /// Get authenticated headers with Firebase ID token

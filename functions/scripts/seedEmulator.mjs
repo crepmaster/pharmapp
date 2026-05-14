@@ -126,13 +126,22 @@ if (!projectId.startsWith("demo-")) {
 // ---------------------------------------------------------------------------
 
 const SYSTEM_CONFIG = {
+  schemaVersion: 1,
+  primaryCountryCode: "CM",
   countries: {
     CM: {
+      code: "CM",
       licenseRequired: false,
       defaultCurrencyCode: "XAF",
       name: "Cameroon",
+      dialCode: "237",
+      enabled: true,
+      sortOrder: 0,
+      defaultCityCode: "douala",
+      providerIds: ["mtn_momo_cm"],
     },
     GH: {
+      code: "GH",
       licenseRequired: true,
       licenseFormatRegex: "^GH-\\d{4}$",
       licenseGracePeriodDays: 30,
@@ -142,28 +151,90 @@ const SYSTEM_CONFIG = {
       licenseDocumentRequired: true,
       defaultCurrencyCode: "GHS",
       name: "Ghana",
+      dialCode: "233",
+      enabled: true,
+      sortOrder: 1,
+      defaultCityCode: "accra",
+      providerIds: ["mtn_momo_gh"],
     },
   },
   citiesByCountry: {
     CM: {
-      douala: { deliveryFee: 1000, exchangeFee: 1200 },
-      yaounde: { deliveryFee: 1000, exchangeFee: 1200 },
+      douala: {
+        code: "douala",
+        name: "Douala",
+        enabled: true,
+        deliveryFee: 1000,
+        exchangeFee: 1200,
+        currencyCode: "XAF",
+        sortOrder: 0,
+      },
+      yaounde: {
+        code: "yaounde",
+        name: "Yaounde",
+        enabled: true,
+        deliveryFee: 1000,
+        exchangeFee: 1200,
+        currencyCode: "XAF",
+        sortOrder: 1,
+      },
     },
     GH: {
       // Note: exchangeFee absent on purpose to test fallback deliveryFee × 1.2
-      accra: { deliveryFee: 2000 },
+      accra: {
+        code: "accra",
+        name: "Accra",
+        enabled: true,
+        deliveryFee: 2000,
+        currencyCode: "GHS",
+        sortOrder: 0,
+      },
     },
   },
   currencies: {
-    XAF: { decimals: 0, minWithdrawalMinor: 1000, symbol: "FCFA" },
-    GHS: { decimals: 2, minWithdrawalMinor: 10000, symbol: "₵" },
+    XAF: {
+      code: "XAF",
+      name: "Central African CFA franc",
+      enabled: true,
+      sortOrder: 0,
+      decimals: 0,
+      minWithdrawalMinor: 1000,
+      symbol: "FCFA",
+    },
+    GHS: {
+      code: "GHS",
+      name: "Ghanaian cedi",
+      enabled: true,
+      sortOrder: 1,
+      decimals: 2,
+      minWithdrawalMinor: 10000,
+      symbol: "GH₵",
+    },
   },
   mobileMoneyProviders: {
-    mtn_momo: {
+    mtn_momo_cm: {
+      id: "mtn_momo_cm",
+      name: "MTN Mobile Money",
+      countryCode: "CM",
+      currencyCode: "XAF",
       enabled: true,
+      displayOrder: 0,
+      requiresMsisdn: true,
+      supportsCollections: true,
       supportsPayouts: true,
       methodCode: "mtn_momo",
-      countries: ["CM", "GH"],
+    },
+    mtn_momo_gh: {
+      id: "mtn_momo_gh",
+      name: "MTN Mobile Money Ghana",
+      countryCode: "GH",
+      currencyCode: "GHS",
+      enabled: true,
+      displayOrder: 0,
+      requiresMsisdn: true,
+      supportsCollections: true,
+      supportsPayouts: true,
+      methodCode: "mtn_gh",
     },
   },
 };
@@ -173,6 +244,8 @@ console.log(`   FIRESTORE_EMULATOR_HOST = ${process.env.FIRESTORE_EMULATOR_HOST}
 console.log(`   FIREBASE_AUTH_EMULATOR_HOST = ${process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "(not set; auth seeding will fail if needed)"}`);
 console.log(`   project = ${projectId}`);
 console.log(`\n📋 Will write system_config/main with :`);
+console.log(`   - schemaVersion: ${SYSTEM_CONFIG.schemaVersion}`);
+console.log(`   - primaryCountryCode: ${SYSTEM_CONFIG.primaryCountryCode}`);
 console.log(`   - countries: ${Object.keys(SYSTEM_CONFIG.countries).join(", ")}`);
 console.log(`   - citiesByCountry: ${Object.entries(SYSTEM_CONFIG.citiesByCountry).map(([c, cs]) => `${c}=[${Object.keys(cs).join(",")}]`).join(", ")}`);
 console.log(`   - currencies: ${Object.keys(SYSTEM_CONFIG.currencies).join(", ")}`);
