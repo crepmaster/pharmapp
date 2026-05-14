@@ -4,8 +4,13 @@ import 'package:cloud_functions/cloud_functions.dart';
 import '../models/medicine_request.dart';
 import '../models/medicine_request_offer.dart';
 
-/// Service for medicine request domain (Sprint 2A).
-/// Provides callable wrappers and Firestore streams for Sprint 2B UI.
+/// Service for medicine request domain.
+/// Sprint 2A introduced the callable wrappers and Firestore streams.
+/// Sprint 4 (F-BLOC2-P2) adds support for `exchange` mode:
+///   - `createRequest` accepts `requestMode`.
+///   - `submitOffer` accepts `offerType` + optional `exchangeItem`.
+///   - `acceptOffer` accepts optional `exchangeInventoryItemId` (required
+///     when the underlying offer is an exchange offer).
 class MedicineRequestService {
   static final FirebaseFirestore _db = FirebaseFirestore.instance;
   static final FirebaseFunctions _functions =
@@ -15,11 +20,12 @@ class MedicineRequestService {
   // CALLABLES
   // ---------------------------------------------------------------------------
 
-  /// Create a medicine request.
+  /// Create a medicine request. `requestMode` is mandatory (Sprint 4).
   static Future<String> createRequest({
     required String medicineId,
     required Map<String, dynamic> medicineSnapshot,
     required int requestedQuantity,
+    required RequestMode requestMode,
     required String currencyCode,
     String notes = '',
   }) async {
@@ -28,7 +34,7 @@ class MedicineRequestService {
       'medicineId': medicineId,
       'medicineSnapshot': medicineSnapshot,
       'requestedQuantity': requestedQuantity,
-      'requestMode': 'purchase',
+      'requestMode': requestMode.wire,
       'currencyCode': currencyCode,
       'notes': notes,
     });
@@ -41,8 +47,8 @@ class MedicineRequestService {
     await callable.call<Map<String, dynamic>>({'requestId': requestId});
   }
 
-  /// Submit an offer on an open request.
-  static Future<String> submitOffer({
+  /// Submit a `purchase` offer on a purchase request.
+  static Future<String> submitPurchaseOffer({
     required String requestId,
     required String inventoryItemId,
     required int offeredQuantity,
@@ -55,7 +61,28 @@ class MedicineRequestService {
       'inventoryItemId': inventoryItemId,
       'offeredQuantity': offeredQuantity,
       'unitPrice': unitPrice,
-      'offerType': 'purchase',
+      'offerType': OfferType.purchase.wire,
+      'notes': notes,
+    });
+    return result.data['offerId'] as String;
+  }
+
+  /// Submit an `exchange` offer on an exchange request (Sprint 4, barter).
+  /// `exchangeItem` describes the medicine the seller wants in return.
+  static Future<String> submitExchangeOffer({
+    required String requestId,
+    required String inventoryItemId,
+    required int offeredQuantity,
+    required ExchangeItem exchangeItem,
+    String notes = '',
+  }) async {
+    final callable = _functions.httpsCallable('submitMedicineRequestOffer');
+    final result = await callable.call<Map<String, dynamic>>({
+      'requestId': requestId,
+      'inventoryItemId': inventoryItemId,
+      'offeredQuantity': offeredQuantity,
+      'offerType': OfferType.exchange.wire,
+      'exchangeItem': exchangeItem.toMap(),
       'notes': notes,
     });
     return result.data['offerId'] as String;
@@ -68,15 +95,23 @@ class MedicineRequestService {
   }
 
   /// Accept an offer — bridges into canonical proposal + delivery.
+  /// For `exchange` offers, `exchangeInventoryItemId` is REQUIRED and
+  /// must point to one of the requester's own inventory items matching
+  /// the offer's `exchangeItem` (medicine + dosage + form + quantity).
   static Future<Map<String, dynamic>> acceptOffer({
     required String requestId,
     required String offerId,
+    String? exchangeInventoryItemId,
   }) async {
     final callable = _functions.httpsCallable('acceptMedicineRequestOffer');
-    final result = await callable.call<Map<String, dynamic>>({
+    final payload = <String, dynamic>{
       'requestId': requestId,
       'offerId': offerId,
-    });
+    };
+    if (exchangeInventoryItemId != null) {
+      payload['exchangeInventoryItemId'] = exchangeInventoryItemId;
+    }
+    final result = await callable.call<Map<String, dynamic>>(payload);
     return result.data;
   }
 

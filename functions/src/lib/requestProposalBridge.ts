@@ -1,35 +1,50 @@
 /**
- * requestProposalBridge — Sprint 2A
+ * requestProposalBridge — Sprint 2A + Sprint 4 (F-BLOC2-P2).
  *
  * Transactional helper that bridges a medicine request offer into the
- * canonical exchange_proposals + deliveries pipeline.
+ * canonical `exchange_proposals` + `deliveries` pipeline.
  *
- * Called by acceptMedicineRequestOffer. Performs everything in ONE
- * Firestore transaction:
- *   1. Validates request, offer, inventory, wallet, pharmacies
- *   2. Decrements buyer wallet (available → deducted, no intermediate held)
- *   3. Creates exchange_proposal in status "accepted"
- *   4. Creates delivery in status "pending"
- *   5. Writes ledger entries for wallet transitions
- *   6. Links proposal + delivery back to offer
+ * Called by `acceptMedicineRequestOffer`. Two flavors :
+ *   - `acceptRequestOfferIntoCanonicalProposal` (purchase) — debits the
+ *     buyer wallet, creates an `accepted` proposal + `pending` delivery.
+ *   - `acceptExchangeRequestOfferIntoCanonicalProposal` (Sprint 4,
+ *     exchange) — reserves only the requester's exchange inventory item
+ *     (per lock #5), creates an `accepted` proposal + `pending` delivery,
+ *     and does NOT touch any wallet (barter, no soulte — lock #1).
  *
- * The created proposal carries `reservations.walletReserved` for compat
- * with completeExchangeDelivery.ts which reads that field.
+ * Both flavors converge on the same `exchange_proposals` shape via
+ * `buildCanonicalProposalDocument` so downstream consumers
+ * (`acceptExchangeProposal`, `completeExchangeDelivery`,
+ * `cancelExchangeProposal`) see one canonical contract.
  */
 
 import {
-  Transaction,
+  type Transaction,
   FieldValue,
   getFirestore,
 } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { HttpsError } from "firebase-functions/v2/https";
 import { citySlug } from "../cityUtils.js";
+import {
+  buildCanonicalDeliveryDocument,
+  buildCanonicalProposalDocument,
+  pharmacyInfoFromDoc,
+  reserveExchangeInventory,
+  resolveCourierFee,
+  type CanonicalExchangeDetails,
+  type CanonicalInventorySnapshot,
+  type CanonicalPurchaseDetails,
+} from "./exchangePipeline.js";
 
 const db = getFirestore();
 
+// ---------------------------------------------------------------------------
+// Purchase path (Sprint 2A — refactored in Sprint 4 to share canonical builders)
+// ---------------------------------------------------------------------------
+
 export interface RequestOfferBridgeParams {
-  /** The admin/user invoking this (requester pharmacy). */
+  /** The user invoking this (requester pharmacy). */
   callerUid: string;
   /** medicine_requests document ID. */
   requestId: string;
@@ -42,12 +57,6 @@ export interface RequestOfferBridgeResult {
   deliveryId: string;
 }
 
-/**
- * Execute the full bridge in a single Firestore transaction.
- *
- * The caller (`acceptMedicineRequestOffer`) wraps this in `db.runTransaction`.
- * All reads happen in phase 1, all writes in phase 2 (Firestore constraint).
- */
 export async function acceptRequestOfferIntoCanonicalProposal(
   transaction: Transaction,
   params: RequestOfferBridgeParams
@@ -58,7 +67,6 @@ export async function acceptRequestOfferIntoCanonicalProposal(
   // PHASE 1: ALL READS
   // ================================================================
 
-  // 1a. Request
   const requestRef = db.collection("medicine_requests").doc(requestId);
   const requestSnap = await transaction.get(requestRef);
   if (!requestSnap.exists) {
@@ -79,7 +87,6 @@ export async function acceptRequestOfferIntoCanonicalProposal(
     );
   }
 
-  // 1b. Offer
   const offerRef = db.collection("medicine_request_offers").doc(offerId);
   const offerSnap = await transaction.get(offerRef);
   if (!offerSnap.exists) {
@@ -96,12 +103,17 @@ export async function acceptRequestOfferIntoCanonicalProposal(
       `Offer is '${offerData.status}', not pending.`
     );
   }
+  if (offerData.offerType !== "purchase") {
+    throw new HttpsError(
+      "failed-precondition",
+      "This bridge only handles 'purchase' offers."
+    );
+  }
 
   const sellerUid = offerData.sellerPharmacyId as string;
   const totalPrice = offerData.totalPrice as number;
   const currencyCode = (offerData.currencyCode as string) || "XAF";
 
-  // 1c. Inventory item (seller's stock)
   const inventoryRef = db
     .collection("pharmacy_inventory")
     .doc(offerData.inventoryItemId as string);
@@ -122,13 +134,11 @@ export async function acceptRequestOfferIntoCanonicalProposal(
       `Insufficient stock. Available: ${availableQty}, offered: ${offeredQty}.`
     );
   }
-  // Check not expired
   const expDate = inventoryData.batch?.expirationDate?.toDate?.();
   if (expDate && expDate < new Date()) {
     throw new HttpsError("failed-precondition", "Seller inventory item has expired.");
   }
 
-  // 1d. Buyer wallet
   const buyerWalletRef = db.collection("wallets").doc(callerUid);
   const buyerWalletSnap = await transaction.get(buyerWalletRef);
   const buyerWallet = buyerWalletSnap.exists ? buyerWalletSnap.data()! : null;
@@ -140,7 +150,6 @@ export async function acceptRequestOfferIntoCanonicalProposal(
     );
   }
 
-  // 1e. Pharmacy profiles (for delivery addresses)
   const buyerPharmRef = db.collection("pharmacies").doc(callerUid);
   const sellerPharmRef = db.collection("pharmacies").doc(sellerUid);
   const [buyerPharmSnap, sellerPharmSnap] = await Promise.all([
@@ -153,8 +162,6 @@ export async function acceptRequestOfferIntoCanonicalProposal(
   const buyerPharm = buyerPharmSnap.data()!;
   const sellerPharm = sellerPharmSnap.data()!;
 
-  // 1f. Revalidate geographic scope — both pharmacies must still match
-  // the request's countryCode + cityCode at acceptance time.
   const reqCountry = requestData.countryCode as string;
   const reqCity = requestData.cityCode as string;
   if (
@@ -176,7 +183,6 @@ export async function acceptRequestOfferIntoCanonicalProposal(
     );
   }
 
-  // 1g. Read all other pending offers for this request (to decline them)
   const otherOffersQuery = db
     .collection("medicine_request_offers")
     .where("requestId", "==", requestId);
@@ -188,18 +194,17 @@ export async function acceptRequestOfferIntoCanonicalProposal(
 
   const now = FieldValue.serverTimestamp();
 
-  // 2a. Wallet: available → deducted (skip held, immediate acceptance)
+  // Wallet: available → deducted (skip held, immediate acceptance)
   transaction.update(buyerWalletRef, {
     available: FieldValue.increment(-totalPrice),
     deducted: FieldValue.increment(totalPrice),
     updatedAt: now,
   });
 
-  // 2b. Ledger: record wallet hold + commit in a single combined entry
   const holdLedgerRef = db.collection("ledger").doc();
   transaction.set(holdLedgerRef, {
     type: "proposal_wallet_hold_created",
-    proposalId: "", // Will be backfilled below
+    proposalId: "", // Backfilled below
     userId: callerUid,
     amount: totalPrice,
     currency: currencyCode,
@@ -212,151 +217,112 @@ export async function acceptRequestOfferIntoCanonicalProposal(
     createdAt: now,
   });
 
-  // 2c. Create canonical exchange_proposal (already accepted)
   const proposalRef = db.collection("exchange_proposals").doc();
   const proposalId = proposalRef.id;
-
-  // Backfill ledger proposalId
   transaction.update(holdLedgerRef, { proposalId });
 
-  const proposalData: Record<string, unknown> = {
-    id: proposalId,
-    inventoryItemId: offerData.inventoryItemId,
-    fromPharmacyId: callerUid, // buyer
-    toPharmacyId: sellerUid, // seller
-    details: {
-      type: "purchase",
-      quantity: offeredQty,
-      unitPrice: offerData.unitPrice,
-      totalPrice,
-      currency: currencyCode,
-      medicineName:
-        offerData.inventorySnapshot?.medicineName ||
-        inventoryData.medicineName ||
-        null,
-      medicineId:
-        offerData.inventorySnapshot?.medicineId ||
-        inventoryData.medicineId ||
-        null,
-    },
-    status: "accepted",
-    acceptedBy: sellerUid,
-    acceptedAt: now,
-    acceptanceNotes: "",
-    createdAt: now,
-    updatedAt: now,
-    expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
-    // Compat with completeExchangeDelivery.ts
-    reservations: {
-      walletReserved: totalPrice,
-      inventoryReserved: null,
-    },
-    // Snapshot for proposals UI
-    inventorySnapshot: offerData.inventorySnapshot || {
-      medicineId: inventoryData.medicineId || null,
-      medicineName: inventoryData.medicineName || null,
-      packaging: inventoryData.packaging || null,
-      lotNumber: inventoryData.batch?.lotNumber || null,
-      expirationDate: inventoryData.batch?.expirationDate || null,
-      availableQuantityAtOffer: availableQty,
-    },
-    // Link back to request domain
-    _sourceRequestId: requestId,
-    _sourceOfferId: offerId,
+  const inventorySnapshot: CanonicalInventorySnapshot = {
+    medicineId:
+      (offerData.inventorySnapshot?.medicineId as string) ||
+      (inventoryData.medicineId as string) ||
+      null,
+    medicineName:
+      (offerData.inventorySnapshot?.medicineName as string) ||
+      (inventoryData.medicineName as string) ||
+      null,
+    genericName:
+      (offerData.inventorySnapshot?.genericName as string) ||
+      (inventoryData.medicine?.genericName as string) ||
+      null,
+    strength:
+      (offerData.inventorySnapshot?.strength as string) ||
+      (inventoryData.medicine?.strength as string) ||
+      null,
+    form:
+      (offerData.inventorySnapshot?.form as string) ||
+      (inventoryData.medicine?.form as string) ||
+      null,
+    packaging:
+      (offerData.inventorySnapshot?.packaging as string) ||
+      (inventoryData.packaging as string) ||
+      null,
+    lotNumber:
+      (offerData.inventorySnapshot?.lotNumber as string) ||
+      (inventoryData.batch?.lotNumber as string) ||
+      null,
+    expirationDate:
+      offerData.inventorySnapshot?.expirationDate ??
+      inventoryData.batch?.expirationDate ??
+      null,
+    availableQuantityAtOffer: availableQty,
   };
-  transaction.set(proposalRef, proposalData);
 
-  // 2d. Create delivery (same structure as acceptExchangeProposal)
-  const deliveryRef = db.collection("deliveries").doc();
-  const deliveryId = deliveryRef.id;
-
-  // pickup = seller (inventory owner), dropoff = buyer (requester)
-  const pickupPharm = sellerPharm;
-  const pickupId = sellerUid;
-  const dropoffPharm = buyerPharm;
-  const dropoffId = callerUid;
-
-  const deliveryData: Record<string, unknown> = {
-    deliveryId,
-    proposalId,
-    exchangeId: null,
-    fromPharmacyId: pickupId,
-    fromPharmacyName:
-      pickupPharm.pharmacyName || pickupPharm.name || pickupPharm.displayName || "Unknown",
-    fromPharmacyAddress: pickupPharm.address || "",
-    fromPharmacyCity: pickupPharm.city || "",
-    fromPharmacyCityCode:
-      pickupPharm.cityCode || citySlug(pickupPharm.city || ""),
-    fromPharmacyLocation: pickupPharm.location || null,
-    fromPharmacyPhone: pickupPharm.phoneNumber || "",
-    toPharmacyId: dropoffId,
-    toPharmacyName:
-      dropoffPharm.pharmacyName || dropoffPharm.name || dropoffPharm.displayName || "Unknown",
-    toPharmacyAddress: dropoffPharm.address || "",
-    toPharmacyCity: dropoffPharm.city || "",
-    toPharmacyCityCode:
-      dropoffPharm.cityCode || citySlug(dropoffPharm.city || ""),
-    toPharmacyLocation: dropoffPharm.location || null,
-    toPharmacyPhone: dropoffPharm.phoneNumber || "",
-    items: [
-      {
-        medicineId: inventoryData.medicineId || "",
-        medicineName: inventoryData.medicineName || "Unknown Medicine",
-        dosage: inventoryData.dosage || "",
-        form: inventoryData.form || "",
-        quantity: offeredQty,
-        packaging: inventoryData.packaging || "",
-      },
-    ],
-    city: buyerPharm.city || sellerPharm.city || "",
-    cityCode:
-      buyerPharm.cityCode ||
-      sellerPharm.cityCode ||
-      citySlug(buyerPharm.city || sellerPharm.city || ""),
-    status: "pending",
-    courierId: null,
-    courierName: null,
-    courierPhone: null,
-    proposalType: "purchase",
+  const details: CanonicalPurchaseDetails = {
+    type: "purchase",
+    quantity: offeredQty,
+    unitPrice: offerData.unitPrice as number,
     totalPrice,
     currency: currencyCode,
-    courierFee: Math.round(totalPrice * 0.12),
-    paymentStatus: "pending",
-    createdAt: now,
-    updatedAt: now,
-    acceptedAt: now,
-    assignedAt: null,
-    pickedUpAt: null,
-    deliveredAt: null,
-    estimatedDeliveryTime: null,
-    actualDeliveryTime: null,
-    qrCodePickup: deliveryId,
-    qrCodeDelivery: `${deliveryId}-delivery`,
-    photoProofUrl: null,
-    deliveryNotes: "",
+    medicineName: inventorySnapshot.medicineName,
+    medicineId: inventorySnapshot.medicineId,
   };
-  transaction.set(deliveryRef, deliveryData);
 
-  // 2e. Link delivery back to proposal
+  const proposalDoc = buildCanonicalProposalDocument(
+    {
+      proposalId,
+      inventoryItemId: offerData.inventoryItemId as string,
+      fromPharmacyId: callerUid,
+      toPharmacyId: sellerUid,
+      details,
+      initialStatus: "accepted",
+      acceptedBy: sellerUid,
+      inventorySnapshot,
+      sourceRequestId: requestId,
+      sourceOfferId: offerId,
+    },
+    now
+  );
+  transaction.set(proposalRef, proposalDoc);
+
+  const deliveryRef = db.collection("deliveries").doc();
+  const deliveryId = deliveryRef.id;
+  const deliveryDoc = buildCanonicalDeliveryDocument(
+    deliveryId,
+    {
+      proposalId,
+      proposalDetails: details,
+      pickupPharmacy: pharmacyInfoFromDoc(sellerUid, sellerPharm),
+      dropoffPharmacy: pharmacyInfoFromDoc(callerUid, buyerPharm),
+      shippedItem: {
+        medicineId: (inventoryData.medicineId as string) || "",
+        medicineName:
+          (inventoryData.medicineName as string) || "Unknown Medicine",
+        dosage: (inventoryData.dosage as string) || "",
+        form: (inventoryData.form as string) || "",
+        quantity: offeredQty,
+        packaging: (inventoryData.packaging as string) || "",
+      },
+      courierFee: Math.round(totalPrice * 0.12),
+    },
+    now
+  );
+  transaction.set(deliveryRef, deliveryDoc);
   transaction.update(proposalRef, { deliveryId });
 
-  // 2f. Update request → matched
   transaction.update(requestRef, {
     status: "matched",
     selectedOfferId: offerId,
     updatedAt: now,
   });
 
-  // 2g. Update accepted offer → converted, link proposalId
   transaction.update(offerRef, {
     status: "converted",
     linkedProposalId: proposalId,
     updatedAt: now,
   });
 
-  // 2h. Decline all other pending offers for this request
   for (const doc of otherOffersSnap.docs) {
-    if (doc.id === offerId) continue; // skip the accepted one
+    if (doc.id === offerId) continue;
     const otherStatus = doc.data().status;
     if (otherStatus === "pending") {
       transaction.update(doc.ref, {
@@ -374,6 +340,348 @@ export async function acceptRequestOfferIntoCanonicalProposal(
     totalPrice,
     buyerUid: callerUid,
     sellerUid,
+  });
+
+  return { proposalId, deliveryId };
+}
+
+// ---------------------------------------------------------------------------
+// Exchange path (Sprint 4 — barter, no soulte)
+// ---------------------------------------------------------------------------
+
+export interface ExchangeRequestOfferBridgeParams
+  extends RequestOfferBridgeParams {
+  /** ID of the requester's inventory item that satisfies `exchangeItem`. */
+  exchangeInventoryItemId: string;
+}
+
+/**
+ * Transactional bridge for the exchange flow.
+ *
+ * Sprint 4 lock #5: reserves ONLY the requester's exchange inventory item
+ * (the item the seller wants in return). The seller's `inventoryItemId`
+ * (item A) is validated here but NOT reserved; it gets decremented at
+ * `completeExchangeDelivery` like the legacy `createExchangeProposal`
+ * flow.
+ *
+ * Sprint 4 lock #1: no wallet movement — barter only, no soulte.
+ */
+export async function acceptExchangeRequestOfferIntoCanonicalProposal(
+  transaction: Transaction,
+  params: ExchangeRequestOfferBridgeParams
+): Promise<RequestOfferBridgeResult> {
+  const { callerUid, requestId, offerId, exchangeInventoryItemId } = params;
+
+  // ================================================================
+  // PHASE 1: ALL READS
+  // ================================================================
+
+  const requestRef = db.collection("medicine_requests").doc(requestId);
+  const requestSnap = await transaction.get(requestRef);
+  if (!requestSnap.exists) {
+    throw new HttpsError("not-found", "Medicine request not found.");
+  }
+  const requestData = requestSnap.data()!;
+  if (requestData.requesterPharmacyId !== callerUid) {
+    throw new HttpsError(
+      "permission-denied",
+      "Only the requester can accept offers on their request."
+    );
+  }
+  if (requestData.status !== "open") {
+    throw new HttpsError(
+      "failed-precondition",
+      `Request is '${requestData.status}', not open.`
+    );
+  }
+  if (requestData.requestMode !== "exchange") {
+    throw new HttpsError(
+      "failed-precondition",
+      "Request is not in exchange mode."
+    );
+  }
+
+  const offerRef = db.collection("medicine_request_offers").doc(offerId);
+  const offerSnap = await transaction.get(offerRef);
+  if (!offerSnap.exists) {
+    throw new HttpsError("not-found", "Offer not found.");
+  }
+  const offerData = offerSnap.data()!;
+  if (offerData.requestId !== requestId) {
+    throw new HttpsError("invalid-argument", "Offer does not belong to this request.");
+  }
+  if (offerData.status !== "pending") {
+    throw new HttpsError(
+      "failed-precondition",
+      `Offer is '${offerData.status}', not pending.`
+    );
+  }
+  if (offerData.offerType !== "exchange") {
+    throw new HttpsError(
+      "failed-precondition",
+      "Offer is not in exchange mode."
+    );
+  }
+
+  const exchangeItem = offerData.exchangeItem as
+    | {
+        medicineId: string;
+        medicineName: string;
+        dosage: string;
+        form: string;
+        quantity: number;
+        expiryDate?: string | null;
+        lotNumber?: string | null;
+      }
+    | undefined;
+  if (!exchangeItem || typeof exchangeItem !== "object") {
+    throw new HttpsError(
+      "failed-precondition",
+      "Offer is missing exchangeItem and cannot be accepted."
+    );
+  }
+
+  const sellerUid = offerData.sellerPharmacyId as string;
+  const offeredQty = offerData.offeredQuantity as number;
+
+  // Seller's item A — validated only (NO hold; lock #5)
+  const sellerInventoryRef = db
+    .collection("pharmacy_inventory")
+    .doc(offerData.inventoryItemId as string);
+  const sellerInventorySnap = await transaction.get(sellerInventoryRef);
+  if (!sellerInventorySnap.exists) {
+    throw new HttpsError("not-found", "Seller inventory item no longer exists.");
+  }
+  const sellerInventoryData = sellerInventorySnap.data()!;
+  if (sellerInventoryData.pharmacyId !== sellerUid) {
+    throw new HttpsError("permission-denied", "Inventory does not belong to seller.");
+  }
+  const sellerAvailable = (sellerInventoryData.availableQuantity as number) || 0;
+  if (sellerAvailable < offeredQty) {
+    throw new HttpsError(
+      "failed-precondition",
+      `Insufficient seller stock. Available: ${sellerAvailable}, offered: ${offeredQty}.`
+    );
+  }
+  const sellerExp = sellerInventoryData.batch?.expirationDate?.toDate?.();
+  if (sellerExp && sellerExp < new Date()) {
+    throw new HttpsError("failed-precondition", "Seller inventory item has expired.");
+  }
+
+  // Requester's exchange item B — read, then validated + reserved
+  // (the only side that gets held at accept time; lock #5).
+  const requesterInventoryRef = db
+    .collection("pharmacy_inventory")
+    .doc(exchangeInventoryItemId);
+  const requesterInventorySnap = await transaction.get(requesterInventoryRef);
+
+  // Sprint 4 Finding 1 fix: read system_config/main to resolve the
+  // per-city courier fee. Without this read the formerly-hard-coded
+  // courierFee=0 silently broke lock #6 (50/50 of 0 is 0/0 — no courier
+  // pay). The resolver mirrors `acceptExchangeProposal` so both
+  // producers of `deliveries` agree on the fee for a given city.
+  const systemConfigRef = db.collection("system_config").doc("main");
+  const buyerPharmRef = db.collection("pharmacies").doc(callerUid);
+  const sellerPharmRef = db.collection("pharmacies").doc(sellerUid);
+  const [buyerPharmSnap, sellerPharmSnap, systemConfigSnap] = await Promise.all([
+    transaction.get(buyerPharmRef),
+    transaction.get(sellerPharmRef),
+    transaction.get(systemConfigRef),
+  ]);
+  if (!buyerPharmSnap.exists || !sellerPharmSnap.exists) {
+    throw new HttpsError("not-found", "Pharmacy profile not found.");
+  }
+  const buyerPharm = buyerPharmSnap.data()!;
+  const sellerPharm = sellerPharmSnap.data()!;
+
+  const reqCountry = requestData.countryCode as string;
+  const reqCity = requestData.cityCode as string;
+  if (
+    (buyerPharm.countryCode || "") !== reqCountry ||
+    (buyerPharm.cityCode || "") !== reqCity
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Requester pharmacy is no longer in the same city as the request."
+    );
+  }
+  if (
+    (sellerPharm.countryCode || "") !== reqCountry ||
+    (sellerPharm.cityCode || "") !== reqCity
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Seller pharmacy is no longer in the same city as the request."
+    );
+  }
+
+  const otherOffersQuery = db
+    .collection("medicine_request_offers")
+    .where("requestId", "==", requestId);
+  const otherOffersSnap = await transaction.get(otherOffersQuery);
+
+  // ================================================================
+  // PHASE 2: ALL WRITES
+  // ================================================================
+
+  const now = FieldValue.serverTimestamp();
+
+  // Reserve requester's exchange inventory item (B). This is the SOLE
+  // inventory hold for the exchange flow at acceptance — lock #5.
+  const { snapshot: exchangeInventorySnapshot } = reserveExchangeInventory(
+    transaction,
+    {
+      inventorySnap: requesterInventorySnap,
+      expectedOwnerUid: callerUid,
+      expectedMedicineId: exchangeItem.medicineId,
+      expectedDosage: exchangeItem.dosage,
+      expectedForm: exchangeItem.form,
+      requiredQuantity: exchangeItem.quantity,
+      now: new Date(),
+    }
+  );
+
+  const proposalRef = db.collection("exchange_proposals").doc();
+  const proposalId = proposalRef.id;
+
+  // inventorySnapshot for the seller's item A (UI display)
+  const sellerSnapshot: CanonicalInventorySnapshot = {
+    medicineId: (sellerInventoryData.medicineId as string) || null,
+    medicineName: (sellerInventoryData.medicineName as string) || null,
+    genericName: (sellerInventoryData.medicine?.genericName as string) || null,
+    strength: (sellerInventoryData.medicine?.strength as string) || null,
+    form:
+      (sellerInventoryData.medicineForm as string) ||
+      (sellerInventoryData.form as string) ||
+      null,
+    packaging: (sellerInventoryData.packaging as string) || null,
+    lotNumber:
+      (sellerInventoryData.batch?.lotNumber as string) ||
+      (sellerInventoryData.batchNumber as string) ||
+      null,
+    expirationDate: sellerInventoryData.batch?.expirationDate ?? null,
+    availableQuantityAtOffer: sellerAvailable,
+  };
+
+  const details: CanonicalExchangeDetails = {
+    type: "exchange",
+    quantity: offeredQty,
+    medicineName: sellerSnapshot.medicineName,
+    medicineId: sellerSnapshot.medicineId,
+    exchangeInventoryItemId,
+    exchangeMedicineId: exchangeItem.medicineId,
+    exchangeQuantity: exchangeItem.quantity,
+    exchangeInventorySnapshot,
+  };
+
+  const proposalDoc = buildCanonicalProposalDocument(
+    {
+      proposalId,
+      inventoryItemId: offerData.inventoryItemId as string,
+      fromPharmacyId: callerUid, // requester (will receive item A)
+      toPharmacyId: sellerUid, // seller (will receive item B back-office)
+      details,
+      initialStatus: "accepted",
+      acceptedBy: sellerUid,
+      inventorySnapshot: sellerSnapshot,
+      sourceRequestId: requestId,
+      sourceOfferId: offerId,
+    },
+    now
+  );
+  transaction.set(proposalRef, proposalDoc);
+
+  const deliveryRef = db.collection("deliveries").doc();
+  const deliveryId = deliveryRef.id;
+
+  // Sprint 4 Finding 1 fix — courier fee must be resolved from
+  // `system_config/main` per city, same formula as `acceptExchangeProposal`.
+  // Lock #6 ("50/50 préservé") is meaningful only when the resolved fee
+  // is > 0; the prior hard-coded 0 silently broke courier pay on
+  // medicine-request exchange. Markets without per-city config still
+  // resolve to 0 (no courier pay until ops configures the city), which
+  // is the documented no-config posture inherited from the legacy path.
+  const courierFee = resolveCourierFee({
+    proposalType: "exchange",
+    totalPrice: 0,
+    countryCode: reqCountry,
+    cityCode: reqCity,
+    systemConfigData: systemConfigSnap.exists ? systemConfigSnap.data() : undefined,
+  });
+  logger.info("acceptExchangeRequestOfferIntoCanonicalProposal: resolved courier fee", {
+    countryCode: reqCountry,
+    cityCode: reqCity,
+    courierFee,
+  });
+
+  const deliveryDoc = buildCanonicalDeliveryDocument(
+    deliveryId,
+    {
+      proposalId,
+      proposalDetails: details,
+      pickupPharmacy: pharmacyInfoFromDoc(sellerUid, sellerPharm),
+      dropoffPharmacy: pharmacyInfoFromDoc(callerUid, buyerPharm),
+      shippedItem: {
+        medicineId: (sellerInventoryData.medicineId as string) || "",
+        medicineName:
+          (sellerInventoryData.medicineName as string) || "Unknown Medicine",
+        dosage:
+          (sellerInventoryData.medicineDosage as string) ||
+          (sellerInventoryData.dosage as string) ||
+          "",
+        form:
+          (sellerInventoryData.medicineForm as string) ||
+          (sellerInventoryData.form as string) ||
+          "",
+        quantity: offeredQty,
+        packaging: (sellerInventoryData.packaging as string) || "",
+      },
+      courierFee,
+    },
+    now
+  );
+  // City fallback — buyer's city if the helper inferred nothing useful
+  deliveryDoc.cityCode =
+    (buyerPharm.cityCode as string) ||
+    (sellerPharm.cityCode as string) ||
+    citySlug(
+      (buyerPharm.city as string) || (sellerPharm.city as string) || ""
+    );
+  transaction.set(deliveryRef, deliveryDoc);
+  transaction.update(proposalRef, { deliveryId });
+
+  transaction.update(requestRef, {
+    status: "matched",
+    selectedOfferId: offerId,
+    updatedAt: now,
+  });
+
+  transaction.update(offerRef, {
+    status: "converted",
+    linkedProposalId: proposalId,
+    updatedAt: now,
+  });
+
+  for (const doc of otherOffersSnap.docs) {
+    if (doc.id === offerId) continue;
+    const otherStatus = doc.data().status;
+    if (otherStatus === "pending") {
+      transaction.update(doc.ref, {
+        status: "declined",
+        updatedAt: now,
+      });
+    }
+  }
+
+  logger.info("acceptExchangeRequestOfferIntoCanonicalProposal: success", {
+    requestId,
+    offerId,
+    proposalId,
+    deliveryId,
+    requesterUid: callerUid,
+    sellerUid,
+    exchangeInventoryItemId,
+    exchangeQuantity: exchangeItem.quantity,
   });
 
   return { proposalId, deliveryId };

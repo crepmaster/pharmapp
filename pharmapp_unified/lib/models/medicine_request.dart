@@ -1,9 +1,23 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:equatable/equatable.dart';
 
-enum RequestMode { purchase, exchange, either }
+/// Sprint 4 (F-BLOC2-P2): `either` est retiré. Le contrat est strictement
+/// `purchase | exchange`. Toute écriture/lecture qui rencontre `either`
+/// doit échouer côté backend (`invalid-argument`).
+enum RequestMode { purchase, exchange }
 
 enum RequestStatus { open, matched, fulfilled, cancelled, expired }
+
+extension RequestModeX on RequestMode {
+  String get wire {
+    switch (this) {
+      case RequestMode.purchase:
+        return 'purchase';
+      case RequestMode.exchange:
+        return 'exchange';
+    }
+  }
+}
 
 class MedicineRequest extends Equatable {
   final String id;
@@ -78,6 +92,8 @@ class MedicineRequest extends Equatable {
 
   bool get isOpen => status == RequestStatus.open;
 
+  bool get isExchange => requestMode == RequestMode.exchange;
+
   bool get isExpired =>
       expiresAt != null && expiresAt!.isBefore(DateTime.now());
 
@@ -88,12 +104,16 @@ class MedicineRequest extends Equatable {
         createdAt, updatedAt, expiresAt,
       ];
 
+  /// Defensive parser: any unknown wire value (including legacy `either`
+  /// from pre-Sprint-4 docs that should NOT have been persisted) falls
+  /// back to `purchase` so we don't crash the UI list. Backend write
+  /// path enforces strict `purchase | exchange`.
   static RequestMode _parseRequestMode(String? value) {
     switch (value) {
       case 'exchange':
         return RequestMode.exchange;
-      case 'either':
-        return RequestMode.either;
+      case 'purchase':
+        return RequestMode.purchase;
       default:
         return RequestMode.purchase;
     }

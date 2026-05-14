@@ -37,6 +37,10 @@ This file lists operational, up-to-date documentation. For deprecated or histori
 
 - [specs/CONTRACT_ADMIN_MASTER_DATA_AND_TREASURY_V1.md](specs/CONTRACT_ADMIN_MASTER_DATA_AND_TREASURY_V1.md) — Admin master data & treasury contract V1 (closed, kept for reference of the contract scope).
 
+### Feature contracts (top-level `docs/`)
+
+- [f-bloc2-p2-medicine_requests_exchange.md](f-bloc2-p2-medicine_requests_exchange.md) — F-BLOC2-P2 Sprint 4 contract (Medicine Requests Exchange Mode, Firestore shapes, flows, 9 verrous architecte, test coverage map).
+
 ### Admin runbooks (`docs/admin/`)
 
 - [admin/CLEAN-FIREBASE-DATABASE.md](admin/CLEAN-FIREBASE-DATABASE.md) — Database cleanup procedure.
@@ -82,11 +86,11 @@ This file lists operational, up-to-date documentation. For deprecated or histori
 - [orchestrator_sprints/SPRINT_2B2A_PHARMACY_UX_TASK.md](orchestrator_sprints/SPRINT_2B2A_PHARMACY_UX_TASK.md) — ✅ Sprint 2B.2a Pharmacy UX (registration `LICENSE_REQUIRED` handler + `PharmacyLicenseStatusSection` + `LicenseCorrectionDialog` + 21 widget tests, 2026-05-13).
 - [orchestrator_sprints/SPRINT_2B2B_MARKETPLACE_ENFORCEMENT_TASK.md](orchestrator_sprints/SPRINT_2B2B_MARKETPLACE_ENFORCEMENT_TASK.md) — ✅ Sprint 2B.2b Marketplace Enforcement (callable `getMarketplacePharmacies` + 18 Jest + rules durcies `allow list: if false` + 5 emulator REQ-2B2B-001..005 + migration `inventory_service` + 4 Dart seam tests, 2026-05-13). **F-LICENSE end-to-end CLOS.**
 - [orchestrator_sprints/SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md](orchestrator_sprints/SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md) — ✅ Sprint 3 Trial subscription backend-owned aligned with license verification (`startTrialForPharmacy` helper transactionnel idempotent + wire-up à `createPharmacyRegistration` et `adminVerifyPharmacyLicense` + retrait `SubscriptionCreationService` côté client pour pharmacy + banner `trial_pending_license` sur subscription_screen + rules emulator REQ-3-001..003, 2026-05-14).
+- [orchestrator_sprints/SPRINT_4_MEDICINE_REQUESTS_EXCHANGE_TASK.md](orchestrator_sprints/SPRINT_4_MEDICINE_REQUESTS_EXCHANGE_TASK.md) — ✅ Sprint 4 F-BLOC2-P2 Medicine Requests Exchange Mode (helper canonique `exchangePipeline.ts` partagé entre `createExchangeProposal` et nouveau bridge `acceptExchangeRequestOfferIntoCanonicalProposal`, retrait flag MVP purchase-only, `requestMode` strict + `offerType` strict avec parity, `exchangeItem` sous-objet sur les offres exchange, license gate symétrique seller+requester, hold 1 côté à l'accept (`exchangeInventoryItemId` requester only), 72 tests Jest nouveaux + UI Flutter toggles + inventory picker, 2026-05-14, orchestrator run `20260513-235401-167aae`). **Contrat complet** : [../f-bloc2-p2-medicine_requests_exchange.md](../f-bloc2-p2-medicine_requests_exchange.md).
 
 **Sprints à venir (ordre verrouillé)** :
 
-- [orchestrator_sprints/SPRINT_4_MEDICINE_REQUESTS_EXCHANGE_TASK.md](orchestrator_sprints/SPRINT_4_MEDICINE_REQUESTS_EXCHANGE_TASK.md) — Sprint 4 (Bloc 2 P2 exchange mode). **Prochain sprint, débloqué par clôture Sprint 3.**
-- [orchestrator_sprints/SPRINT_5_E2E_CLOSURE_TASK.md](orchestrator_sprints/SPRINT_5_E2E_CLOSURE_TASK.md) — Sprint 5 (E2E closure).
+- [orchestrator_sprints/SPRINT_5_E2E_CLOSURE_TASK.md](orchestrator_sprints/SPRINT_5_E2E_CLOSURE_TASK.md) — Sprint 5 (E2E closure). **Prochain sprint, débloqué par clôture Sprint 4.**
 
 **Référence agrégée (ne plus exécuter directement)** :
 

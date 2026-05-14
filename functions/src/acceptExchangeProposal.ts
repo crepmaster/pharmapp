@@ -23,6 +23,7 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { citySlug } from "./cityUtils.js";
 import { assertLicenseAllowsMarketplace } from "./lib/licenseGate.js";
+import { resolveCourierFee } from "./lib/exchangePipeline.js";
 
 const db = getFirestore();
 
@@ -179,12 +180,12 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
       const fromPharmacy = fromPharmacySnapshot.data();
       const toPharmacy = toPharmacySnapshot.data();
 
-      // Resolve courier fee from system_config/main → citiesByCountry → city.
-      //  - Purchase proposals use `deliveryFee`
-      //  - Exchange proposals use `exchangeFee`, with fallback to
-      //    deliveryFee * 1.2 (exchanges require an additional trip).
-      // Fallback for markets without per-city config: 12% of totalPrice,
-      // which preserves the legacy Cameroon behavior.
+      // Sprint 4 Finding 3 fix (post-livraison) — courier fee resolution
+      // routed through the shared canonical helper `resolveCourierFee`.
+      // Same formula as before; centralizing it removes the drift risk
+      // flagged by the architect (the medicine-request bridge now uses
+      // the SAME helper, so a future tweak in pricing logic propagates
+      // automatically to both producers).
       const proposalType = (proposal.details?.type as string) || "exchange";
       const totalPrice = (proposal.details?.totalPrice as number) || 0;
       const deliveryCountry: string =
@@ -195,32 +196,15 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
         (fromPharmacy?.cityCode as string) ||
         (toPharmacy?.cityCode as string) ||
         "";
-      let courierFee = 0;
-      try {
-        const cfg = systemConfigSnapshot.exists
-          ? systemConfigSnapshot.data() ?? {}
-          : {};
-        const cities = (cfg.citiesByCountry as Record<string, any>) ?? {};
-        const cityCfg =
-          cities[deliveryCountry]?.[deliveryCity] ?? null;
-        const baseFee = Number(cityCfg?.deliveryFee);
-        const explicitExchangeFee = Number(cityCfg?.exchangeFee);
-        if (proposalType === "purchase" && Number.isFinite(baseFee) && baseFee > 0) {
-          courierFee = Math.round(baseFee);
-        } else if (proposalType === "exchange") {
-          if (Number.isFinite(explicitExchangeFee) && explicitExchangeFee > 0) {
-            courierFee = Math.round(explicitExchangeFee);
-          } else if (Number.isFinite(baseFee) && baseFee > 0) {
-            courierFee = Math.round(baseFee * 1.2);
-          }
-        }
-        // Legacy fallback: no per-city config found → 12% of totalPrice.
-        if (courierFee === 0 && totalPrice > 0) {
-          courierFee = Math.round(totalPrice * 0.12);
-        }
-      } catch {
-        courierFee = Math.round(totalPrice * 0.12);
-      }
+      const courierFee = resolveCourierFee({
+        proposalType: proposalType === "purchase" ? "purchase" : "exchange",
+        totalPrice,
+        countryCode: deliveryCountry,
+        cityCode: deliveryCity,
+        systemConfigData: systemConfigSnapshot.exists
+          ? systemConfigSnapshot.data()
+          : undefined,
+      });
       logger.info("acceptExchangeProposal: resolved courier fee", {
         proposalType,
         deliveryCountry,

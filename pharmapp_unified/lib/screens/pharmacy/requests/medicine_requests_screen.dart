@@ -11,7 +11,9 @@ import '../../../models/pharmacy_inventory.dart';
 import '../../../services/medicine_request_service.dart';
 import '../exchanges/exchange_status_screen.dart';
 
-/// Sprint 2B — Medicine Requests screen with 3 tabs.
+/// Medicine Requests screen.
+/// Sprint 2B introduced the 3-tab layout. Sprint 4 (F-BLOC2-P2) adds the
+/// `Purchase | Exchange` toggles at create + offer + accept time.
 class MedicineRequestsScreen extends StatefulWidget {
   const MedicineRequestsScreen({super.key});
 
@@ -47,8 +49,7 @@ class _MedicineRequestsScreenState extends State<MedicineRequestsScreen>
     final data = doc.data()!;
     final cc = data['countryCode'] as String? ?? '';
 
-    // Resolve currencyCode from system_config country, not from pharmacy doc.
-    String currency = 'XAF'; // safe default for CM
+    String currency = 'XAF';
     if (cc.isNotEmpty) {
       try {
         final configDoc = await FirebaseFirestore.instance
@@ -242,7 +243,7 @@ class _MyRequestsTab extends StatelessWidget {
                 showMakeOffer: false,
                 pharmacyId: pharmacyId,
                 onViewOffers: () =>
-                    _showOffersDialog(context, requests[i]),
+                    _showOffersDialog(context, requests[i], pharmacyId),
                 onCancel: requests[i].isOpen
                     ? () => _cancelRequest(context, requests[i].id)
                     : null,
@@ -268,6 +269,7 @@ class _MyRequestsTab extends StatelessWidget {
     final qtyCtl = TextEditingController(text: '1');
     final notesCtl = TextEditingController();
     var isSaving = false;
+    RequestMode mode = RequestMode.purchase;
 
     await showDialog(
       context: context,
@@ -279,7 +281,30 @@ class _MyRequestsTab extends StatelessWidget {
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Sprint 4: request mode toggle (Purchase | Exchange).
+                  const Text('Mode',
+                      style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 6),
+                  SegmentedButton<RequestMode>(
+                    segments: const [
+                      ButtonSegment(
+                        value: RequestMode.purchase,
+                        icon: Icon(Icons.shopping_cart, size: 16),
+                        label: Text('Purchase'),
+                      ),
+                      ButtonSegment(
+                        value: RequestMode.exchange,
+                        icon: Icon(Icons.swap_horiz, size: 16),
+                        label: Text('Exchange'),
+                      ),
+                    ],
+                    selected: {mode},
+                    onSelectionChanged: (set) =>
+                        setDialogState(() => mode = set.first),
+                  ),
+                  const SizedBox(height: 16),
                   Autocomplete<Medicine>(
                     optionsBuilder: (textEditingValue) {
                       if (textEditingValue.text.isEmpty) return const [];
@@ -356,6 +381,7 @@ class _MyRequestsTab extends StatelessWidget {
                           },
                           requestedQuantity:
                               int.tryParse(qtyCtl.text) ?? 1,
+                          requestMode: mode,
                           currencyCode: currencyCode,
                           notes: notesCtl.text,
                         );
@@ -431,10 +457,12 @@ class _MyRequestsTab extends StatelessWidget {
     }
   }
 
-  void _showOffersDialog(BuildContext context, MedicineRequest request) {
+  void _showOffersDialog(
+      BuildContext context, MedicineRequest request, String pharmacyId) {
     showDialog(
       context: context,
-      builder: (_) => _OffersDialog(request: request),
+      builder: (_) =>
+          _OffersDialog(request: request, requesterPharmacyId: pharmacyId),
     );
   }
 }
@@ -526,6 +554,8 @@ class _RequestCard extends StatelessWidget {
                         fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                 ),
+                _ModeChip(isExchange: request.isExchange),
+                const SizedBox(width: 6),
                 _StatusChip(
                   label: isExpired ? 'Expired' : request.status.name,
                   color: isExpired
@@ -536,7 +566,8 @@ class _RequestCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Qty: ${request.requestedQuantity} · ${request.currencyCode}',
+              'Qty: ${request.requestedQuantity}'
+              '${request.isExchange ? "" : " · ${request.currencyCode}"}',
               style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
             ),
             if (request.notes.isNotEmpty) ...[
@@ -569,8 +600,13 @@ class _RequestCard extends StatelessWidget {
                     ElevatedButton.icon(
                       onPressed: () =>
                           _showMakeOfferDialog(context, request),
-                      icon: const Icon(Icons.local_offer, size: 16),
-                      label: const Text('Make Offer'),
+                      icon: Icon(
+                          request.isExchange
+                              ? Icons.swap_horiz
+                              : Icons.local_offer,
+                          size: 16),
+                      label: Text(
+                          request.isExchange ? 'Propose Exchange' : 'Make Offer'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.green,
                         foregroundColor: Colors.white,
@@ -634,6 +670,8 @@ class _OfferCard extends StatelessWidget {
                         fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                 ),
+                _ModeChip(isExchange: offer.isExchange),
+                const SizedBox(width: 6),
                 _StatusChip(
                   label: offer.status.name,
                   color: _offerStatusColor(offer.status),
@@ -641,10 +679,21 @@ class _OfferCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            Text(
-              'Qty: ${offer.offeredQuantity} · ${offer.unitPrice.toStringAsFixed(0)} ${offer.currencyCode}/unit · Total: ${offer.totalPrice.toStringAsFixed(0)} ${offer.currencyCode}',
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
-            ),
+            if (offer.isExchange)
+              Text(
+                'Offering qty ${offer.offeredQuantity} · '
+                'In return: ${offer.exchangeItem?.medicineName ?? "?"} '
+                '${offer.exchangeItem?.dosage ?? ""} '
+                '(${offer.exchangeItem?.quantity ?? 0})',
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+              )
+            else
+              Text(
+                'Qty: ${offer.offeredQuantity} · '
+                '${offer.unitPrice.toStringAsFixed(0)} ${offer.currencyCode}/unit · '
+                'Total: ${offer.totalPrice.toStringAsFixed(0)} ${offer.currencyCode}',
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+              ),
             const SizedBox(height: 4),
             Text(
               _timeAgo(offer.createdAt),
@@ -714,6 +763,30 @@ class _OfferCard extends StatelessWidget {
   }
 }
 
+class _ModeChip extends StatelessWidget {
+  final bool isExchange;
+  const _ModeChip({required this.isExchange});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isExchange ? Colors.deepPurple : Colors.indigo;
+    final label = isExchange ? 'EXCHANGE' : 'PURCHASE';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.4)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+            color: color, fontSize: 10, fontWeight: FontWeight.w700),
+      ),
+    );
+  }
+}
+
 class _StatusChip extends StatelessWidget {
   final String label;
   final Color color;
@@ -742,7 +815,7 @@ class _StatusChip extends StatelessWidget {
 }
 
 // =============================================================================
-// Dialogs
+// Make-Offer Dialog (Sprint 4: branches on request.requestMode)
 // =============================================================================
 
 class _MakeOfferDialog extends StatefulWidget {
@@ -764,6 +837,14 @@ class _MakeOfferDialogState extends State<_MakeOfferDialog> {
   final _qtyCtl = TextEditingController(text: '1');
   final _priceCtl = TextEditingController();
   final _notesCtl = TextEditingController();
+
+  // Exchange-only: describe the medicine the seller wants in return.
+  final _exMedicineIdCtl = TextEditingController();
+  final _exMedicineNameCtl = TextEditingController();
+  final _exDosageCtl = TextEditingController();
+  final _exFormCtl = TextEditingController();
+  final _exQtyCtl = TextEditingController(text: '1');
+
   bool _loading = true;
   bool _saving = false;
 
@@ -795,15 +876,32 @@ class _MakeOfferDialogState extends State<_MakeOfferDialog> {
     _qtyCtl.dispose();
     _priceCtl.dispose();
     _notesCtl.dispose();
+    _exMedicineIdCtl.dispose();
+    _exMedicineNameCtl.dispose();
+    _exDosageCtl.dispose();
+    _exFormCtl.dispose();
+    _exQtyCtl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final isExchange = widget.request.isExchange;
     return AlertDialog(
-      title: Text('Offer for ${widget.request.medicineName}'),
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(
+              isExchange
+                  ? 'Exchange offer for ${widget.request.medicineName}'
+                  : 'Offer for ${widget.request.medicineName}',
+            ),
+          ),
+          _ModeChip(isExchange: isExchange),
+        ],
+      ),
       content: SizedBox(
-        width: 400,
+        width: 420,
         child: _loading
             ? const Center(child: CircularProgressIndicator())
             : _myItems.isEmpty
@@ -812,6 +910,7 @@ class _MakeOfferDialogState extends State<_MakeOfferDialog> {
                 : SingleChildScrollView(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         DropdownButtonFormField<PharmacyInventoryItem>(
                           decoration: const InputDecoration(
@@ -841,16 +940,78 @@ class _MakeOfferDialogState extends State<_MakeOfferDialog> {
                             border: const OutlineInputBorder(),
                           ),
                         ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: _priceCtl,
-                          keyboardType: TextInputType.number,
-                          decoration: InputDecoration(
-                            labelText:
-                                'Unit Price (${widget.request.currencyCode}) *',
-                            border: const OutlineInputBorder(),
+                        if (!isExchange) ...[
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: _priceCtl,
+                            keyboardType: TextInputType.number,
+                            decoration: InputDecoration(
+                              labelText:
+                                  'Unit Price (${widget.request.currencyCode}) *',
+                              border: const OutlineInputBorder(),
+                            ),
                           ),
-                        ),
+                        ] else ...[
+                          const SizedBox(height: 20),
+                          const Divider(),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'In return, you want…',
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: _exMedicineIdCtl,
+                            decoration: const InputDecoration(
+                              labelText: 'Medicine ID *',
+                              hintText: 'e.g. paracetamol-500',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: _exMedicineNameCtl,
+                            decoration: const InputDecoration(
+                              labelText: 'Medicine name *',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _exDosageCtl,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Dosage *',
+                                    hintText: '500mg',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  controller: _exFormCtl,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Form *',
+                                    hintText: 'tablet',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: _exQtyCtl,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'Quantity wanted *',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 12),
                         TextField(
                           controller: _notesCtl,
@@ -880,7 +1041,7 @@ class _MakeOfferDialogState extends State<_MakeOfferDialog> {
                     height: 16,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Text('Submit Offer'),
+                : Text(isExchange ? 'Submit Exchange' : 'Submit Offer'),
           ),
       ],
     );
@@ -888,22 +1049,85 @@ class _MakeOfferDialogState extends State<_MakeOfferDialog> {
 
   Future<void> _submit() async {
     final qty = int.tryParse(_qtyCtl.text) ?? 0;
-    final price = double.tryParse(_priceCtl.text) ?? 0;
-    if (qty <= 0 || price <= 0 || _selectedItem == null) return;
+    if (qty <= 0 || _selectedItem == null) return;
 
+    final isExchange = widget.request.isExchange;
+    if (!isExchange) {
+      final price = double.tryParse(_priceCtl.text) ?? 0;
+      if (price <= 0) return;
+      setState(() => _saving = true);
+      try {
+        await MedicineRequestService.submitPurchaseOffer(
+          requestId: widget.request.id,
+          inventoryItemId: _selectedItem!.id,
+          offeredQuantity: qty,
+          unitPrice: price,
+          notes: _notesCtl.text,
+        );
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Offer submitted!')),
+          );
+        }
+      } on FirebaseFunctionsException catch (e) {
+        setState(() => _saving = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(e.message ?? 'Error'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } catch (e) {
+        setState(() => _saving = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+          );
+        }
+      }
+      return;
+    }
+
+    // Exchange path
+    final exMid = _exMedicineIdCtl.text.trim();
+    final exName = _exMedicineNameCtl.text.trim();
+    final exDosage = _exDosageCtl.text.trim();
+    final exForm = _exFormCtl.text.trim();
+    final exQty = int.tryParse(_exQtyCtl.text) ?? 0;
+    if (exMid.isEmpty ||
+        exName.isEmpty ||
+        exDosage.isEmpty ||
+        exForm.isEmpty ||
+        exQty <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Fill all "in return" fields with valid values.'),
+            backgroundColor: Colors.red),
+      );
+      return;
+    }
     setState(() => _saving = true);
     try {
-      await MedicineRequestService.submitOffer(
+      await MedicineRequestService.submitExchangeOffer(
         requestId: widget.request.id,
         inventoryItemId: _selectedItem!.id,
         offeredQuantity: qty,
-        unitPrice: price,
+        exchangeItem: ExchangeItem(
+          medicineId: exMid,
+          medicineName: exName,
+          dosage: exDosage,
+          form: exForm,
+          quantity: exQty,
+        ),
         notes: _notesCtl.text,
       );
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Offer submitted!')),
+          const SnackBar(content: Text('Exchange offer submitted!')),
         );
       }
     } on FirebaseFunctionsException catch (e) {
@@ -927,10 +1151,16 @@ class _MakeOfferDialogState extends State<_MakeOfferDialog> {
   }
 }
 
+// =============================================================================
+// Offers Dialog (Sprint 4: exchange accept opens an inventory picker)
+// =============================================================================
+
 class _OffersDialog extends StatelessWidget {
   final MedicineRequest request;
+  final String requesterPharmacyId;
 
-  const _OffersDialog({required this.request});
+  const _OffersDialog(
+      {required this.request, required this.requesterPharmacyId});
 
   @override
   Widget build(BuildContext context) {
@@ -980,6 +1210,7 @@ class _OffersDialog extends StatelessWidget {
                     itemBuilder: (_, i) => _OfferListTile(
                       offer: offers[i],
                       request: request,
+                      requesterPharmacyId: requesterPharmacyId,
                     ),
                   );
                 },
@@ -995,8 +1226,12 @@ class _OffersDialog extends StatelessWidget {
 class _OfferListTile extends StatefulWidget {
   final MedicineRequestOffer offer;
   final MedicineRequest request;
+  final String requesterPharmacyId;
 
-  const _OfferListTile({required this.offer, required this.request});
+  const _OfferListTile(
+      {required this.offer,
+      required this.request,
+      required this.requesterPharmacyId});
 
   @override
   State<_OfferListTile> createState() => _OfferListTileState();
@@ -1011,12 +1246,24 @@ class _OfferListTileState extends State<_OfferListTile> {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
-        title: Text(offer.sellerName),
-        subtitle: Text(
-          'Qty: ${offer.offeredQuantity} · '
-          '${offer.unitPrice.toStringAsFixed(0)} ${offer.currencyCode}/unit · '
-          'Total: ${offer.totalPrice.toStringAsFixed(0)} ${offer.currencyCode}',
+        title: Row(
+          children: [
+            Expanded(child: Text(offer.sellerName)),
+            _ModeChip(isExchange: offer.isExchange),
+          ],
         ),
+        subtitle: offer.isExchange
+            ? Text(
+                'Qty: ${offer.offeredQuantity} · '
+                'wants: ${offer.exchangeItem?.medicineName ?? "?"} '
+                '${offer.exchangeItem?.dosage ?? ""} '
+                '(${offer.exchangeItem?.quantity ?? 0})',
+              )
+            : Text(
+                'Qty: ${offer.offeredQuantity} · '
+                '${offer.unitPrice.toStringAsFixed(0)} ${offer.currencyCode}/unit · '
+                'Total: ${offer.totalPrice.toStringAsFixed(0)} ${offer.currencyCode}',
+              ),
         trailing: offer.status == OfferStatus.pending && widget.request.isOpen
             ? _accepting
                 ? const SizedBox(
@@ -1043,6 +1290,16 @@ class _OfferListTileState extends State<_OfferListTile> {
   }
 
   Future<void> _accept() async {
+    final isExchange = widget.offer.isExchange;
+    if (isExchange) {
+      // Sprint 4: requester must pick one of their own inventory items
+      // matching offer.exchangeItem (medicine + dosage + form + quantity).
+      final picked = await _showInventoryPicker(context);
+      if (picked == null) return;
+      await _runAccept(exchangeInventoryItemId: picked);
+      return;
+    }
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1066,12 +1323,39 @@ class _OfferListTileState extends State<_OfferListTile> {
       ),
     );
     if (confirm != true || !mounted) return;
+    await _runAccept();
+  }
 
+  Future<String?> _showInventoryPicker(BuildContext context) async {
+    final ex = widget.offer.exchangeItem;
+    if (ex == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Offer is missing exchange details.'),
+            backgroundColor: Colors.red),
+      );
+      return null;
+    }
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => _InventoryPickerDialog(
+        requesterPharmacyId: widget.requesterPharmacyId,
+        targetMedicineId: ex.medicineId,
+        targetDosage: ex.dosage,
+        targetForm: ex.form,
+        requiredQuantity: ex.quantity,
+      ),
+    );
+  }
+
+  Future<void> _runAccept({String? exchangeInventoryItemId}) async {
+    if (!mounted) return;
     setState(() => _accepting = true);
     try {
       final result = await MedicineRequestService.acceptOffer(
         requestId: widget.request.id,
         offerId: widget.offer.id,
+        exchangeInventoryItemId: exchangeInventoryItemId,
       );
       if (!mounted) return;
       Navigator.pop(context); // Close offers dialog
@@ -1109,6 +1393,128 @@ class _OfferListTileState extends State<_OfferListTile> {
         );
       }
     }
+  }
+}
+
+// =============================================================================
+// Inventory Picker — Sprint 4 (exchange accept)
+// =============================================================================
+
+class _InventoryPickerDialog extends StatefulWidget {
+  final String requesterPharmacyId;
+  final String targetMedicineId;
+  final String targetDosage;
+  final String targetForm;
+  final int requiredQuantity;
+
+  const _InventoryPickerDialog({
+    required this.requesterPharmacyId,
+    required this.targetMedicineId,
+    required this.targetDosage,
+    required this.targetForm,
+    required this.requiredQuantity,
+  });
+
+  @override
+  State<_InventoryPickerDialog> createState() => _InventoryPickerDialogState();
+}
+
+class _InventoryPickerDialogState extends State<_InventoryPickerDialog> {
+  List<PharmacyInventoryItem> _matches = [];
+  PharmacyInventoryItem? _picked;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('pharmacy_inventory')
+          .where('pharmacyId', isEqualTo: widget.requesterPharmacyId)
+          .where('medicineId', isEqualTo: widget.targetMedicineId)
+          .get();
+      // Client-side filter is best-effort. When the inventory item maps
+      // to an essential medicine, we filter on dosage (`strength`) and
+      // form too. For custom medicines (no master-data match), we fall
+      // through and let the backend enforce the contract — the writer
+      // path will reject any mismatched item at accept time anyway.
+      bool clientMatches(PharmacyInventoryItem item) {
+        if (item.availableQuantity < widget.requiredQuantity) return false;
+        if (item.isExpired) return false;
+        final med = item.medicine;
+        if (med == null) return true;
+        if (!_normMatch(med.strength, widget.targetDosage)) return false;
+        if (!_normMatch(med.form, widget.targetForm)) return false;
+        return true;
+      }
+
+      final matches = snap.docs
+          .map((d) => PharmacyInventoryItem.fromFirestore(d))
+          .where(clientMatches)
+          .toList();
+      if (mounted) {
+        setState(() {
+          _matches = matches;
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  bool _normMatch(String a, String b) =>
+      a.trim().toLowerCase() == b.trim().toLowerCase();
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Pick your inventory item'),
+      content: SizedBox(
+        width: 420,
+        child: _loading
+            ? const SizedBox(
+                height: 80, child: Center(child: CircularProgressIndicator()))
+            : _matches.isEmpty
+                ? Text(
+                    'You have no inventory matching the seller\'s request '
+                    '(${widget.targetMedicineId}, ${widget.targetDosage}, ${widget.targetForm}, '
+                    '≥ ${widget.requiredQuantity} units).',
+                    style: const TextStyle(color: Colors.red),
+                  )
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: _matches
+                        .map((item) => RadioListTile<PharmacyInventoryItem>(
+                              value: item,
+                              groupValue: _picked,
+                              onChanged: (v) => setState(() => _picked = v),
+                              title: Text(
+                                'Qty: ${item.availableQuantity} · '
+                                'Batch: ${item.batchNumber.isNotEmpty ? item.batchNumber : "N/A"}',
+                              ),
+                              subtitle: Text(
+                                'Exp: ${item.expirationDate != null ? "${item.expirationDate!.day}/${item.expirationDate!.month}/${item.expirationDate!.year}" : "N/A"}',
+                              ),
+                            ))
+                        .toList(),
+                  ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, null),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: _picked == null ? null : () => Navigator.pop(context, _picked!.id),
+          child: const Text('Use this item'),
+        ),
+      ],
+    );
   }
 }
 

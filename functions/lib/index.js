@@ -48,6 +48,19 @@ export { backfillLicenseGracePeriod } from "./backfillLicenseGracePeriod.js";
 // `system_config/main.countries.{code}.licenseRequired` SERVER-SIDE at
 // create time so a super-admin toggle takes effect immediately.
 export { createPharmacyRegistration } from "./createPharmacyRegistration.js";
+// ======================= Admin License Config (Sprint 2B.1) =======================
+// Admin-only callable that updates the 7 license fields on
+// `system_config/main.countries.{countryCode}`. Other country fields
+// keep their existing client-direct-write path for now (out of 2B.1
+// scope ; full backend-owned country writes is a future TD).
+export { setCountryLicenseConfig } from "./setCountryLicenseConfig.js";
+// ======================= Marketplace Listing (Sprint 2B.2b) =======================
+// Backend-owned listing : returns only pharmacies that pass the license
+// gate for the requested country. The complementary firestore.rules
+// change denies `allow list` on /pharmacies so a modified client can't
+// bypass the filter. UID lookups (allow get) remain authorized for
+// profile / correction / admin flows.
+export { getMarketplacePharmacies } from "./getMarketplacePharmacies.js";
 // ======================= Admin Operations (V2A+V2B+V2C) =======================
 export { setPharmacyActive } from "./setPharmacyActive.js";
 export { upsertCity } from "./upsertCity.js";

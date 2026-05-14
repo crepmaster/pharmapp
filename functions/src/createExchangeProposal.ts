@@ -22,6 +22,14 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { citySlug } from "./cityUtils.js";
 import { assertLicenseAllowsMarketplace } from "./lib/licenseGate.js";
+import {
+  buildCanonicalProposalDocument,
+  reserveExchangeInventory,
+  type CanonicalExchangeDetails,
+  type CanonicalExchangeInventorySnapshot,
+  type CanonicalInventorySnapshot,
+  type CanonicalPurchaseDetails,
+} from "./lib/exchangePipeline.js";
 import * as logger from "firebase-functions/logger";
 
 const db = getFirestore();
@@ -295,103 +303,108 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
 
         }
 
-        // 🔒 FIX #2: EXCHANGE PROPOSAL - Atomic inventory quantity check + reservation
-        if (details.type === "exchange" && exchangeInventorySnapshot && exchangeInventoryRef) {
-          if (!exchangeInventorySnapshot.exists) {
-            throw new HttpsError(
-              "not-found",
-              "Exchange inventory item not found"
-            );
-          }
-
-          const exchangeInventory = exchangeInventorySnapshot.data();
-
-          // Validate ownership
-          if (exchangeInventory?.pharmacyId !== userId) {
-            logger.warn(
-              `createExchangeProposal: User ${userId} tried to offer inventory they don't own`
-            );
-            throw new HttpsError(
-              "permission-denied",
-              "Cannot propose exchange with inventory you don't own"
-            );
-          }
-
-          // Validate sufficient quantity
-          if ((exchangeInventory?.availableQuantity || 0) < details.exchangeQuantity!) {
-            throw new HttpsError(
-              "failed-precondition",
-              `Insufficient quantity available. You have ${exchangeInventory?.availableQuantity || 0}, trying to offer ${details.exchangeQuantity}`
-            );
-          }
-
-          // Validate not expired
-          const expirationDate = exchangeInventory?.batch?.expirationDate?.toDate?.();
-          if (expirationDate && expirationDate < new Date()) {
-            throw new HttpsError(
-              "failed-precondition",
-              "Cannot propose expired medicine for exchange"
-            );
-          }
-
-          // 🔒 ATOMIC: Reserve inventory quantity
-          // This prevents race condition where same inventory is offered in multiple proposals
-          transaction.update(exchangeInventoryRef, {
-            availableQuantity: FieldValue.increment(-details.exchangeQuantity!),
-            reservedQuantity: FieldValue.increment(details.exchangeQuantity!),
-            updatedAt: FieldValue.serverTimestamp(),
+        // 🔒 EXCHANGE PROPOSAL — canonical reservation via shared helper.
+        // Sprint 4 Finding 1 fix (post-livraison) : route the inline hold
+        // through `reserveExchangeInventory` so both producers of
+        // `exchange_proposals` (createExchangeProposal + the medicine-
+        // request bridge) enforce the same `medicineId` match, ownership,
+        // expiry, and atomic write. Dosage/form are skipped here because
+        // this legacy input contract does not carry them on the exchange
+        // leg — the helper accepts missing dosage/form as "skip check"
+        // (medicine_request always provides them).
+        let exchangeInventorySnapshotCanonical: CanonicalExchangeInventorySnapshot | null = null;
+        if (details.type === "exchange" && exchangeInventorySnapshot) {
+          const reservation = reserveExchangeInventory(transaction, {
+            inventorySnap: exchangeInventorySnapshot,
+            expectedOwnerUid: userId,
+            expectedMedicineId: details.exchangeMedicineId!,
+            requiredQuantity: details.exchangeQuantity!,
+            now: new Date(),
           });
+          exchangeInventorySnapshotCanonical = reservation.snapshot;
 
           logger.info(
-            `createExchangeProposal: Reserved ${details.exchangeQuantity} units of inventory`,
+            `createExchangeProposal: Reserved ${details.exchangeQuantity} units of inventory (canonical helper)`,
             {
               userId,
               inventoryId: details.exchangeInventoryItemId,
-              available: exchangeInventory?.availableQuantity,
               reserved: details.exchangeQuantity,
             }
           );
         }
 
-        // ===== PHASE 3: CREATE PROPOSAL =====
+        // ===== PHASE 3: CREATE PROPOSAL (canonical pipeline — Sprint 4) =====
 
         const now = FieldValue.serverTimestamp();
         const proposalRef = db.collection("exchange_proposals").doc();
 
-        const proposalData = {
-          id: proposalRef.id,
-          inventoryItemId,
-          fromPharmacyId,
-          toPharmacyId,
-          details: {
-            ...details,
-            // Ensure type is set
-            type: details.type || "purchase",
-          },
-          status: "pending",
-          createdAt: now,
-          updatedAt: now,
-          expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000), // 48 hours from now
-          // Store reservation references for later release if proposal is rejected
-          reservations: {
-            walletReserved: details.type === "purchase" ? details.totalPrice : null,
-            inventoryReserved: details.type === "exchange" ? details.exchangeQuantity : null,
-          },
-          // V2 Inventory Visibility: snapshot target inventory at proposal time
-          // so proposals_screen can render without live reads on pharmacy_inventory.
-          inventorySnapshot: {
-            medicineId: inventoryData?.medicineId || null,
-            medicineName: inventoryData?.medicine?.name || inventoryData?.medicineName || null,
-            genericName: inventoryData?.medicine?.genericName || null,
-            strength: inventoryData?.medicine?.strength || null,
-            form: inventoryData?.medicine?.form || null,
-            category: inventoryData?.medicine?.category || null,
-            packaging: inventoryData?.packaging || null,
-            lotNumber: inventoryData?.batch?.lotNumber || inventoryData?.batchNumber || null,
-            expirationDate: inventoryData?.batch?.expirationDate || null,
-            availableQuantityAtOffer: inventoryData?.availableQuantity || 0,
-          },
+        const inventorySnapshotCanonical: CanonicalInventorySnapshot = {
+          medicineId: inventoryData?.medicineId || null,
+          medicineName: inventoryData?.medicine?.name || inventoryData?.medicineName || null,
+          genericName: inventoryData?.medicine?.genericName || null,
+          strength: inventoryData?.medicine?.strength || null,
+          form: inventoryData?.medicine?.form || null,
+          category: inventoryData?.medicine?.category || null,
+          packaging: inventoryData?.packaging || null,
+          lotNumber: inventoryData?.batch?.lotNumber || inventoryData?.batchNumber || null,
+          expirationDate: inventoryData?.batch?.expirationDate || null,
+          availableQuantityAtOffer: inventoryData?.availableQuantity || 0,
         };
+
+        // Build the canonical details, preserving all incoming fields
+        // (notes, currency, etc.) that the pipeline contract carries.
+        let canonicalDetails: CanonicalPurchaseDetails | CanonicalExchangeDetails;
+        if (details.type === "purchase") {
+          canonicalDetails = {
+            type: "purchase",
+            quantity: details.quantity,
+            unitPrice: details.pricePerUnit ?? 0,
+            totalPrice: details.totalPrice!,
+            currency: details.currency!,
+            medicineName: inventorySnapshotCanonical.medicineName,
+            medicineId: inventorySnapshotCanonical.medicineId,
+            notes: details.notes,
+          };
+        } else {
+          // Sprint 4 Finding 1 + 2 (post-livraison) fix — snapshot built
+          // by `reserveExchangeInventory` above. Both producers
+          // (createExchangeProposal and the medicine-request bridge) now
+          // share the same builder and the same `CanonicalExchangeInventorySnapshot`
+          // shape — no inline divergence possible.
+          if (!exchangeInventorySnapshotCanonical) {
+            // Defensive: should never happen because the if/else above
+            // requires details.type === "exchange" which guarantees the
+            // reservation block ran. But TypeScript needs the narrowing.
+            throw new HttpsError(
+              "internal",
+              "exchangeInventorySnapshot not initialized for exchange proposal"
+            );
+          }
+          canonicalDetails = {
+            type: "exchange",
+            quantity: details.quantity,
+            medicineName: inventorySnapshotCanonical.medicineName,
+            medicineId: inventorySnapshotCanonical.medicineId,
+            exchangeInventoryItemId: details.exchangeInventoryItemId!,
+            exchangeMedicineId: details.exchangeMedicineId!,
+            exchangeQuantity: details.exchangeQuantity!,
+            exchangeInventorySnapshot: exchangeInventorySnapshotCanonical,
+            notes: details.notes,
+          };
+        }
+
+        const proposalData = buildCanonicalProposalDocument(
+          {
+            proposalId: proposalRef.id,
+            inventoryItemId,
+            fromPharmacyId,
+            toPharmacyId,
+            details: canonicalDetails,
+            initialStatus: "pending",
+            inventorySnapshot: inventorySnapshotCanonical,
+          },
+          now
+        );
 
         transaction.set(proposalRef, proposalData);
 

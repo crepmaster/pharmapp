@@ -1,14 +1,15 @@
 /**
- * createMedicineRequest — Sprint 2A
+ * createMedicineRequest — Sprint 2A + Sprint 4 (F-BLOC2-P2).
  *
  * Creates a medicine request in the requester's city.
- * MVP: purchase-only (requestMode must be "purchase").
+ * Sprint 4: requestMode is now `purchase` OR `exchange` (strict).
  */
 
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { assertLicenseAllowsMarketplace } from "./lib/licenseGate.js";
+import { assertCanonicalMode } from "./lib/exchangePipeline.js";
 
 const db = getFirestore();
 
@@ -45,13 +46,8 @@ export const createMedicineRequest = onCall<CreateRequestData>(
       throw new HttpsError("invalid-argument", "currencyCode is required.");
     }
 
-    // MVP: purchase-only
-    if (data.requestMode !== "purchase") {
-      throw new HttpsError(
-        "invalid-argument",
-        "Only 'purchase' mode is supported in this version."
-      );
-    }
+    // Sprint 4: strict `purchase | exchange`. No `either`, no other value.
+    const requestMode = assertCanonicalMode(data.requestMode, "requestMode");
 
     // Read pharmacy profile
     const pharmacyRef = db.collection("pharmacies").doc(userId);
@@ -118,7 +114,7 @@ export const createMedicineRequest = onCall<CreateRequestData>(
       medicineId: data.medicineId,
       medicineSnapshot: data.medicineSnapshot || {},
       requestedQuantity: data.requestedQuantity,
-      requestMode: data.requestMode,
+      requestMode,
       currencyCode: data.currencyCode,
       notes: (data.notes || "").trim(),
       status: "open",
