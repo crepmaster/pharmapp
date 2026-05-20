@@ -146,6 +146,39 @@ Une fois la nouveauté validée + démo OK sur staging :
 
 ---
 
+## 5b. Validation manuelle via l'UI (full test)
+
+Prérequis posés sur staging (2026-05-21) pour une validation hands-on :
+
+- **Sandbox activé** : `SANDBOX_ENABLED=true` (via `functions/.env.mediexchange-staging`,
+  gitignored ; appliqué aux callables `sandboxCredit/Debit/AdvanceWithdrawal/SubscriptionSuccess`).
+  → le crédit wallet in-app fonctionne **uniquement pour les comptes `*@promoshake.net`**.
+- **Super admin** : `admin@promoshake.net` / `Admin1234!` (doc `admins/{uid}`,
+  role super_admin, scopes GH+CM).
+- **Emails de test** : utiliser `*@promoshake.net` pour toute pharmacie test
+  (sinon le crédit wallet est refusé : `NOT_TEST_ACCOUNT`).
+
+Parcours de validation (mappé sur les 8 scénarios) :
+
+1. **S1/S2 — Inscription** : sur l'app, inscrire une pharmacie Ghana
+   (`*@promoshake.net`, ville Accra). Sans licence → re-prompt `LICENSE_REQUIRED`.
+   Avec licence `GH-1234` → compte créé `pending_verification`.
+2. **S3 — Verify** : sur l'admin (`admin@promoshake.net`), "License Reviews" →
+   verify → la pharmacie passe `verified` + trial démarre.
+3. **S4 — Purchase** : 2e pharmacie Accra, ajouter de l'inventaire, créditer le
+   wallet via SandboxTestingScreen, créer une medicine request, faire une offre
+   depuis l'autre compte, accepter.
+4. **S5 — Exchange** : request en mode exchange, offre barter, accept via le
+   picker d'inventaire.
+5. **S8 — Withdrawal** : depuis un wallet crédité, créer un retrait MTN GH
+   (MSISDN `+23324xxxxxxx`).
+
+Bugs cosmétiques connus (non bloquants, voir CLAUDE.md backlog) :
+- **TD-REGISTRATION-POST-SUCCESS-UX** : un snackbar "Registration failed" peut
+  s'afficher MÊME quand l'inscription réussit (vérifier le doc pharmacie créé).
+- **TD-WALLET-CURRENCY-SERVER-SIDE** : un wallet Ghana peut naître en `XAF` si
+  le client n'envoie pas `currency` (cosmétique ; corrigeable côté data).
+
 ## 6. Garde-fous
 
 - Build **prod** = aucun flag `USE_STAGING`/`USE_EMULATOR` → pointe `mediexchange`.
