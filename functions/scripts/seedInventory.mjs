@@ -5,12 +5,17 @@
  * `docs/release/SPRINT_5_E2E_CLOSURE_PLAN.md`.
  *
  * Crée des items `pharmacy_inventory/{auto}` pour 2 pharmacies (seller +
- * buyer) avec des médicaments WHO essentiels :
+ * buyer) avec des médicaments WHO essentiels. **Les medicineId DOIVENT
+ * matcher exactement le catalogue statique `EssentialAfricanMedicines`
+ * (cf. `pharmapp_unified/lib/data/essential_medicines.dart`)**, sinon le
+ * flow UI medicine_request casse à l'accept (le seller n'a pas l'item
+ * recherché côté Firestore alors qu'il apparaît côté autocomplete).
  *
- *   - Seller (par défaut 3 items) : paracetamol-500, amoxicillin-500,
- *     omeprazole-20.
- *   - Buyer (par défaut 2 items) : ibuprofen-400, metformin-500 — utilisés
- *     comme "monnaie d'échange" pour les scénarios S5 exchange.
+ *   - Seller (par défaut 3 items) : paracetamol-syrup-120mg-5ml (Calpol),
+ *     amoxicillin-500mg, artemether-lumefantrine-20-120 (Coartem).
+ *   - Buyer (par défaut 2 items) : ibuprofen-400mg (Brufen), salbutamol-
+ *     inhaler (Ventolin) — utilisés comme "monnaie d'échange" pour les
+ *     scénarios S5 exchange.
  *
  * Les items sont créés avec `availableForExchange: true` pour qu'ils
  * apparaissent dans le marketplace listing. Lot numbers et expiry dates
@@ -177,17 +182,21 @@ function buildItem({ ownerUid, medicineId, medicineName, dosage, form, qty }) {
   };
 }
 
+// medicineId values MUST match EssentialAfricanMedicines.medicines[*].id
+// (see pharmapp_unified/lib/data/essential_medicines.dart). Mismatched IDs
+// surface as "request created but no seller has the item" at S4 accept
+// time — discovered during Sprint 5 recette 2026-05-20.
 const SELLER_ITEMS = [
-  { medicineId: "paracetamol-500", medicineName: "Paracetamol", dosage: "500mg", form: "tablet", qty: 50 },
-  { medicineId: "amoxicillin-500", medicineName: "Amoxicillin", dosage: "500mg", form: "capsule", qty: 30 },
-  { medicineId: "omeprazole-20",   medicineName: "Omeprazole",  dosage: "20mg",  form: "capsule", qty: 40 },
+  { medicineId: "paracetamol-syrup-120mg-5ml", medicineName: "Paracetamol",          dosage: "120mg/5ml",    form: "Syrup",   qty: 50 },
+  { medicineId: "amoxicillin-500mg",           medicineName: "Amoxicillin",          dosage: "500mg",        form: "Capsule", qty: 30 },
+  { medicineId: "artemether-lumefantrine-20-120", medicineName: "Artemether + Lumefantrine", dosage: "20mg/120mg", form: "Tablet", qty: 40 },
 ];
 
 const BUYER_ITEMS = [
   // These are intended as "exchange currency" for S5 — the requester
   // (buyer) offers one of these in return when accepting an exchange offer.
-  { medicineId: "ibuprofen-400", medicineName: "Ibuprofen", dosage: "400mg", form: "tablet", qty: 60 },
-  { medicineId: "metformin-500", medicineName: "Metformin", dosage: "500mg", form: "tablet", qty: 80 },
+  { medicineId: "ibuprofen-400mg",    medicineName: "Ibuprofen",  dosage: "400mg",     form: "Tablet",  qty: 60 },
+  { medicineId: "salbutamol-inhaler", medicineName: "Salbutamol", dosage: "100mcg/dose", form: "Inhaler", qty: 1  },
 ];
 
 // ---------------------------------------------------------------------------
