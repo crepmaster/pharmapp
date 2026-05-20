@@ -27,10 +27,22 @@ class AuthenticatedHttpService {
   static const String _emulatorFunctionsPort =
       String.fromEnvironment('EMULATOR_FUNCTIONS_PORT', defaultValue: '5001');
 
+  // Sprint 5 phase 2 — staging routing. A `USE_STAGING=true` build points the
+  // HTTP base URL at the staging project's europe-west1 endpoint so the
+  // staging app never leaks HTTP calls (wallet/subscription) to prod. Prod
+  // build (both flags false) keeps the canonical mediexchange URL. Tree-shaking
+  // elides the unused branches because the flags are compile-time constants.
+  static const bool _useStaging = bool.fromEnvironment('USE_STAGING');
+  static const String _stagingProjectId = String.fromEnvironment(
+      'STAGING_PROJECT_ID',
+      defaultValue: 'mediexchange-staging');
+
   /// Base URL for Cloud Functions (europe-west1).
   static String get functionsBaseUrl => _useEmulator
       ? 'http://$_emulatorHost:$_emulatorFunctionsPort/$_emulatorProjectId/europe-west1'
-      : 'https://europe-west1-mediexchange.cloudfunctions.net';
+      : _useStaging
+          ? 'https://europe-west1-$_stagingProjectId.cloudfunctions.net'
+          : 'https://europe-west1-mediexchange.cloudfunctions.net';
 
   /// Returns JSON headers with Bearer token (if user is authenticated).
   static Future<Map<String, String>> authJsonHeaders() async {

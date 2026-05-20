@@ -29,6 +29,25 @@ const _emulatorProjectId =
 const _emulatorHost =
     String.fromEnvironment('EMULATOR_HOST', defaultValue: 'localhost');
 
+// Sprint 5 phase 2 — staging wiring. A `USE_STAGING=true` build initialises
+// Firebase against the real staging project (mediexchange-staging) instead of
+// prod. The staging config is passed via `--dart-define` (NOT committed — keys
+// stay out of source per CLAUDE.md "Testing phase"). Prod build sees neither
+// flag → DefaultFirebaseOptions (mediexchange). Build example:
+//
+//   flutter build web \
+//     --dart-define=USE_STAGING=true \
+//     --dart-define=STAGING_API_KEY=... \
+//     --dart-define=STAGING_APP_ID=... \
+//     --dart-define=STAGING_SENDER_ID=... \
+//     --dart-define=STAGING_PROJECT_ID=mediexchange-staging
+const _useStaging = bool.fromEnvironment('USE_STAGING');
+const _stagingApiKey = String.fromEnvironment('STAGING_API_KEY');
+const _stagingAppId = String.fromEnvironment('STAGING_APP_ID');
+const _stagingSenderId = String.fromEnvironment('STAGING_SENDER_ID');
+const _stagingProjectId =
+    String.fromEnvironment('STAGING_PROJECT_ID', defaultValue: 'mediexchange-staging');
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -41,7 +60,15 @@ void main() async {
             projectId: _emulatorProjectId,
             authDomain: 'localhost',
           )
-        : DefaultFirebaseOptions.currentPlatform,
+        : _useStaging
+            ? const FirebaseOptions(
+                apiKey: _stagingApiKey,
+                appId: _stagingAppId,
+                messagingSenderId: _stagingSenderId,
+                projectId: _stagingProjectId,
+                authDomain: '$_stagingProjectId.firebaseapp.com',
+              )
+            : DefaultFirebaseOptions.currentPlatform,
   );
 
   if (_useEmulator) {

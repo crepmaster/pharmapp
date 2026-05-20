@@ -31,6 +31,16 @@ const _emulatorProjectId =
 const _emulatorHost =
     String.fromEnvironment('EMULATOR_HOST', defaultValue: 'localhost');
 
+// Sprint 5 phase 2 — staging wiring (mirror of pharmapp_unified/lib/main.dart).
+// `USE_STAGING=true` initialises Firebase against mediexchange-staging via
+// `--dart-define` (keys not committed). Prod build sees neither flag.
+const _useStaging = bool.fromEnvironment('USE_STAGING');
+const _stagingApiKey = String.fromEnvironment('STAGING_API_KEY');
+const _stagingAppId = String.fromEnvironment('STAGING_APP_ID');
+const _stagingSenderId = String.fromEnvironment('STAGING_SENDER_ID');
+const _stagingProjectId =
+    String.fromEnvironment('STAGING_PROJECT_ID', defaultValue: 'mediexchange-staging');
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -43,7 +53,15 @@ void main() async {
             projectId: _emulatorProjectId,
             authDomain: 'localhost',
           )
-        : DefaultFirebaseOptions.currentPlatform,
+        : _useStaging
+            ? const FirebaseOptions(
+                apiKey: _stagingApiKey,
+                appId: _stagingAppId,
+                messagingSenderId: _stagingSenderId,
+                projectId: _stagingProjectId,
+                authDomain: '$_stagingProjectId.firebaseapp.com',
+              )
+            : DefaultFirebaseOptions.currentPlatform,
   );
 
   if (_useEmulator) {
