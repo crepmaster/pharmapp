@@ -1,7 +1,8 @@
 {
   "projects": {
     "dev": "nowastemed",
-    "prod": "mediexchange"
+    "prod": "mediexchange",
+    "staging": "mediexchange-staging"
   },
   "targets": {
     "mediexchange": {

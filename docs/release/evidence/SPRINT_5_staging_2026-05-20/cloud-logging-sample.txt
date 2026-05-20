@@ -1,0 +1,12 @@
+2026-05-20T21:19:00.754404Z	createwithdrawalrequest	createWithdrawalRequest: below minimum
+2026-05-20T21:19:00.509691Z	createwithdrawalrequest	createWithdrawalRequest: idempotent replay
+2026-05-20T21:19:00.469996Z	createwithdrawalrequest	
+2026-05-20T21:19:00.260139Z	createwithdrawalrequest	createWithdrawalRequest: processing
+2026-05-20T21:19:00.147097Z	createwithdrawalrequest	
+2026-05-20T21:18:57.653299Z	acceptmedicinerequestoffer	acceptMedicineRequestOffer: completed
+2026-05-20T21:18:57.620527Z	acceptmedicinerequestoffer	acceptExchangeRequestOfferIntoCanonicalProposal: success
+2026-05-20T21:18:57.620116Z	acceptmedicinerequestoffer	acceptExchangeRequestOfferIntoCanonicalProposal: resolved courier fee
+2026-05-20T21:18:57.542847Z	acceptmedicinerequestoffer	acceptMedicineRequestOffer: starting
+2026-05-20T21:18:57.483302Z	acceptmedicinerequestoffer	
+2026-05-20T21:18:56.609269Z	acceptmedicinerequestoffer	acceptMedicineRequestOffer: completed
+2026-05-20T21:18:56.557567Z	acceptmedicinerequestoffer	acceptRequestOfferIntoCanonicalProposal: success

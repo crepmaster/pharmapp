@@ -1,0 +1,67 @@
+
+==== S1 — Ghana registration WITHOUT license → LICENSE_REQUIRED ==
+   ✅ rejected FAILED_PRECONDITION (got FAILED_PRECONDITION)
+   ✅ error details.code = LICENSE_REQUIRED (got {"code":"LICENSE_REQUIRED"})
+   ✅ anti-orphan: no Auth user left for s5stg-s1nolic-mpekdrdv@example.com
+
+==== S2 — Ghana registration WITH license → pending_verification + trial gated ==
+   ✅ seller registered pending_verification (pending_verification)
+   ✅ buyer registered pending_verification (pending_verification)
+   ✅ seller subscriptionStatus=trial_pending_license (got trial_pending_license)
+   ✅ pending pharmacy gated on marketplace (got FAILED_PRECONDITION)
+   sellerUid=8OzpfQl3iGQPAKCwnh2ryCzpoJk1  buyerUid=f33rvBwBWwTqX4MvLdvZXV63Tq42
+
+==== S3 — admin verify → verified + trial started ========
+   ✅ verify seller → ok
+   ✅ verify buyer → ok
+   ✅ both verified
+   ✅ both trial started (seller=trial buyer=trial)
+
+==== setup — seed inventory + credit wallets (Admin SDK) ==
+   ✅ 5 inventory items + buyer wallet (1,000,000 GHS) seeded
+
+==== S4 — medicine_request PURCHASE happy path ===========
+   ✅ createMedicineRequest → ORRvKD77aUJS3clZJAIt
+   ✅ submitMedicineRequestOffer → ASAB7Pc8wZyRSD0tQ0Bb
+   ✅ acceptMedicineRequestOffer → 0zvIsxepTxVJUzyBXs7e
+   ✅ buyer wallet 1000000 → 999500 (−500)
+   ✅ seller inv untouched at accept (lock #5 purchase)
+   ✅ proposal accepted purchase total=500
+   ✅ delivery pending courierFee=60
+
+==== S5 — medicine_request EXCHANGE (barter) =============
+   ✅ createMedicineRequest(exchange) → OHxSTf1nT95Dig5VyGsm
+   ✅ submitMedicineRequestOffer(exchange) → 65o89ISbXSi0lGZeJapp
+   ✅ acceptMedicineRequestOffer(exchange) → fDDWIsdyC98Jzvuwv0Gv
+   ✅ requester item B held (−5 avail, +5 reserved) [lock #5 single hold]
+   ✅ seller item A untouched at accept [lock #5]
+   ✅ no wallet movement [lock #1 no soulte]
+   ✅ proposal accepted exchange
+   ✅ delivery courierFee=2400 (expected 2400) [lock #6]
+
+==== S6 — parity matrix (strict cross-mode rejection) ====
+   ✅ setup purchase+exchange requests
+   ✅ purchase request + exchange offer → rejected FAILED_PRECONDITION (got: FAILED_PRECONDITION)
+   ✅ exchange request + purchase offer → rejected FAILED_PRECONDITION (got: FAILED_PRECONDITION)
+   ✅ requestMode="either" → rejected INVALID_ARGUMENT (got: INVALID_ARGUMENT)
+   ✅ purchase offer carrying exchangeItem → rejected INVALID_ARGUMENT (got: INVALID_ARGUMENT)
+   ✅ exchange offer missing exchangeItem → rejected INVALID_ARGUMENT (got: INVALID_ARGUMENT)
+
+==== S7 — fail-closed: unverified pharmacy blocked on 5 callables ==
+   ✅ setup unverified pharmacy → pending_verification
+   ✅ createMedicineRequest → rejected FAILED_PRECONDITION (got: FAILED_PRECONDITION)
+   ✅ submitMedicineRequestOffer → rejected FAILED_PRECONDITION (got: FAILED_PRECONDITION)
+   ✅ acceptMedicineRequestOffer → rejected FAILED_PRECONDITION (got: FAILED_PRECONDITION)
+   ✅ createExchangeProposal → rejected FAILED_PRECONDITION (got: FAILED_PRECONDITION)
+   ✅ acceptExchangeProposal → rejected FAILED_PRECONDITION (got: FAILED_PRECONDITION)
+
+==== S8 — withdrawal happy path + idempotency + MSISDN ===
+   ✅ withdrawal happy → processing
+   ✅ wallet available −20000, held +20000
+   ✅ idempotent replay: same requestId, no extra debit
+   ✅ MSISDN wrong operator → rejected INVALID_ARGUMENT (got: INVALID_ARGUMENT)
+   ✅ amount below minimum → rejected FAILED_PRECONDITION (got: FAILED_PRECONDITION)
+
+------------------------------------------------------
+RESULT (staging): 44 passed, 0 failed
+run=mpekdrdv  sellerUid=8OzpfQl3iGQPAKCwnh2ryCzpoJk1  buyerUid=f33rvBwBWwTqX4MvLdvZXV63Tq42

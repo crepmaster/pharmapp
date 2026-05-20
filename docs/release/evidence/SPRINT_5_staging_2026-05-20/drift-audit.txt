@@ -1,0 +1,83 @@
+========================================================
+ Cloud Functions drift audit — project: mediexchange-staging
+ READ-ONLY. No delete, no mutation, no deploy.
+========================================================
+
+Summary:
+  local exports     : 48
+  remote deployed   : 48
+  intersection      : 48
+  remote_only       : 0
+  local_only        : 0
+
+Intersection runtime breakdown: 48 on nodejs22
+
+--------------------------------------------------------
+ remote_only  (deployed, NOT exported from index.ts)
+--------------------------------------------------------
+  (none)
+
+--------------------------------------------------------
+ local_only  (exported from index.ts, NOT deployed)
+--------------------------------------------------------
+  (none)
+
+--------------------------------------------------------
+ intersection  (present in both)
+--------------------------------------------------------
+  - acceptExchangeProposal  [nodejs22]
+  - acceptMedicineRequestOffer  [nodejs22]
+  - adminVerifyPharmacyLicense  [nodejs22]
+  - backfillLicenseGracePeriod  [nodejs22]
+  - cancelExchangeProposal  [nodejs22]
+  - cancelMedicineRequest  [nodejs22]
+  - cleanupTestUserUnified  [nodejs22]
+  - completeExchangeDelivery  [nodejs22]
+  - createAdminUser  [nodejs22]
+  - createCourierUser  [nodejs22]
+  - createExchangeHold  [nodejs22]
+  - createExchangeProposal  [nodejs22]
+  - createMedicineRequest  [nodejs22]
+  - createPharmacyRegistration  [nodejs22]
+  - createPharmacyUser  [nodejs22]
+  - createWithdrawalRequest  [nodejs22]
+  - exchangeCancel  [nodejs22]
+  - exchangeCapture  [nodejs22]
+  - expireExchangeHolds  [nodejs22]
+  - getMarketplacePharmacies  [nodejs22]
+  - getSubscriptionStatus  [nodejs22]
+  - getWallet  [nodejs22]
+  - health  [nodejs22]
+  - momoWebhook  [nodejs22]
+  - mtnMomoCheckStatus  [nodejs22]
+  - mtnMomoTopupIntent  [nodejs22]
+  - onDeliveryCreatedNotifyCouriers  [nodejs22]
+  - onDeliveryStatusChangedNotifyPharmacies  [nodejs22]
+  - orangeWebhook  [nodejs22]
+  - paystackTopupIntent  [nodejs22]
+  - paystackWebhook  [nodejs22]
+  - requestPlatformPayout  [nodejs22]
+  - resolvePlatformPayout  [nodejs22]
+  - sandboxAdvanceWithdrawal  [nodejs22]
+  - sandboxCredit  [nodejs22]
+  - sandboxDebit  [nodejs22]
+  - sandboxSubscriptionSuccess  [nodejs22]
+  - setCountryLicenseConfig  [nodejs22]
+  - setCourierActive  [nodejs22]
+  - setPharmacyActive  [nodejs22]
+  - submitMedicineRequestOffer  [nodejs22]
+  - submitPharmacyLicense  [nodejs22]
+  - topupIntent  [nodejs22]
+  - upsertCity  [nodejs22]
+  - validateAnalyticsAccess  [nodejs22]
+  - validateInventoryAccess  [nodejs22]
+  - validateProposalAccess  [nodejs22]
+  - withdrawMedicineRequestOffer  [nodejs22]
+
+Interpretation:
+  nodejs20 on a remote_only entry = potential urgency
+    (Firebase Node 20 deprecation window).
+  nodejs22                         = no immediate urgency.
+  'lastDeploy: unknown' is acceptable when the CLI does
+  not expose the value. No per-function describe loop.
+

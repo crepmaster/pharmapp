@@ -1,7 +1,8 @@
 # Sprint 5 — E2E Closure Plan
 
-**Date** : 2026-05-14 (phase 1 emulator recette exécutée 2026-05-20)
-**Statut** : artefact livré + **phase 1 emulator recette 8/8 PASS** ; phase 2 real staging non exécutée → **CONDITIONAL PASS** (inchangé)
+**Date** : 2026-05-14 (phase 1 emulator 2026-05-20, phase 2 real staging 2026-05-20)
+**Statut** : phase 1 emulator 8/8 PASS + **phase 2 real Firebase staging 8/8 PASS (44/44 assertions)** → **PASS**
+**Preuves phase 2** : [evidence/SPRINT_5_staging_2026-05-20/](evidence/SPRINT_5_staging_2026-05-20/SUMMARY.md)
 **Pre-lock** : [docs/orchestrator_sprints/SPRINT_5_E2E_CLOSURE_TASK.md](../orchestrator_sprints/SPRINT_5_E2E_CLOSURE_TASK.md)
 **Runbook monitoring** : [SPRINT_5_MONITORING_7D.md](SPRINT_5_MONITORING_7D.md)
 **Script audit Ghana** : [`functions/scripts/auditGhanaLicenseReadiness.mjs`](../../functions/scripts/auditGhanaLicenseReadiness.mjs)
@@ -295,10 +296,19 @@ avec un UID seller erroné (`…ll…` au lieu de `…lI…`) → inventaire orp
 > reste **CONDITIONAL PASS** tant que la phase 2 (real Firebase staging)
 > n'est pas exécutée.
 
-### PASS
+### PASS — ✅ ATTEINT 2026-05-20
 
-**Sprint 5 transite à PASS uniquement après recette sur real Firebase
-staging, pas après émulateur seul.**
+**Phase 2 real Firebase staging exécutée le 2026-05-20 : 8/8 scénarios PASS,
+44/44 assertions** sur `mediexchange-staging` via le driver
+[`functions/scripts/e2eRecetteStaging.mjs`](../../functions/scripts/e2eRecetteStaging.mjs)
+(callables déployés, ID tokens réels). Drift `remote_only=0 / local_only=0`,
+audit Ghana 0 bucket critique. Preuves :
+[evidence/SPRINT_5_staging_2026-05-20/](evidence/SPRINT_5_staging_2026-05-20/SUMMARY.md).
+Caveat : recette pilotée par callables (UI mobile prouvée séparément par
+widget tests + recette émulateur phase 1).
+
+**Critères PASS (rappel) — Sprint 5 transite à PASS uniquement après recette
+sur real Firebase staging, pas après émulateur seul.**
 
 - Tous les 8 scénarios passent **sur `mediexchange-staging`** avec
   preuves collectées dans `docs/release/evidence/SPRINT_5_staging_<date>/` :

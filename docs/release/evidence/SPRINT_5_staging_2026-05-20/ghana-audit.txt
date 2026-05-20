@@ -1,0 +1,27 @@
+
+📊 Auditing pharmacies/{*} where countryCode == "GH" on project "mediexchange-staging"…
+
+   Found 14 pharmacies in GH.
+
+Bucket breakdown:
+    ✅ verified_allow                     8
+      sample IDs: 8OzpfQl3iGQPAKCwnh2ryCzpoJk1, KxGp1JS3FgfLIYdz0lwhdfnbFD02, LsMBRHcV9ma2J8RE2NWW62ZPpDC2, dYm5QsNUPeXpPO7dtTvvznNoiE33, f33rvBwBWwTqX4MvLdvZXV63Tq42, lrthiejJRXP7CCh7o1VUIWv8MGJ3, sRDqRpnek9PF2JQmzLZQQnzgZIv1, tMK3P5VmgDVtYBqSdp2O4jTnuKr2
+    ✅ grace_active_allow                 0
+    ⚠️  missing_status                     0
+    🚫 pending_deny                       6
+      sample IDs: AelKhsN5NPgPDrwbTGA5E9K6faw1, G5kWYDxNAPMuvm5WIuFB97MPocJ3, NFUxUyeJCcQc7RMaykOY4TMn5uh2, UPqmbVynRdSY21i0fBQtoTuTUMs1, bDfD03OPrZaKhIw4B499Sfu3LK82, xW0No2TtachlgtvvdDgs95f2McA3
+    🚫 rejected_deny                      0
+    🚫 correction_needed_deny             0
+    🚫 expired_deny                       0
+    🚫 grace_expired_deny                 0
+    🚫 not_required_misconfig_deny        0
+    🚫 unknown_status_deny                0
+
+Totals:
+   ✅  allow                  : 8
+   🚫  deny (explicit status) : 6
+   ⚠️   missing status         : 0 (treated as deny by the gate)
+   🚫  deny (including missing): 6  ← what the gate actually blocks
+   📊  scanned                : 14
+
+AUDIT_SUMMARY_JSON {"project":"mediexchange-staging","country":"GH","licenseRequired":true,"scannedAtIso":"2026-05-20T21:19:01.688Z","totals":{"allow":8,"deny":6,"denyStrict":6,"missingStatus":0,"scanned":14},"buckets":{"verified_allow":8,"pending_deny":6},"csvOut":null}
