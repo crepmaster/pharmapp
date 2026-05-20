@@ -318,14 +318,19 @@ sur real Firebase staging, pas après émulateur seul.**
 - 0 issue critique remontée par audit Ghana.
 - Drift audit `remote_only=0`, `local_only=0` post-deploy staging.
 
-### CONDITIONAL PASS (statut actuel Sprint 5 — 2026-05-14)
+### CONDITIONAL PASS — ⚠️ HISTORIQUE (statut du 2026-05-14 → 2026-05-20, SUPERSEDED par PASS)
+
+> Ce bloc décrit le statut intermédiaire entre la livraison des artefacts
+> (2026-05-14) et l'exécution de la recette staging (2026-05-20). **Le statut
+> global est désormais PASS** (voir section « PASS — ATTEINT 2026-05-20 »
+> ci-dessus). Conservé pour la traçabilité du raisonnement.
 
 - Artefacts livrés : audit script + plan E2E + runbook monitoring + truth
   cleanup docs.
-- Recette staging **non encore exécutée** (pas de project staging confirmé
-  au moment de la livraison du sprint).
-- Le sprint peut être marqué clos avec ce statut, mais la décision deploy
-  prod **reste conditionnée** à l'exécution ultérieure de la checklist.
+- Recette staging non encore exécutée à cette date (pas de project staging
+  confirmé au moment de la livraison du sprint) — **levé le 2026-05-20**.
+- À l'époque : deploy prod restait conditionné à l'exécution ultérieure de
+  la checklist. Checklist **exécutée et PASS** depuis (phase 1 + phase 2).
 
 ### BLOCKED
 
