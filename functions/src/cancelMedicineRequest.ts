@@ -29,6 +29,16 @@ export const cancelMedicineRequest = onCall<CancelRequestData>(
     }
 
     await db.runTransaction(async (transaction) => {
+      // ================================================================
+      // PHASE 1: ALL READS (Firestore transaction constraint — all reads
+      // MUST happen before any write, otherwise the runtime throws an
+      // unhandled exception that surfaces as `firebase_functions/internal`
+      // to the client. Bug discovered during Sprint 5 phase 1 emulator
+      // recette 2026-05-14 — Jest mocks didn't catch the ordering issue
+      // because they don't enforce the real Firestore transaction
+      // contract.)
+      // ================================================================
+
       const requestRef = db.collection("medicine_requests").doc(requestId);
       const requestSnap = await transaction.get(requestRef);
 
@@ -47,6 +57,15 @@ export const cancelMedicineRequest = onCall<CancelRequestData>(
         );
       }
 
+      const offersQuery = db
+        .collection("medicine_request_offers")
+        .where("requestId", "==", requestId);
+      const offersSnap = await transaction.get(offersQuery);
+
+      // ================================================================
+      // PHASE 2: ALL WRITES
+      // ================================================================
+
       const now = FieldValue.serverTimestamp();
 
       // Cancel the request
@@ -56,11 +75,6 @@ export const cancelMedicineRequest = onCall<CancelRequestData>(
       });
 
       // Withdraw all pending offers
-      const offersQuery = db
-        .collection("medicine_request_offers")
-        .where("requestId", "==", requestId);
-      const offersSnap = await transaction.get(offersQuery);
-
       for (const doc of offersSnap.docs) {
         if (doc.data().status === "pending") {
           transaction.update(doc.ref, {
