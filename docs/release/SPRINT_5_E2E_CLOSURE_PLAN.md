@@ -1,7 +1,7 @@
 # Sprint 5 — E2E Closure Plan
 
-**Date** : 2026-05-14
-**Statut** : artefact livré, recette staging non exécutée → **CONDITIONAL PASS**
+**Date** : 2026-05-14 (phase 1 emulator recette exécutée 2026-05-20)
+**Statut** : artefact livré + **phase 1 emulator recette 8/8 PASS** ; phase 2 real staging non exécutée → **CONDITIONAL PASS** (inchangé)
 **Pre-lock** : [docs/orchestrator_sprints/SPRINT_5_E2E_CLOSURE_TASK.md](../orchestrator_sprints/SPRINT_5_E2E_CLOSURE_TASK.md)
 **Runbook monitoring** : [SPRINT_5_MONITORING_7D.md](SPRINT_5_MONITORING_7D.md)
 **Script audit Ghana** : [`functions/scripts/auditGhanaLicenseReadiness.mjs`](../../functions/scripts/auditGhanaLicenseReadiness.mjs)
@@ -265,6 +265,35 @@ les **collections à vérifier** et les **critères PASS/FAIL**.
 >   recette complète sur un projet Firebase isolé (`mediexchange-staging`).
 >   Seule cette phase peut faire transiter Sprint 5 de
 >   `CONDITIONAL PASS → PASS`.
+
+### Phase 1 — Emulator recette EXÉCUTÉE (2026-05-20) — 8/8 PASS (logique)
+
+Recette émulateur jouée bout-en-bout. S1, S2-CM, S2-GH, S3 validés via
+l'UI Flutter le 2026-05-19 (preuves Firestore runtime). S4→S8 rejoués le
+2026-05-20 via le driver [`functions/scripts/e2eRecette.mjs`](../../functions/scripts/e2eRecette.mjs)
+qui appelle les **vrais callables** sur le functions emulator avec de
+vrais tokens Auth (pas de raccourci Admin SDK), avec assertions Firestore :
+
+| Scénario | Assertions | Preuve clé |
+|---|---|---|
+| S4 purchase | 12/12 | wallet débité ; inventaire seller intact à l'accept (lock #5) ; proposal `accepted` + delivery `pending` courierFee=12% |
+| S5 exchange | 13/13 | **1 seul** hold = item B requester ; item A seller intact (lock #5) ; **0 mouvement wallet** (lock #1) ; courierFee résolu depuis config (lock #6) |
+| S6 parity | 8/8 | cross-mode → `failed-precondition` ; mode `either`/exchangeItem incohérent → `invalid-argument` |
+| S7 fail-closed | 6/6 | pharmacie `pending_verification` bloquée sur les **5** callables marketplace + contrôle positif |
+| S8 withdrawal | 9/9 | débit→held ; idempotence (pas de double débit) ; MSISDN mauvais opérateur rejeté ; montant < min rejeté |
+
+Run consolidé `node functions/scripts/e2eRecette.mjs all` : **48/48 passed**.
+
+Bugs corrigés pendant la recette : (1) `cancelMedicineRequest` read-after-write
+en transaction (commit `529156a`) ; (2) `seedInventory.mjs` medicineIds non
+alignés avec `EssentialAfricanMedicines` (commit `67d89bd`) ; (3) seed lancé
+avec un UID seller erroné (`…ll…` au lieu de `…lI…`) → inventaire orphelin
+(fix data emulator + re-seed).
+
+> ⚠️ Conformément à la stratégie hybride ci-dessus, cette phase prouve la
+> **logique** mais ne fait PAS transiter Sprint 5 à PASS. Le verdict global
+> reste **CONDITIONAL PASS** tant que la phase 2 (real Firebase staging)
+> n'est pas exécutée.
 
 ### PASS
 

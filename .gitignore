@@ -114,3 +114,5 @@ auth_export_temp.json
 # `firebase emulators:start --import=./emulator-data --export-on-exit`.
 # Recette-time only, never committed.
 emulator-data/
+# Auto-named exports from `--export-on-exit` without an explicit path.
+firebase-export-*/
