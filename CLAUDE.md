@@ -92,6 +92,14 @@ Si un document interne (ou une mémoire stale) mentionne `pharmacy_app/` ou `cou
 - Admin : <https://mediexchange-76872.web.app>
 - App : <https://app-mediexchange.web.app>
 
+### URLs staging (`mediexchange-staging`, créé 2026-05-20)
+
+- App : <https://mediexchange-staging.web.app>
+- Admin : <https://mediexchange-staging-admin.web.app>
+- Workflow staging-first (deploy, copie données prod→staging, promotion prod) : **[docs/release/STAGING_WORKFLOW.md](docs/release/STAGING_WORKFLOW.md)** (source de vérité du process). Build Flutter staging via `--dart-define=USE_STAGING=true` (+ clés `STAGING_*`, jamais committées).
+
+> ⚠️ **PROD est en retard sur `main`** (audit drift 2026-05-20) : 6 callables F-LICENSE (`createPharmacyRegistration`, `submitPharmacyLicense`, `adminVerifyPharmacyLicense`, `setCountryLicenseConfig`, `getMarketplacePharmacies`, `backfillLicenseGracePeriod`) ne sont PAS déployés en prod, et les 42 functions présentes y tournent avec du code antérieur aux sprints 2a→5. Idem Flutter/rules/indexes. Les nouveautés (F-LICENSE, trial, medicine-requests exchange, MSISDN) sont committées + prouvées sur staging mais **pas encore live**. Promotion = section 5 de STAGING_WORKFLOW.md (audits bloquants d'abord).
+
 ---
 
 ## 🚧 ÉTAT FONCTIONNEL — ce qui n'est PAS livré (à savoir)
