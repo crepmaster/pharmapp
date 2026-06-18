@@ -721,7 +721,25 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
           userPhone = roleData['phoneNumber'] as String?;
         }
 
-        // Get payment preferences
+        // Fallback to the pharmacies doc — `createPharmacyRegistration`
+        // (Sprint 2A.3) writes phoneNumber to BOTH users/{uid} and
+        // pharmacies/{uid}, but a stale users doc (or future role schema
+        // changes) shouldn't strand the prefill.
+        if (userPhone == null || userPhone.isEmpty) {
+          try {
+            final pharmDoc = await FirebaseFirestore.instance
+                .collection('pharmacies')
+                .doc(user.uid)
+                .get();
+            if (pharmDoc.exists) {
+              userPhone = pharmDoc.data()?['phoneNumber'] as String?;
+            }
+          } catch (_) {
+            // best-effort, keep userPhone null
+          }
+        }
+
+        // Get payment preferences (may be absent for new accounts)
         Map<String, dynamic>? prefData;
         if (data.containsKey('roleData') && data['roleData'] is Map) {
           final roleData = data['roleData'] as Map<String, dynamic>;
@@ -732,11 +750,18 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
           prefData = data['paymentPreferences'] as Map<String, dynamic>;
         }
 
-        if (prefData != null) {
-          final preferences = PaymentPreferences.fromMap(prefData);
+        if (mounted) {
+          setState(() {
+            // Prefill the phone unconditionally — used to live inside the
+            // `prefData != null` branch, which meant any account without saved
+            // preferences (i.e. brand-new pharmacies after registration) got
+            // an empty MSISDN field. The registered phone is the right default.
+            if (userPhone != null && userPhone.isNotEmpty) {
+              _phoneController.text = userPhone;
+            }
 
-          if (mounted) {
-            setState(() {
+            if (prefData != null) {
+              final preferences = PaymentPreferences.fromMap(prefData);
               _savedPreferences = preferences;
               final method = preferences.defaultMethod.toLowerCase();
               if (method.contains('mtn')) {
@@ -746,12 +771,8 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
               } else {
                 _selectedMethod = 'mtn';
               }
-
-              if (userPhone != null && userPhone.isNotEmpty) {
-                _phoneController.text = userPhone;
-              }
-            });
-          }
+            }
+          });
         }
       }
     } catch (e) {
@@ -877,12 +898,13 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
                   DropdownMenuItem(value: 'orange', child: Text('Orange Money')),
                 ],
                 onChanged: (value) {
-                  setState(() {
-                    _selectedMethod = value!;
-                    if (_phoneController.text.isNotEmpty) {
-                      _phoneController.clear();
-                    }
-                  });
+                  // Keep the prefilled phone — switching from MTN to Orange
+                  // (or vice versa) used to clear the field, which forced the
+                  // user to retype their registered MSISDN every time. Tester
+                  // feedback during the staging recette: the registered phone
+                  // should remain visible across method changes; the user can
+                  // edit it manually if their MoMo number differs.
+                  setState(() => _selectedMethod = value!);
                 },
                 validator: (value) => value == null ? 'Select payment method' : null,
               ),
