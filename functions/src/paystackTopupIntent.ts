@@ -180,8 +180,12 @@ export const paystackTopupIntent = onCall<PaystackTopupData>(
       };
     } catch (err) {
       if (err instanceof HttpsError) throw err;
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.error("paystackTopupIntent: unexpected error", { msg });
+      // Sprint 5 optimisation #2: capture full error envelope for prod triage.
+      logger.error("paystackTopupIntent: unexpected error", {
+        errMessage: err instanceof Error ? err.message : String(err),
+        errStack: err instanceof Error ? err.stack : null,
+        errCode: (err as { code?: string })?.code ?? null,
+      });
       throw new HttpsError("internal", "Paystack init failed.");
     }
   }

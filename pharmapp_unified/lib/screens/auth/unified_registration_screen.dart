@@ -1076,6 +1076,24 @@ class _UnifiedRegistrationScreenState
           backgroundColor: Colors.red,
         ),
       );
+    } on PostRegistrationSignInException catch (e) {
+      // Sprint 5 optimisation #4 (TD-REGISTRATION-POST-SUCCESS-UX) — the
+      // backend account WAS created (registration callable returned ok), but
+      // the immediate auto-signin failed (network blip, provider config, etc.).
+      // Show an orange "account created, please sign in" instead of the red
+      // "Registration failed" that historically misled testers and clients.
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 6),
+          content: Text(
+            'Account created. Please sign in with your email and password '
+            '(auto sign-in failed: ${e.code}).',
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);

@@ -175,6 +175,7 @@ export const createPharmacyRegistration = onCall<CreatePharmacyRegistrationInput
       countries?: Record<string, {
         licenseRequired?: boolean;
         licenseFormatRegex?: string;
+        defaultCurrencyCode?: string;
       } | undefined>;
     };
     const country = sysConfig.countries?.[countryCode];
@@ -285,10 +286,22 @@ export const createPharmacyRegistration = onCall<CreatePharmacyRegistrationInput
         createdAt: now,
       };
 
+      // Sprint 5 optimisation #3 (TD-WALLET-CURRENCY-SERVER-SIDE): derive the
+      // wallet currency from the country sysconfig server-side instead of
+      // trusting an absent client field. Old fallback was the hardcoded "XAF"
+      // string which broke every non-Cameroon pharmacy (e.g. Ghana → wallet in
+      // XAF instead of GHS). Client-supplied `profile.currency` is still
+      // honoured if present, but the new fallback uses `country.defaultCurrencyCode`
+      // from system_config (already loaded above), and only fails back to "XAF"
+      // if the country has none configured.
+      const walletCurrency =
+        (typeof profile.currency === "string" && profile.currency) ||
+        country.defaultCurrencyCode ||
+        "XAF";
       const walletDoc = {
         available: 0,
         held: 0,
-        currency: typeof profile.currency === "string" ? profile.currency : "XAF",
+        currency: walletCurrency,
         createdAt: now,
         updatedAt: now,
       };
@@ -347,6 +360,15 @@ export const createPharmacyRegistration = onCall<CreatePharmacyRegistrationInput
           "Password is too weak. Please choose a stronger one."
         );
       }
+      // Sprint 5 optimisation #2: log the real cause before the opaque rethrow.
+      // Without this, blind catch-alls turn "auth/configuration-not-found"-style
+      // failures into hours of debugging (proven during the staging bring-up).
+      logger.error("createPharmacyRegistration: unexpected error", {
+        errCode: (err as { code?: string })?.code ?? null,
+        errMessage: (err as { message?: string })?.message ?? null,
+        errStack: (err as { stack?: string })?.stack ?? null,
+        attemptedUid: createdUid,
+      });
       throw new HttpsError(
         "internal",
         "Registration failed. Please try again."

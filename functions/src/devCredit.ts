@@ -1,5 +1,6 @@
 import { onRequest } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import * as logger from "firebase-functions/logger";
 
 /**
  * 💳 Development Credit Function
@@ -91,8 +92,11 @@ export const devCredit = onRequest({ region: 'europe-west1' }, async (req, res) 
       } else if (adminDoc.exists) {
         userEmail = adminDoc.data()?.email || '';
       }
-    } catch (error: any) {
-      console.error(`Error fetching user: ${error.message}`);
+    } catch (error: unknown) {
+      logger.error("devCredit: error fetching user", {
+        userId,
+        errMessage: (error as { message?: string })?.message,
+      });
     }
 
     // Security check: Only allow development accounts
@@ -103,7 +107,7 @@ export const devCredit = onRequest({ region: 'europe-west1' }, async (req, res) 
       userEmail.includes('09092025');
 
     if (!isDevelopmentAccount) {
-      console.warn(`🚨 Attempt to credit non-development account: ${userEmail} (${userId})`);
+      logger.warn("devCredit: rejected non-dev account", { userId, userEmail });
       res.status(403).json({
         success: false,
         error: 'Development credit only allowed for authorized development accounts',
@@ -118,7 +122,7 @@ export const devCredit = onRequest({ region: 'europe-west1' }, async (req, res) 
       return;
     }
 
-    console.log(`💳 Development credit: ${amount} ${currency} for ${userEmail} (${userId})`);
+    logger.info("devCredit: starting", { userId, userEmail, amount, currency });
 
     // Get or create wallet document
     const walletRef = db.collection('wallets').doc(userId);
@@ -157,7 +161,14 @@ export const devCredit = onRequest({ region: 'europe-west1' }, async (req, res) 
       },
     });
 
-    console.log(`✓ Development credit successful: ${userEmail} balance ${currentBalance} → ${newBalance} ${currency}`);
+    logger.info("devCredit: success", {
+      userId,
+      userEmail,
+      previousBalance: currentBalance,
+      newBalance,
+      delta: amount,
+      currency,
+    });
 
     res.status(200).json({
       success: true,
@@ -173,11 +184,14 @@ export const devCredit = onRequest({ region: 'europe-west1' }, async (req, res) 
       },
     });
 
-  } catch (error: any) {
-    console.error(`❌ Development credit error: ${error.message}`);
+  } catch (error: unknown) {
+    logger.error("devCredit: unexpected error", {
+      errMessage: (error as { message?: string })?.message,
+      errStack: (error as { stack?: string })?.stack,
+    });
     res.status(500).json({
       success: false,
-      error: error.message,
+      error: (error as { message?: string })?.message ?? String(error),
       timestamp: new Date().toISOString(),
     });
   }

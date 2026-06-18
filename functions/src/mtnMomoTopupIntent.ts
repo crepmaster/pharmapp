@@ -222,8 +222,13 @@ export const mtnMomoTopupIntent = onCall<TopupIntentData>(
       };
     } catch (err: unknown) {
       if (err instanceof HttpsError) throw err;
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error("mtnMomoTopupIntent: unexpected error", { message });
+      // Sprint 5 optimisation #2: capture message + stack + code so prod incidents
+      // can be diagnosed without re-running the request locally.
+      logger.error("mtnMomoTopupIntent: unexpected error", {
+        errMessage: err instanceof Error ? err.message : String(err),
+        errStack: err instanceof Error ? err.stack : null,
+        errCode: (err as { code?: string })?.code ?? null,
+      });
       throw new HttpsError("internal", "Top-up failed. Please try again.");
     }
   }

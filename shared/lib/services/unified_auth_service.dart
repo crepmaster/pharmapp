@@ -32,6 +32,36 @@ class UserProfile {
   UserProfile({required this.user, required this.roleData});
 }
 
+/// Sprint 5 optimisation #4 (TD-REGISTRATION-POST-SUCCESS-UX) — the pharmacy
+/// registration callable creates the account server-side, then the client tries
+/// `signInWithEmailAndPassword` to obtain a session. If THIS second step fails
+/// (e.g. transient network error, Email/Password provider misconfigured), the
+/// registration itself was successful. Throwing this dedicated exception lets
+/// the UI distinguish "registration failed" (snackbar red) from "registered,
+/// please log in" (snackbar orange / route to login) instead of misleading the
+/// user with a generic failure message.
+class PostRegistrationSignInException implements Exception {
+  /// The Firebase-Auth-style code from the signIn failure (e.g. `auth/network-request-failed`).
+  final String code;
+
+  /// Human-readable message from the underlying signIn error.
+  final String message;
+
+  /// The uid of the just-created account (from the registration callable),
+  /// useful for the screen to log or pre-fill the login field.
+  final String? uid;
+
+  PostRegistrationSignInException({
+    required this.code,
+    required this.message,
+    this.uid,
+  });
+
+  @override
+  String toString() =>
+      'PostRegistrationSignInException(code: $code, message: $message, uid: $uid)';
+}
+
 /// Unified Authentication Service with Security Best Practices
 /// 
 /// Features:
@@ -133,11 +163,50 @@ class UnifiedAuthService {
             if (profileData['licenseNumber'] != null)
               'licenseNumber': profileData['licenseNumber'],
           });
-          // Backend created the account; sign in to obtain a session.
-          final credential = await _auth.signInWithEmailAndPassword(
-            email: email,
-            password: password,
-          );
+          // Backend created the account; sign in to obtain a session. The
+          // signIn failure is reported via a DEDICATED exception
+          // (PostRegistrationSignInException, see top of file) so the UI
+          // does NOT show "Registration failed" — the registration succeeded.
+          // Sprint 5 optimisation #4 (TD-REGISTRATION-POST-SUCCESS-UX).
+          final UserCredential credential;
+          try {
+            credential = await _auth.signInWithEmailAndPassword(
+              email: email,
+              password: password,
+            );
+          } on FirebaseAuthException catch (signinErr) {
+            _logAuthSuccess(
+              'signup',
+              userType.toString(),
+              result.data['uid'] as String? ?? '',
+            );
+            _logAuthFailure(
+              'signup-post-signin',
+              userType.toString(),
+              signinErr.code,
+            );
+            throw PostRegistrationSignInException(
+              code: signinErr.code,
+              message: signinErr.message ?? signinErr.code,
+              uid: result.data['uid'] as String?,
+            );
+          } catch (signinErr) {
+            _logAuthSuccess(
+              'signup',
+              userType.toString(),
+              result.data['uid'] as String? ?? '',
+            );
+            _logAuthFailure(
+              'signup-post-signin',
+              userType.toString(),
+              'unknown',
+            );
+            throw PostRegistrationSignInException(
+              code: 'unknown',
+              message: signinErr.toString(),
+              uid: result.data['uid'] as String?,
+            );
+          }
           _clearRateLimit(email);
           _logAuthSuccess(
             'signup',

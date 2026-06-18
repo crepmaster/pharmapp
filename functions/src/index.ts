@@ -401,6 +401,16 @@ export const orangeWebhook = onRequest(
 
 // 1) HOLD 50/50
 export const createExchangeHold = onRequest({ region: "europe-west1" }, async (req, res) => {
+  // Sprint 5 optimisation #9 — deprecation marker. The canonical path is the
+  // `createExchangeProposal` / `acceptExchangeProposal` callables (Sprint 4).
+  // This legacy REST endpoint stays live until ops confirm 0 traffic on a
+  // ~30-day window (TD-LEGACY-PHARMACY-HTTP-RETIREMENT). The structured warn
+  // lets the monitoring runbook count hits per UA/uid and trigger removal.
+  logger.warn("legacy exchange endpoint hit", {
+    endpoint: "createExchangeHold",
+    userAgent: req.get("user-agent") ?? null,
+    remoteIp: req.ip ?? null,
+  });
   try {
     if (requireJson(req, res)) return;
 
@@ -513,6 +523,13 @@ export const createExchangeHold = onRequest({ region: "europe-west1" }, async (r
 
 // 2) CAPTURE (payer le coursier)
 export const exchangeCapture = onRequest({ region: "europe-west1" }, async (req, res) => {
+  // Sprint 5 optimisation #9 — deprecation marker. Canonical path:
+  // `completeExchangeDelivery` callable.
+  logger.warn("legacy exchange endpoint hit", {
+    endpoint: "exchangeCapture",
+    userAgent: req.get("user-agent") ?? null,
+    remoteIp: req.ip ?? null,
+  });
   try {
     if (requireJson(req, res)) return;
 
@@ -776,6 +793,13 @@ export const exchangeCapture = onRequest({ region: "europe-west1" }, async (req,
 
 // 3) CANCEL (rend les holds)
 export const exchangeCancel = onRequest({ region: "europe-west1" }, async (req, res) => {
+  // Sprint 5 optimisation #9 — deprecation marker. Canonical path:
+  // `cancelExchangeProposal` callable.
+  logger.warn("legacy exchange endpoint hit", {
+    endpoint: "exchangeCancel",
+    userAgent: req.get("user-agent") ?? null,
+    remoteIp: req.ip ?? null,
+  });
   try {
     if (requireJson(req, res)) return;
     const { exchangeId } = req.body ?? {};
@@ -829,232 +853,21 @@ export const exchangeCancel = onRequest({ region: "europe-west1" }, async (req, 
 });
 
 // 🔒 SUBSCRIPTION SECURITY FUNCTIONS (CRITICAL FOR REVENUE PROTECTION)
+//
+// Sprint 5 optimisation #5: the 4 quota/access callables (validateInventoryAccess,
+// validateProposalAccess, validateAnalyticsAccess, getSubscriptionStatus) and
+// the shared `getValidSubscription` helper moved to `./subscriptionValidators.ts`
+// to deduplicate the previous parallel copies in this file and in the dead
+// `./subscription.ts`. The fix also collapses the double-`get()` on
+// `pharmacy_inventory.where(pharmacyId == userId)` that `validateInventoryAccess`
+// used to run (once for the limit, again for `remainingSlots`).
+export {
+  validateInventoryAccess,
+  validateProposalAccess,
+  validateAnalyticsAccess,
+  getSubscriptionStatus,
+} from "./subscriptionValidators.js";
 
-// Helper function to get and validate subscription status
-async function getValidSubscription(userId: string) {
-  const pharmacyDoc = await db.collection("pharmacies").doc(userId).get();
-  
-  if (!pharmacyDoc.exists) {
-    throw BusinessErrors.USER_NOT_FOUND(userId);
-  }
-  
-  const pharmacy = pharmacyDoc.data() as any;
-  const now = new Date();
-  
-  // Check if subscription is active or in trial
-  const isActive = pharmacy.subscriptionStatus === "active" && 
-                  pharmacy.subscriptionEndDate && 
-                  new Date(pharmacy.subscriptionEndDate.toDate()) > now;
-                  
-  const isTrial = pharmacy.subscriptionStatus === "trial" && 
-                 (!pharmacy.subscriptionEndDate || new Date(pharmacy.subscriptionEndDate.toDate()) > now);
-  
-  return {
-    isValid: isActive || isTrial,
-    status: pharmacy.subscriptionStatus,
-    plan: pharmacy.subscriptionPlan || "basic",
-    endDate: pharmacy.subscriptionEndDate,
-    pharmacy
-  };
-}
-
-// Validate inventory creation (server-side enforcement)
-export const validateInventoryAccess = onRequest({ region: "europe-west1", cors: true }, async (req, res) => {
-  try {
-    const requestedUserId = req.query?.userId as string | undefined;
-    const uid = await requireAuth(req, res, requestedUserId ?? undefined);
-    if (!uid) return;
-    const userId = uid;
-
-    const subscription = await getValidSubscription(userId);
-    
-    if (!subscription.isValid) {
-      res.status(403).json({
-        error: "SUBSCRIPTION_REQUIRED",
-        message: "Active subscription required to add inventory",
-        status: subscription.status,
-        canAccess: false
-      });
-      return;
-    }
-
-    // Check plan-specific limits for basic plan
-    if (subscription.plan === "basic") {
-      const inventoryQuery = await db
-        .collection("pharmacy_inventory")
-        .where("pharmacyId", "==", userId)
-        .get();
-      
-      const currentCount = inventoryQuery.size;
-      const maxAllowed = 100;
-      
-      if (currentCount >= maxAllowed) {
-        res.status(403).json({
-          error: "INVENTORY_LIMIT_EXCEEDED",
-          message: `Basic plan allows maximum ${maxAllowed} medicines. Current: ${currentCount}`,
-          currentCount,
-          maxAllowed,
-          plan: subscription.plan,
-          canAccess: false
-        });
-        return;
-      }
-    }
-
-    // Log successful validation for audit
-    await db.collection("subscription_audit").add({
-      userId,
-      action: "inventory_access_validated",
-      plan: subscription.plan,
-      status: subscription.status,
-      timestamp: FieldValue.serverTimestamp()
-    });
-
-    res.status(200).json({
-      canAccess: true,
-      plan: subscription.plan,
-      status: subscription.status,
-      remainingSlots: subscription.plan === "basic" 
-        ? Math.max(0, 100 - (await db.collection("pharmacy_inventory").where("pharmacyId", "==", userId).get()).size)
-        : -1 // Unlimited
-    });
-
-  } catch (error: any) {
-    sendError(res, error);
-  }
-});
-
-// Validate proposal creation (server-side enforcement)
-export const validateProposalAccess = onRequest({ region: "europe-west1", cors: true }, async (req, res) => {
-  try {
-    const requestedUserId = req.query?.userId as string | undefined;
-    const uid = await requireAuth(req, res, requestedUserId ?? undefined);
-    if (!uid) return;
-    const userId = uid;
-
-    const subscription = await getValidSubscription(userId);
-    
-    if (!subscription.isValid) {
-      res.status(403).json({
-        error: "SUBSCRIPTION_REQUIRED",
-        message: "Active subscription required to create proposals",
-        status: subscription.status,
-        canAccess: false
-      });
-      return;
-    }
-
-    // Log successful validation for audit
-    await db.collection("subscription_audit").add({
-      userId,
-      action: "proposal_access_validated", 
-      plan: subscription.plan,
-      status: subscription.status,
-      timestamp: FieldValue.serverTimestamp()
-    });
-
-    res.status(200).json({
-      canAccess: true,
-      plan: subscription.plan,
-      status: subscription.status
-    });
-
-  } catch (error: any) {
-    sendError(res, error);
-  }
-});
-
-// Validate analytics access (server-side enforcement)
-export const validateAnalyticsAccess = onRequest({ region: "europe-west1", cors: true }, async (req, res) => {
-  try {
-    const requestedUserId = req.query?.userId as string | undefined;
-    const uid = await requireAuth(req, res, requestedUserId ?? undefined);
-    if (!uid) return;
-    const userId = uid;
-
-    const subscription = await getValidSubscription(userId);
-    
-    if (!subscription.isValid) {
-      res.status(403).json({
-        error: "SUBSCRIPTION_REQUIRED",
-        message: "Active subscription required for analytics",
-        status: subscription.status,
-        canAccess: false
-      });
-      return;
-    }
-
-    // Analytics only available for professional and enterprise plans
-    const allowedPlans = ["professional", "enterprise"];
-    if (!allowedPlans.includes(subscription.plan)) {
-      res.status(403).json({
-        error: "PLAN_UPGRADE_REQUIRED",
-        message: "Professional or Enterprise plan required for analytics",
-        currentPlan: subscription.plan,
-        requiredPlans: allowedPlans,
-        canAccess: false
-      });
-      return;
-    }
-
-    res.status(200).json({
-      canAccess: true,
-      plan: subscription.plan,
-      status: subscription.status
-    });
-
-  } catch (error: any) {
-    sendError(res, error);
-  }
-});
-
-// Get comprehensive subscription status (server-side truth source)
-export const getSubscriptionStatus = onRequest({ region: "europe-west1", cors: true }, async (req, res) => {
-  try {
-    const requestedUserId = req.query?.userId as string | undefined;
-    const uid = await requireAuth(req, res, requestedUserId ?? undefined);
-    if (!uid) return;
-    const userId = uid;
-
-    const subscription = await getValidSubscription(userId);
-    
-    // Calculate remaining days
-    let daysRemaining = 0;
-    if (subscription.endDate) {
-      const endDate = new Date(subscription.endDate.toDate());
-      const now = new Date();
-      daysRemaining = Math.max(0, Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
-    }
-
-    // Get current usage for basic plan
-    let currentInventoryCount = 0;
-    if (subscription.plan === "basic") {
-      const inventoryQuery = await db
-        .collection("pharmacy_inventory") 
-        .where("pharmacyId", "==", userId)
-        .get();
-      currentInventoryCount = inventoryQuery.size;
-    }
-
-    res.status(200).json({
-      userId,
-      isValid: subscription.isValid,
-      status: subscription.status,
-      plan: subscription.plan,
-      daysRemaining,
-      endDate: subscription.endDate?.toDate(),
-      limits: {
-        inventory: subscription.plan === "basic" ? { max: 100, current: currentInventoryCount } : { unlimited: true },
-        analytics: ["professional", "enterprise"].includes(subscription.plan),
-        multiLocation: subscription.plan === "enterprise",
-        apiAccess: subscription.plan === "enterprise"
-      }
-    });
-
-  } catch (error: any) {
-    sendError(res, error);
-  }
-});
 
 // ========== SANDBOX TESTING ==========
 

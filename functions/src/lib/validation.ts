@@ -143,7 +143,16 @@ export function sendError(res: any, error: AppError | Error): void {
       ...(error.details && { details: error.details })
     });
   } else {
-    logger.error("Unexpected error", error);
+    // Sprint 5 optimisation #2: explicit error serialisation. `logger.error(label, errInstance)`
+    // historically dropped non-enumerable Error fields (message / stack / code) on JSON encoding,
+    // leaving Cloud Logging with the label only. Extract them by hand so every legacy HTTP endpoint
+    // (createExchangeHold / exchangeCapture / exchangeCancel, validators, etc.) gets actionable logs.
+    logger.error("Unexpected error", {
+      errName: (error as { name?: string })?.name ?? null,
+      errMessage: (error as { message?: string })?.message ?? null,
+      errStack: (error as { stack?: string })?.stack ?? null,
+      errCode: (error as { code?: string })?.code ?? null,
+    });
     res.status(500).json({
       ok: false,
       code: "INTERNAL_ERROR",

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -74,16 +75,27 @@ class AdminAuthError extends AdminAuthState {
 class AdminAuthBloc extends Bloc<AdminAuthEvent, AdminAuthState> {
   final AdminAuthService _authService = AdminAuthService();
 
+  // Sprint 5 optimisation #8 — keep a handle on the Firebase auth-state stream
+  // subscription so it can be cancelled in `close()`. Without this, every hot
+  // reload (dev) or BLoC dispose (in production once we have multiple blocs)
+  // leaves a dangling listener that re-fires events into a closed bloc.
+  late final StreamSubscription<User?> _authStateSub;
+
   AdminAuthBloc() : super(AdminAuthInitial()) {
     on<AdminAuthStarted>(_onStarted);
     on<AdminAuthLoginRequested>(_onLoginRequested);
     on<AdminAuthLogoutRequested>(_onLogoutRequested);
     on<AdminAuthUserChanged>(_onUserChanged);
 
-    // Listen to auth state changes
-    _authService.authStateChanges.listen((user) {
+    _authStateSub = _authService.authStateChanges.listen((user) {
       add(AdminAuthUserChanged(user: user));
     });
+  }
+
+  @override
+  Future<void> close() {
+    _authStateSub.cancel();
+    return super.close();
   }
 
   Future<void> _onStarted(

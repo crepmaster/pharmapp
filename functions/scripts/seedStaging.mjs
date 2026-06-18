@@ -25,6 +25,7 @@
 
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
+import { SYSTEM_CONFIG } from "./lib/seedSystemConfig.mjs";
 
 function parseArgs(rawArgs) {
   const out = {};
@@ -72,33 +73,8 @@ if (args.confirm !== "true") {
   process.exit(2);
 }
 
-// Mirror of seedEmulator.mjs SYSTEM_CONFIG — keep in sync.
-const SYSTEM_CONFIG = {
-  schemaVersion: 1,
-  primaryCountryCode: "CM",
-  countries: {
-    CM: { code: "CM", licenseRequired: false, defaultCurrencyCode: "XAF", name: "Cameroon", dialCode: "237", enabled: true, sortOrder: 0, defaultCityCode: "douala", providerIds: ["mtn_momo_cm"] },
-    GH: { code: "GH", licenseRequired: true, licenseFormatRegex: "^GH-\\d{4}$", licenseGracePeriodDays: 30, licenseLabel: "Pharmacy Council License", licenseHelpText: "Enter your Pharmacy Council of Ghana license number.", licenseVerificationRequired: true, licenseDocumentRequired: true, defaultCurrencyCode: "GHS", name: "Ghana", dialCode: "233", enabled: true, sortOrder: 1, defaultCityCode: "accra", providerIds: ["mtn_momo_gh"] },
-  },
-  citiesByCountry: {
-    CM: {
-      douala: { code: "douala", name: "Douala", enabled: true, deliveryFee: 1000, exchangeFee: 1200, currencyCode: "XAF", sortOrder: 0 },
-      yaounde: { code: "yaounde", name: "Yaounde", enabled: true, deliveryFee: 1000, exchangeFee: 1200, currencyCode: "XAF", sortOrder: 1 },
-    },
-    GH: {
-      // exchangeFee absent on purpose to test fallback deliveryFee × 1.2
-      accra: { code: "accra", name: "Accra", enabled: true, deliveryFee: 2000, currencyCode: "GHS", sortOrder: 0 },
-    },
-  },
-  currencies: {
-    XAF: { code: "XAF", name: "Central African CFA franc", enabled: true, sortOrder: 0, decimals: 0, minWithdrawalMinor: 1000, symbol: "FCFA" },
-    GHS: { code: "GHS", name: "Ghanaian cedi", enabled: true, sortOrder: 1, decimals: 2, minWithdrawalMinor: 10000, symbol: "GH₵" },
-  },
-  mobileMoneyProviders: {
-    mtn_momo_cm: { id: "mtn_momo_cm", name: "MTN Mobile Money", countryCode: "CM", currencyCode: "XAF", enabled: true, displayOrder: 0, requiresMsisdn: true, supportsCollections: true, supportsPayouts: true, methodCode: "mtn_momo" },
-    mtn_momo_gh: { id: "mtn_momo_gh", name: "MTN Mobile Money Ghana", countryCode: "GH", currencyCode: "GHS", enabled: true, displayOrder: 0, requiresMsisdn: true, supportsCollections: true, supportsPayouts: true, methodCode: "mtn_gh" },
-  },
-};
+// SYSTEM_CONFIG now lives in `./lib/seedSystemConfig.mjs` and is shared
+// with seedEmulator.mjs (Sprint 5 optimisation #6 — kill the manual mirror).
 
 console.log(`\n✅ Guards passed. Target project = ${projectId} (REAL Firestore via ADC).`);
 console.log(`   countries: ${Object.keys(SYSTEM_CONFIG.countries).join(", ")}`);

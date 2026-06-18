@@ -1,3 +1,7 @@
 #!/usr/bin/env sh
-
-cd functions && npm run validate:quick
+# Sprint 5 optimisation #10 — full validate (typecheck + lint + tests).
+# Previously the hook only ran `validate:quick` (typecheck + lint) so a broken
+# Jest suite could land on origin/main. The full 338-test suite runs in ~15s
+# locally ; if it ever becomes painful, swap back to `validate:quick` and rely
+# on CI — but then ensure CI actually exists.
+cd functions && npm run validate
