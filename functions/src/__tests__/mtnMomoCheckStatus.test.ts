@@ -140,6 +140,35 @@ describe("mtnMomoCheckStatus — cached terminal status (no external call)", () 
   });
 });
 
+describe("mtnMomoCheckStatus — staging sandbox short-circuit", () => {
+  const originalEnv = process.env.SANDBOX_ENABLED;
+  afterEach(() => {
+    if (originalEnv === undefined) delete process.env.SANDBOX_ENABLED;
+    else process.env.SANDBOX_ENABLED = originalEnv;
+  });
+
+  test("payment with sandboxMode=true + SANDBOX_ENABLED skips MTN and triggers settlement_blocked branch for non-pharmacy ownerType", async () => {
+    process.env.SANDBOX_ENABLED = "true";
+    // Defence-in-depth: even a sandboxMode payment must respect the non-
+    // pharmacy guard. (Pure happy-path settlement is hit by the staging
+    // recette; here we just prove the bypass does NOT call fetch.)
+    mockPaymentGet.mockResolvedValue({
+      exists: true,
+      data: () => ({
+        userId: "u1",
+        ownerType: "courier",
+        ownerId: "u1",
+        status: "pending",
+        sandboxMode: true,
+      }),
+    });
+
+    const result = (await callAs("u1", "ref-sandbox-courier")) as Record<string, unknown>;
+    expect(result.status).toBe("settlement_blocked");
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+});
+
 describe("mtnMomoCheckStatus — live MTN poll", () => {
   test("MTN PENDING → returns { status: 'pending' }", async () => {
     mockPaymentGet.mockResolvedValue({

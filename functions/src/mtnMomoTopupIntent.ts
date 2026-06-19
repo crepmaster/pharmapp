@@ -98,7 +98,25 @@ export const mtnMomoTopupIntent = onCall<TopupIntentData>(
 
     // Pharmacy-only guard: explicit, intentional check before any payment
     // doc is created. Couriers and other non-pharmacy accounts are rejected.
-    await requirePharmacyOwner(db, userId);
+    const pharmacySnap = await requirePharmacyOwner(db, userId);
+    const pharmacyEmail =
+      (pharmacySnap.data()?.email as string | undefined) ?? "";
+
+    // ------------------------------------------------------------------
+    // Staging sandbox bypass (round-2 follow-up). When `SANDBOX_ENABLED`
+    // is set (we only do this on the staging functions, never on prod —
+    // gated by `functions/.env.mediexchange-staging` which is gitignored)
+    // AND the caller is a `@promoshake.net` test account, we skip the
+    // real MTN sandbox API entirely and synthesise a successful
+    // RequestToPay. The payment doc is marked `sandboxMode: true` so
+    // `mtnMomoCheckStatus` knows to skip its own MTN polling and credit
+    // the wallet via the normal settlement path. Lets QA / testers
+    // exercise the full top-up UX (button -> spinner -> credited wallet)
+    // without provisioning real MTN sandbox credentials.
+    // ------------------------------------------------------------------
+    const isStagingSandbox =
+      process.env.SANDBOX_ENABLED === "true" &&
+      /@promoshake\.net$/i.test(pharmacyEmail);
 
     const subscriptionKey = MTN_MOMO_SUBSCRIPTION_KEY.value();
     const apiUser = MTN_MOMO_API_USER.value();
@@ -148,37 +166,47 @@ export const mtnMomoTopupIntent = onCall<TopupIntentData>(
     }
 
     try {
-      const token = await getAccessToken(subscriptionKey, apiUser, apiKey);
       const referenceId = randomUUID();
 
-      const payload = {
-        amount: String(amount),
-        currency: payCurrency,
-        externalId: referenceId,
-        payer: {
-          partyIdType: "MSISDN",
-          partyId: msisdn,
-        },
-        payerMessage: "PharmApp wallet top-up",
-        payeeNote: "Top-up via MoMo",
-      };
+      if (!isStagingSandbox) {
+        const token = await getAccessToken(subscriptionKey, apiUser, apiKey);
 
-      const res = await fetch(`${MTN_BASE_URL}/collection/v1_0/requesttopay`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "X-Reference-Id": referenceId,
-          "X-Target-Environment": TARGET_ENVIRONMENT,
-          "Ocp-Apim-Subscription-Key": subscriptionKey,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
+        const payload = {
+          amount: String(amount),
+          currency: payCurrency,
+          externalId: referenceId,
+          payer: {
+            partyIdType: "MSISDN",
+            partyId: msisdn,
+          },
+          payerMessage: "PharmApp wallet top-up",
+          payeeNote: "Top-up via MoMo",
+        };
 
-      if (res.status !== 202) {
-        const text = await res.text();
-        logger.error("MTN RequestToPay failed", { status: res.status, body: text });
-        throw new HttpsError("internal", `MTN RequestToPay failed: ${res.status}`);
+        const res = await fetch(`${MTN_BASE_URL}/collection/v1_0/requesttopay`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "X-Reference-Id": referenceId,
+            "X-Target-Environment": TARGET_ENVIRONMENT,
+            "Ocp-Apim-Subscription-Key": subscriptionKey,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
+
+        if (res.status !== 202) {
+          const text = await res.text();
+          logger.error("MTN RequestToPay failed", { status: res.status, body: text });
+          throw new HttpsError("internal", `MTN RequestToPay failed: ${res.status}`);
+        }
+      } else {
+        logger.info("mtnMomoTopupIntent: SANDBOX MODE — skipped external MTN call", {
+          referenceId,
+          userId,
+          pharmacyEmail,
+          amountMinor,
+        });
       }
 
       // Persist a payment intent doc. `amountMinor` is the canonical ADR-001
@@ -203,6 +231,11 @@ export const mtnMomoTopupIntent = onCall<TopupIntentData>(
         provider: "mtn_momo",
         status: "pending",
         environment: TARGET_ENVIRONMENT,
+        // `sandboxMode: true` tells `mtnMomoCheckStatus` to skip the MTN
+        // poll and synthesise a SUCCESSFUL response so the wallet gets
+        // credited via the normal settlement path. Stays absent (= falsy)
+        // on prod / real-MTN paths.
+        ...(isStagingSandbox ? { sandboxMode: true } : {}),
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       });

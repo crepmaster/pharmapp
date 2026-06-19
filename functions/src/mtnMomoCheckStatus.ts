@@ -90,37 +90,64 @@ export const mtnMomoCheckStatus = onCall<CheckStatusData>(
       return { status: payment.status, amount: payment.amount };
     }
 
-    // Query MTN for live status.
-    const subscriptionKey = MTN_MOMO_SUBSCRIPTION_KEY.value();
-    const apiUser = MTN_MOMO_API_USER.value();
-    const apiKey = MTN_MOMO_API_KEY.value();
+    // Staging sandbox short-circuit. Payments persisted by
+    // `mtnMomoTopupIntent` in sandbox mode carry `sandboxMode: true`; we
+    // skip the MTN poll entirely and synthesise a SUCCESSFUL response so
+    // the wallet gets credited via the regular settlement code below. The
+    // env gate guards against any reuse of the flag on prod (the prod
+    // functions env never carries `SANDBOX_ENABLED=true`).
+    const isStagingSandbox =
+      payment.sandboxMode === true && process.env.SANDBOX_ENABLED === "true";
 
-    const token = await getAccessToken(subscriptionKey, apiUser, apiKey);
-
-    const res = await fetch(
-      `${MTN_BASE_URL}/collection/v1_0/requesttopay/${referenceId}`,
-      {
-        method: "GET",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "X-Target-Environment": TARGET_ENVIRONMENT,
-          "Ocp-Apim-Subscription-Key": subscriptionKey,
-        },
-      }
-    );
-
-    if (!res.ok) {
-      const text = await res.text();
-      logger.error("MTN status query failed", { status: res.status, body: text });
-      throw new HttpsError("internal", `MTN status query failed: ${res.status}`);
-    }
-
-    const mtnStatus = (await res.json()) as {
+    let normalizedStatus: string;
+    let mtnStatus: {
       status: string;
       reason?: string;
       financialTransactionId?: string;
     };
-    const normalizedStatus = String(mtnStatus.status ?? "").toUpperCase();
+
+    if (isStagingSandbox) {
+      mtnStatus = {
+        status: "SUCCESSFUL",
+        financialTransactionId: `sandbox-${referenceId}`,
+      };
+      normalizedStatus = "SUCCESSFUL";
+      logger.info("mtnMomoCheckStatus: SANDBOX MODE — synthesised SUCCESSFUL", {
+        referenceId,
+      });
+    } else {
+      // Query MTN for live status.
+      const subscriptionKey = MTN_MOMO_SUBSCRIPTION_KEY.value();
+      const apiUser = MTN_MOMO_API_USER.value();
+      const apiKey = MTN_MOMO_API_KEY.value();
+
+      const token = await getAccessToken(subscriptionKey, apiUser, apiKey);
+
+      const res = await fetch(
+        `${MTN_BASE_URL}/collection/v1_0/requesttopay/${referenceId}`,
+        {
+          method: "GET",
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "X-Target-Environment": TARGET_ENVIRONMENT,
+            "Ocp-Apim-Subscription-Key": subscriptionKey,
+          },
+        }
+      );
+
+      if (!res.ok) {
+        const text = await res.text();
+        logger.error("MTN status query failed", { status: res.status, body: text });
+        throw new HttpsError("internal", `MTN status query failed: ${res.status}`);
+      }
+
+      mtnStatus = (await res.json()) as {
+        status: string;
+        reason?: string;
+        financialTransactionId?: string;
+      };
+      normalizedStatus = String(mtnStatus.status ?? "").toUpperCase();
+    }
 
     logger.info("mtnMomoCheckStatus", { referenceId, mtnStatus: normalizedStatus });
 

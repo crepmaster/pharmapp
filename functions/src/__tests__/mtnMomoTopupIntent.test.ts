@@ -151,6 +151,54 @@ describe("mtnMomoTopupIntent — MTN external API failure", () => {
   });
 });
 
+describe("mtnMomoTopupIntent — staging sandbox bypass", () => {
+  const originalEnv = process.env.SANDBOX_ENABLED;
+  afterEach(() => {
+    if (originalEnv === undefined) delete process.env.SANDBOX_ENABLED;
+    else process.env.SANDBOX_ENABLED = originalEnv;
+  });
+
+  test("with SANDBOX_ENABLED=true + @promoshake.net email: skips MTN, persists sandboxMode=true", async () => {
+    process.env.SANDBOX_ENABLED = "true";
+    // No fetch mocks set: the bypass MUST not call fetch.
+    const result = (await callOk({
+      amount: 100,
+      phoneNumber: "+237670123456",
+      currency: "XAF",
+    })) as { success: boolean; referenceId: string; status: string };
+
+    expect(result).toMatchObject({
+      success: true,
+      referenceId: FIXED_UUID,
+      status: "pending",
+    });
+    expect(mockFetch).not.toHaveBeenCalled();
+    const payload = mockPaymentSet.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload.sandboxMode).toBe(true);
+    expect(payload.amountMinor).toBe(100);
+    expect(payload.phoneNumber).toBe("237670123456");
+  });
+
+  test("with SANDBOX_ENABLED=true but non-@promoshake.net email: takes the real-MTN branch (sandboxMode absent)", async () => {
+    process.env.SANDBOX_ENABLED = "true";
+    mockPharmacyGet.mockResolvedValue({
+      exists: true,
+      data: () => ({ email: "real-user@gmail.com", role: "pharmacy" }),
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ access_token: "mock-token" }),
+    } as Response);
+    mockFetch.mockResolvedValueOnce({ status: 202, ok: false } as Response);
+
+    await callOk({ amount: 100, phoneNumber: "237670123456", currency: "XAF" });
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const payload = mockPaymentSet.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload.sandboxMode).toBeUndefined();
+  });
+});
+
 describe("mtnMomoTopupIntent — happy path", () => {
   test("returns status pending + referenceId + persists payments/{ref}", async () => {
     mockFetch.mockResolvedValueOnce({
