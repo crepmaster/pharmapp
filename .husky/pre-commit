@@ -1,7 +1,8 @@
 #!/usr/bin/env sh
-# Sprint 5 optimisation #10 — full validate (typecheck + lint + tests).
-# Previously the hook only ran `validate:quick` (typecheck + lint) so a broken
-# Jest suite could land on origin/main. The full 338-test suite runs in ~15s
-# locally ; if it ever becomes painful, swap back to `validate:quick` and rely
-# on CI — but then ensure CI actually exists.
-cd functions && npm run validate
+# Sprint 5 optimisation #10 (+ Round 2 #5) — fast validate by default:
+# typecheck + lint + Jest `--onlyChanged --bail` (runs only tests impacted
+# by staged files, exits at the first failure). Keeps the pre-commit loop
+# under a couple of seconds for typical edits while still catching breakage.
+# Run the FULL suite manually before a push or in CI : `npm run validate`
+# (typecheck + lint + all 338 Jest tests, ~15s).
+cd functions && npm run validate:fast

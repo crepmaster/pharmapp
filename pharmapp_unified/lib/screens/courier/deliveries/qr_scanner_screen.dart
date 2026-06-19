@@ -375,12 +375,21 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
           ),
           TextButton(
             onPressed: () async {
-              Navigator.pop(context); // Close dialog
+              // Capture messenger + navigator BEFORE any await so we never
+              // need to touch `context` across an async gap. This eliminates
+              // the three `use_build_context_synchronously` warnings the
+              // analyzer used to emit here: the `if (!mounted)` checks the
+              // file used to do refer to the parent State, not to the dialog
+              // widget that owns this BuildContext.
+              final messenger = ScaffoldMessenger.of(context);
+              final nav = Navigator.of(context);
+
+              nav.pop(); // Close the confirmation dialog.
 
               try {
                 final status = widget.scanType == 'pickup'
-                  ? DeliveryStatus.pickedUp
-                  : DeliveryStatus.delivered;
+                    ? DeliveryStatus.pickedUp
+                    : DeliveryStatus.delivered;
 
                 await DeliveryService.updateDeliveryStatus(
                   widget.delivery.id,
@@ -388,22 +397,19 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
                   notes: 'MANUAL VERIFICATION - No QR scan (Emergency skip)',
                 );
 
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
+                messenger.showSnackBar(
                   SnackBar(
                     content: Text(
                       widget.scanType == 'pickup'
-                        ? 'Items marked as picked up (Manual)'
-                        : 'Delivery marked as completed (Manual)',
+                          ? 'Items marked as picked up (Manual)'
+                          : 'Delivery marked as completed (Manual)',
                     ),
                     backgroundColor: Colors.orange,
                   ),
                 );
-                if (!mounted) return;
-                Navigator.pop(context, true);
+                nav.pop(true); // Pop the QR scanner back to the deliveries list.
               } catch (e) {
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
+                messenger.showSnackBar(
                   SnackBar(
                     content: Text('Failed to update status: $e'),
                     backgroundColor: Colors.red,

@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -1027,21 +1027,6 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
     }
   }
 
-  /// Opens a URL in the browser — web-only via url_launcher, otherwise noop.
-  Future<void> _openPaystackUrl(String url) async {
-    try {
-      // Use url_launcher (already a dependency) for cross-platform.
-      // We don't import at top to keep this branch optional — done here
-      // inline to avoid touching shared paths.
-      // ignore: avoid_dynamic_calls
-      final uri = Uri.parse(url);
-      // `launchUrl` from url_launcher opens in a new tab on web by default.
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } catch (e) {
-      debugPrint('openPaystackUrl failed: $e');
-    }
-  }
-
   Future<void> _processTopUp() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -1049,6 +1034,15 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
 
     final amount = int.parse(_amountController.text);
     final phone = _phoneController.text;
+
+    // Persist the user's chosen payment method + phone so the next top-up
+    // dialog prefills both fields. This was previously the unused private
+    // `_savePaymentPreferences()` (flagged by `flutter analyze`) — the
+    // matching `_loadSavedPaymentPreferences()` reader expected this write
+    // to happen but no caller had ever been wired up. Fire-and-forget: the
+    // helper has its own try/catch, so a save failure can't block the
+    // top-up flow itself.
+    unawaited(_savePaymentPreferences());
 
     // Capture navigator and messenger from a root context BEFORE popping.
     // The dialog's state gets disposed on pop, so we can't rely on `mounted`
@@ -1076,8 +1070,14 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
         }
         // Show a dialog with a button — the user's tap on the button is a
         // direct user gesture, which avoids popup blockers on web.
+        // The `navigator.context` reference is intentional: `navigator` was
+        // captured at the start of `_processTopUp` precisely so the dialog
+        // can be pushed even though the original dialog `context` was popped.
+        // The analyzer can't see that the captured NavigatorState is still
+        // attached, so we silence the warning for this one line.
         await navigator.push(
           DialogRoute<void>(
+            // ignore: use_build_context_synchronously
             context: navigator.context,
             builder: (ctx) => AlertDialog(
               title: const Text('Complete your payment'),
