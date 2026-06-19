@@ -1064,6 +1064,23 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
           'currency': _walletCurrency,
           'callbackUrl': 'https://app-mediexchange.web.app',
         });
+
+        // Staging sandbox short-circuit. When the backend ran in sandbox
+        // mode (SANDBOX_ENABLED + @promoshake.net account) it has already
+        // credited the wallet synchronously and returns sandboxCredited=true
+        // with no authorizationUrl. Show the success snackbar straight away
+        // — no Paystack page, no webhook to wait for.
+        if (result.data['sandboxCredited'] == true) {
+          messenger.showSnackBar(
+            const SnackBar(
+              content: Text('Top-up successful! Wallet credited (sandbox).'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          onSuccess?.call();
+          return;
+        }
+
         final url = result.data['authorizationUrl'] as String?;
         if (url == null || url.isEmpty) {
           throw 'No authorization URL returned';

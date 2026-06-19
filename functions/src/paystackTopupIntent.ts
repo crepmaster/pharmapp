@@ -18,6 +18,7 @@ import {
   MONEY_SCHEMA_VERSION,
   resolveDecimals,
   toMinor,
+  toLegacyWalletUnits,
 } from "./lib/moneyUnits.js";
 import { requirePharmacyOwner } from "./lib/auth.js";
 
@@ -101,6 +102,97 @@ export const paystackTopupIntent = onCall<PaystackTopupData>(
     }
 
     const reference = `PS_${randomUUID()}`;
+
+    // ----------------------------------------------------------------------
+    // Staging sandbox bypass (round-2 follow-up, mirror of mtnMomoTopupIntent).
+    // When `SANDBOX_ENABLED=true` (only set on the staging functions via
+    // .env.mediexchange-staging, gitignored) AND the caller is a
+    // `@promoshake.net` test account, we skip the real Paystack API and
+    // credit the wallet immediately — Paystack normally credits via a
+    // webhook, which can't be simulated for an offline staging.
+    //
+    // The credit transaction mirrors the one in `paystackWebhook` exactly
+    // (ownerType guard, ownerId resolution, walletLegacyDelta math, ledger
+    // entry) so the same money-handling code path is exercised. Returns
+    // `sandboxCredited: true` instead of an authorizationUrl so the Flutter
+    // top-up dialog can short-circuit the launchUrl step.
+    // ----------------------------------------------------------------------
+    if (
+      process.env.SANDBOX_ENABLED === "true" &&
+      /@promoshake\.net$/i.test(email)
+    ) {
+      const paymentRef = db.collection("payments").doc(reference);
+      const walletRef = db.collection("wallets").doc(userId);
+      const walletLegacyDelta = toLegacyWalletUnits(amountMinor, currencyDecimals);
+
+      await db.runTransaction(async (tx) => {
+        const walletSnap = await tx.get(walletRef);
+        if (!walletSnap.exists) {
+          tx.set(walletRef, {
+            available: walletLegacyDelta,
+            held: 0,
+            currency: displayCurrency,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        } else {
+          tx.update(walletRef, {
+            available: FieldValue.increment(walletLegacyDelta),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        }
+
+        tx.set(paymentRef, {
+          referenceId: reference,
+          ownerType: "pharmacy",
+          ownerId: userId,
+          userId,
+          amountMinor,
+          currencyDecimals,
+          moneySchemaVersion: MONEY_SCHEMA_VERSION,
+          displayCurrency,
+          amount, // legacy
+          currency: displayCurrency,
+          provider: "paystack",
+          status: "successful",
+          sandboxMode: true,
+          authorizationUrl: null,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+          settledAt: FieldValue.serverTimestamp(),
+        });
+
+        const ledgerRef = db.collection("ledger").doc();
+        tx.set(ledgerRef, {
+          type: "wallet_topup",
+          referenceId: reference,
+          userId,
+          amountMinor,
+          currencyDecimals,
+          moneySchemaVersion: MONEY_SCHEMA_VERSION,
+          currencyCode: displayCurrency,
+          amount: walletLegacyDelta,
+          currency: displayCurrency,
+          provider: "paystack",
+          sandboxMode: true,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      });
+
+      logger.info("paystackTopupIntent: SANDBOX MODE — wallet credited synchronously", {
+        reference,
+        userId,
+        pharmacyEmail: email,
+        amountMinor,
+        walletLegacyDelta,
+      });
+
+      return {
+        success: true,
+        referenceId: reference,
+        sandboxCredited: true,
+        authorizationUrl: null,
+      };
+    }
 
     try {
       const resp = await fetch(
