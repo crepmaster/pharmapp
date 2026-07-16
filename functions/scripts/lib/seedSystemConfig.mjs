@@ -64,9 +64,30 @@ export const SYSTEM_CONFIG = {
         currencyCode: "XAF",
         sortOrder: 1,
       },
+      bafoussam: {
+        code: "bafoussam",
+        name: "Bafoussam",
+        enabled: true,
+        deliveryFee: 1500,
+        exchangeFee: 1800,
+        currencyCode: "XAF",
+        sortOrder: 2,
+      },
+      bamenda: {
+        code: "bamenda",
+        name: "Bamenda",
+        enabled: true,
+        deliveryFee: 1800,
+        exchangeFee: 2200,
+        currencyCode: "XAF",
+        sortOrder: 3,
+      },
     },
     GH: {
-      // exchangeFee absent on purpose to exercise the deliveryFee × 1.2 fallback
+      // Accra keeps `exchangeFee` absent on purpose so lock #6 exercises
+      // the `deliveryFee × 1.2` fallback via `resolveCourierFee` (proven
+      // in the Sprint 5 recette: courierFee=2400). Other cities get
+      // explicit exchangeFee so their runtime cost is deterministic.
       accra: {
         code: "accra",
         name: "Accra",
@@ -74,6 +95,42 @@ export const SYSTEM_CONFIG = {
         deliveryFee: 2000,
         currencyCode: "GHS",
         sortOrder: 0,
+      },
+      kumasi: {
+        code: "kumasi",
+        name: "Kumasi",
+        enabled: true,
+        deliveryFee: 2000,
+        exchangeFee: 2400,
+        currencyCode: "GHS",
+        sortOrder: 1,
+      },
+      tamale: {
+        code: "tamale",
+        name: "Tamale",
+        enabled: true,
+        deliveryFee: 2500,
+        exchangeFee: 3000,
+        currencyCode: "GHS",
+        sortOrder: 2,
+      },
+      "cape-coast": {
+        code: "cape-coast",
+        name: "Cape Coast",
+        enabled: true,
+        deliveryFee: 2200,
+        exchangeFee: 2600,
+        currencyCode: "GHS",
+        sortOrder: 3,
+      },
+      takoradi: {
+        code: "takoradi",
+        name: "Takoradi",
+        enabled: true,
+        deliveryFee: 2200,
+        exchangeFee: 2600,
+        currencyCode: "GHS",
+        sortOrder: 4,
       },
     },
   },
