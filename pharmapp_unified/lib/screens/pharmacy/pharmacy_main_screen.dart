@@ -39,16 +39,11 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
   bool _isWaitingForPayment = false;
   static const int _maxPollingAttempts = 20; // Poll for ~60 seconds
 
-  // Currency resolution from pharmacy country (runtime source of truth).
-  static const Map<String, String> _countryCurrency = {
-    'CM': 'XAF',
-    'GH': 'GHS',
-    'KE': 'KES',
-    'NG': 'NGN',
-    'TZ': 'TZS',
-    'UG': 'UGX',
-  };
-
+  // Currency resolution. Uses MasterDataService as the single source of
+  // truth (system_config/main.countries[cc].defaultCurrencyCode). The
+  // hard-coded country → currency map that used to live here was drifting
+  // with each new country onboarding — see memory
+  // `project_currency_derived_from_country.md`.
   String _resolvedCurrency = 'XAF';
 
   String get _walletCurrency => _resolvedCurrency;
@@ -60,24 +55,32 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
   }
 
   Future<void> _loadCurrency() async {
-    // Try userData first (fast path)
     final ccFromUser = widget.userData['countryCode'] as String?;
-    if (ccFromUser != null && _countryCurrency.containsKey(ccFromUser)) {
-      setState(() => _resolvedCurrency = _countryCurrency[ccFromUser]!);
-      return;
-    }
-    // Fallback: read pharmacy doc from Firestore
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('pharmacies').doc(uid).get();
-      if (!doc.exists || !mounted) return;
-      final cc = doc.data()?['countryCode'] as String?;
-      if (cc != null && _countryCurrency.containsKey(cc)) {
-        setState(() => _resolvedCurrency = _countryCurrency[cc]!);
+    String? countryCode = ccFromUser;
+    // Fallback: read pharmacy doc from Firestore when userData doesn't
+    // carry the countryCode (older session data).
+    if (countryCode == null || countryCode.isEmpty) {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) return;
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('pharmacies').doc(uid).get();
+        if (!doc.exists || !mounted) return;
+        countryCode = doc.data()?['countryCode'] as String?;
+      } catch (_) {
+        return;
       }
-    } catch (_) {}
+    }
+    if (countryCode == null || countryCode.isEmpty) return;
+    try {
+      final snapshot = await MasterDataService.load();
+      final resolved = snapshot.getDefaultCurrencyForCountry(countryCode);
+      if (resolved != null && mounted) {
+        setState(() => _resolvedCurrency = resolved);
+      }
+    } catch (_) {
+      // Non-fatal: keep the loading-placeholder 'XAF'. UI stays functional.
+    }
   }
 
   @override

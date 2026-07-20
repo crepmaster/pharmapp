@@ -262,4 +262,20 @@ class MasterDataSnapshot {
   double? getCityDeliveryFee(String countryCode, String cityCode) {
     return citiesByCountry[countryCode]?[cityCode]?.deliveryFee;
   }
+
+  /// Returns the operating currency for [countryCode] as configured in
+  /// `system_config/main.countries[cc].defaultCurrencyCode`, or `null` if
+  /// the country is absent from master data or the field is empty.
+  ///
+  /// Callers that need a hard fallback (e.g. UI label placeholder before
+  /// master data has resolved) should decide the fallback locally rather
+  /// than baking it here — the whole point of this accessor is to be the
+  /// single source of truth for country → currency, established
+  /// 2026-07-20 (see memory `project_currency_derived_from_country.md`).
+  String? getDefaultCurrencyForCountry(String? countryCode) {
+    if (countryCode == null || countryCode.isEmpty) return null;
+    final code = countries[countryCode]?.defaultCurrencyCode;
+    if (code == null || code.isEmpty) return null;
+    return code;
+  }
 }
