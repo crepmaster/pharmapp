@@ -1,15 +1,21 @@
 /**
- * completeExchangeDelivery — sandbox bypass money-math tests (round-3 #1).
+ * completeExchangeDelivery — sandbox bypass money-math tests.
  *
  * The staging demo lets a buyer/seller play the assigned courier so the
  * "Delivered" button can drive the real settlement transaction without
  * needing a courier account. Because the bypass reroutes the money flow
  * (skip courier fee credit, skip halfBuyer debit, seller receives the
- * FULL totalAmount instead of sellerNetCredit), these three branches
- * must be regression-locked or a future refactor could silently break
- * the trade balance in demo mode — or, worse, in prod if the env var
- * ever leaks (a defence-in-depth check exists but tests are the primary
- * safety net).
+ * FULL totalAmount instead of sellerNetCredit), these branches must be
+ * regression-locked or a future refactor could silently break the trade
+ * balance in demo mode — or, worse, in prod if the env var ever leaks
+ * (a defence-in-depth check exists but tests are the primary safety net).
+ *
+ * Round-4 review (P0#1) : the previous version of the bypass gate refused
+ * to trigger when the caller was the assigned courier — but the demo
+ * "Pickup" button explicitly SETS courierId=caller. The 4-case matrix
+ * below is the reviewer-specified test spec that proves the gate now
+ * looks at (env, trade-party, email) only, regardless of courier
+ * assignment.
  *
  * We build a minimal in-memory Firestore fake, run the transaction, and
  * capture every `tx.update` / `tx.set` call so we can assert exactly
@@ -81,7 +87,6 @@ jest.mock("firebase-admin/firestore", () => ({
         };
       },
     }),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     runTransaction: async (fn: any) => {
       const tx = {
         get: (ref: unknown) => {
@@ -120,8 +125,10 @@ jest.mock("firebase-functions/logger", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Import after mocks (assertSandboxAllowedForProject runs at module load)
+// Import after mocks. assertSandboxAllowedForProject runs at module load;
+// FUNCTIONS_EMULATOR=true satisfies the allowlist (jest env has no project id).
 // ---------------------------------------------------------------------------
+process.env.FUNCTIONS_EMULATOR = "true";
 
 import functionsTest from "firebase-functions-test";
 const testFns = functionsTest();
@@ -136,22 +143,30 @@ afterAll(() => testFns.cleanup());
 
 const BUYER = "buyer-uid";
 const SELLER = "seller-uid";
+const OUTSIDER_COURIER = "real-courier-uid";
 const DELIVERY_ID = "d-1";
 const PROPOSAL_ID = "p-1";
 const INVENTORY_ID = "inv-1";
 const TOTAL_AMOUNT = 500;
 const COURIER_FEE = 60; // sums to halfBuyer=30, halfSeller=30
+const HALF_BUYER = 30;
+const HALF_SELLER = 30;
+const SELLER_NET_CREDIT = TOTAL_AMOUNT - HALF_SELLER; // 470 in prod path
 
 function buildFakeWorld(overrides: {
   buyerEmail?: string;
+  sellerEmail?: string;
+  courierEmail?: string;
   deliveryStatus?: string;
   courierId?: string;
   proposalType?: "purchase" | "exchange";
 } = {}): FakeWorld {
   const {
     buyerEmail = "buyer@promoshake.net",
+    sellerEmail = "seller@promoshake.net",
+    courierEmail = "courier@example.com", // real courier, non-sandbox by default
     deliveryStatus = "picked_up",
-    courierId = "buyer-uid", // buyer plays courier in sandbox tests
+    courierId = BUYER,
     proposalType = "purchase",
   } = overrides;
 
@@ -183,9 +198,6 @@ function buildFakeWorld(overrides: {
             fromPharmacyId: BUYER,
             toPharmacyId: SELLER,
             inventoryItemId: INVENTORY_ID,
-            // walletReserved is required for completeExchangeDelivery to
-            // enter the "purchase settlement" block (set at acceptance time
-            // in real flow); without it the payment writes are skipped.
             reservations: { walletReserved: TOTAL_AMOUNT },
             details: {
               type: proposalType,
@@ -207,6 +219,10 @@ function buildFakeWorld(overrides: {
         { exists: true, data: { available: 0, held: 0, currency: "GHS" } },
       ],
       [
+        `wallets/${OUTSIDER_COURIER}`,
+        { exists: true, data: { available: 0, held: 0, currency: "GHS" } },
+      ],
+      [
         `pharmacy_inventory/${INVENTORY_ID}`,
         {
           exists: true,
@@ -222,9 +238,10 @@ function buildFakeWorld(overrides: {
           },
         },
       ],
-      // Pharmacy caller lookup for the sandbox email gate.
+      // Pharmacy caller lookup (for the sandbox email gate).
       [`pharmacies/${BUYER}`, { exists: true, data: { email: buyerEmail } }],
-      [`pharmacies/${SELLER}`, { exists: true, data: { email: "seller@promoshake.net" } }],
+      [`pharmacies/${SELLER}`, { exists: true, data: { email: sellerEmail } }],
+      [`pharmacies/${OUTSIDER_COURIER}`, { exists: true, data: { email: courierEmail } }],
     ]),
   };
 }
@@ -236,6 +253,32 @@ function callAs(uid: string): Promise<unknown> {
   } as never);
 }
 
+// Assert helpers — one place for the money-math predicates.
+function findWalletIncrement(
+  path: string,
+  amount: number
+): { op: string; path: string; payload: Record<string, unknown> } | undefined {
+  return world.txWrites.find(
+    (w) =>
+      w.path === path &&
+      w.op === "update" &&
+      (w.payload.available as { __op?: string; n?: number })?.__op ===
+        "increment" &&
+      (w.payload.available as { n?: number })?.n === amount
+  );
+}
+
+function findAnyWalletIncrement(
+  path: string
+): { op: string; path: string; payload: Record<string, unknown> } | undefined {
+  return world.txWrites.find(
+    (w) =>
+      w.path === path &&
+      w.op === "update" &&
+      (w.payload.available as { __op?: string })?.__op === "increment"
+  );
+}
+
 const ORIGINAL_ENV = process.env.SANDBOX_ENABLED;
 afterEach(() => {
   if (ORIGINAL_ENV === undefined) delete process.env.SANDBOX_ENABLED;
@@ -243,128 +286,226 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests
+// 4-case matrix (round-4 review spec)
 // ---------------------------------------------------------------------------
 
-describe("completeExchangeDelivery — bypass NOT active (prod-like)", () => {
-  test("caller is not the assigned courier → permission-denied", async () => {
-    delete process.env.SANDBOX_ENABLED;
-    world = buildFakeWorld({
-      courierId: "some-other-courier",
-      deliveryStatus: "picked_up",
+describe("completeExchangeDelivery — sandbox bypass 4-case matrix (round-4 spec)", () => {
+  // -------------------------------------------------------------------------
+  // CASE 1 : trade party + sandbox email + courierId === caller
+  //          (buyer clicked Pickup → became courier → clicks Delivered)
+  //          → BYPASS ACTIVE. This is the P0#1 regression scenario.
+  // -------------------------------------------------------------------------
+  describe("CASE 1: buyer as courier after Pickup (courierId === caller)", () => {
+    beforeEach(() => {
+      process.env.SANDBOX_ENABLED = "true";
+      world = buildFakeWorld({
+        deliveryStatus: "picked_up",
+        courierId: BUYER, // buyer picked up, buyer is now assigned courier
+      });
     });
-    await expect(callAs(BUYER)).rejects.toMatchObject({
-      code: "permission-denied",
+
+    test("delivery status → 'delivered'", async () => {
+      await callAs(BUYER);
+      const deliveryUpdate = world.txWrites.find(
+        (w) => w.path === `deliveries/${DELIVERY_ID}` && w.op === "update"
+      );
+      expect(deliveryUpdate?.payload.status).toBe("delivered");
+    });
+
+    test("halfBuyer debit is NOT applied", async () => {
+      await callAs(BUYER);
+      const halfBuyerDebit = findWalletIncrement(
+        `wallets/${BUYER}`,
+        -HALF_BUYER
+      );
+      expect(halfBuyerDebit).toBeUndefined();
+    });
+
+    test("courier-fee credit is NOT applied (buyer would credit itself)", async () => {
+      await callAs(BUYER);
+      const courierCredit = findWalletIncrement(
+        `wallets/${BUYER}`,
+        COURIER_FEE
+      );
+      expect(courierCredit).toBeUndefined();
+    });
+
+    test("seller receives the FULL totalAmount (not sellerNetCredit)", async () => {
+      await callAs(BUYER);
+      const sellerCredit = findAnyWalletIncrement(`wallets/${SELLER}`);
+      expect(sellerCredit).toBeDefined();
+      expect((sellerCredit?.payload.available as { n?: number })?.n).toBe(
+        TOTAL_AMOUNT
+      );
     });
   });
 
-  test("SANDBOX_ENABLED off + trade-party caller → permission-denied (bypass gated on env)", async () => {
-    delete process.env.SANDBOX_ENABLED;
-    world = buildFakeWorld({
-      courierId: "some-other-courier",
-      buyerEmail: "buyer@promoshake.net",
+  // -------------------------------------------------------------------------
+  // CASE 1b : same as CASE 1 but with SELLER as the caller
+  //           (seller clicked Pickup → became courier → clicks Delivered)
+  // -------------------------------------------------------------------------
+  describe("CASE 1b: seller as courier after Pickup (courierId === caller)", () => {
+    beforeEach(() => {
+      process.env.SANDBOX_ENABLED = "true";
+      world = buildFakeWorld({
+        deliveryStatus: "picked_up",
+        courierId: SELLER,
+      });
     });
-    await expect(callAs(BUYER)).rejects.toMatchObject({
-      code: "permission-denied",
+
+    test("seller receives FULL totalAmount (bypass triggered by seller too)", async () => {
+      await callAs(SELLER);
+      const sellerCredit = findAnyWalletIncrement(`wallets/${SELLER}`);
+      expect((sellerCredit?.payload.available as { n?: number })?.n).toBe(
+        TOTAL_AMOUNT
+      );
+    });
+
+    test("no self-credit on seller for the courier fee (bypass skips fee)", async () => {
+      await callAs(SELLER);
+      // A courier-fee self-credit would show as increment(+COURIER_FEE) on
+      // wallets/${SELLER}. It should NOT appear.
+      const selfCredit = findWalletIncrement(
+        `wallets/${SELLER}`,
+        COURIER_FEE
+      );
+      expect(selfCredit).toBeUndefined();
+      // Also assert there is exactly ONE wallet-available update on the
+      // seller wallet — the full-amount credit only.
+      const sellerIncrementsCount = world.txWrites.filter(
+        (w) =>
+          w.path === `wallets/${SELLER}` &&
+          w.op === "update" &&
+          (w.payload.available as { __op?: string })?.__op === "increment"
+      ).length;
+      expect(sellerIncrementsCount).toBe(1);
     });
   });
 
-  test("SANDBOX_ENABLED on + non-promoshake email → permission-denied (bypass gated on email)", async () => {
-    process.env.SANDBOX_ENABLED = "true";
-    world = buildFakeWorld({
-      courierId: "some-other-courier",
-      buyerEmail: "real@gmail.com",
+  // -------------------------------------------------------------------------
+  // CASE 2 : trade party + sandbox email + courierId !== caller
+  //          (buyer went straight to Delivered without Pickup)
+  //          → BYPASS ACTIVE. Preserved from round-3, still must work.
+  // -------------------------------------------------------------------------
+  describe("CASE 2: buyer bypasses courier assignment (courierId !== caller)", () => {
+    beforeEach(() => {
+      process.env.SANDBOX_ENABLED = "true";
+      world = buildFakeWorld({
+        deliveryStatus: "pending",
+        courierId: "unassigned",
+      });
     });
-    await expect(callAs(BUYER)).rejects.toMatchObject({
-      code: "permission-denied",
+
+    test("starting status='pending' is accepted (sandbox tolerates it)", async () => {
+      await expect(callAs(BUYER)).resolves.toBeDefined();
+    });
+
+    test("seller receives FULL totalAmount", async () => {
+      await callAs(BUYER);
+      const sellerCredit = findAnyWalletIncrement(`wallets/${SELLER}`);
+      expect((sellerCredit?.payload.available as { n?: number })?.n).toBe(
+        TOTAL_AMOUNT
+      );
     });
   });
-});
 
-describe("completeExchangeDelivery — bypass ACTIVE (buyer plays courier)", () => {
-  beforeEach(() => {
-    process.env.SANDBOX_ENABLED = "true";
-  });
-
-  test("caller is buyer + email @promoshake.net + starting status='pending' → transaction runs", async () => {
-    world = buildFakeWorld({
-      deliveryStatus: "pending",
-      courierId: "unassigned",
-      buyerEmail: "buyer@promoshake.net",
+  // -------------------------------------------------------------------------
+  // CASE 3 : outsider courier (not buyer, not seller) → NORMAL settlement
+  //          Bypass DOES NOT activate: caller is not a trade party.
+  //          This is the prod happy path — we lock its math too.
+  // -------------------------------------------------------------------------
+  describe("CASE 3: real outsider courier (prod-like normal settlement)", () => {
+    beforeEach(() => {
+      // Sandbox env doesn't matter here — the caller is not a trade party
+      // so the bypass gate wouldn't activate anyway. Test both env states.
+      process.env.SANDBOX_ENABLED = "true";
+      world = buildFakeWorld({
+        deliveryStatus: "picked_up",
+        courierId: OUTSIDER_COURIER,
+      });
     });
-    await expect(callAs(BUYER)).resolves.toBeDefined();
-    // Delivery status was updated to 'delivered'.
-    const deliveryUpdate = world.txWrites.find(
-      (w) => w.path === `deliveries/${DELIVERY_ID}` && w.op === "update"
-    );
-    expect(deliveryUpdate?.payload.status).toBe("delivered");
-  });
 
-  test("courier wallet is NOT touched (no self-credit for the courier fee)", async () => {
-    world = buildFakeWorld({ deliveryStatus: "picked_up", courierId: "unassigned" });
-    await callAs(BUYER);
-    // The buyer is `userId` here, so a courier wallet write would target
-    // `wallets/${BUYER}`. That path IS written by the buyer-side wallet
-    // updates (deducted/available). Distinguish by shape: the courier
-    // credit uses `increment(courierFee=60)` on `available`.
-    const courierCredit = world.txWrites.find(
-      (w) =>
-        w.path === `wallets/${BUYER}` &&
-        w.op === "update" &&
-        (w.payload.available as { __op?: string; n?: number })?.__op ===
-          "increment" &&
-        (w.payload.available as { n?: number })?.n === COURIER_FEE
-    );
-    expect(courierCredit).toBeUndefined();
-  });
-
-  test("halfBuyer debit is NOT applied (the courier-share debit is skipped)", async () => {
-    world = buildFakeWorld({ deliveryStatus: "picked_up", courierId: "unassigned" });
-    await callAs(BUYER);
-    // A halfBuyer debit would be `increment(-30)` on `wallets/${BUYER}.available`.
-    const halfBuyerDebit = world.txWrites.find(
-      (w) =>
-        w.path === `wallets/${BUYER}` &&
-        w.op === "update" &&
-        (w.payload.available as { __op?: string; n?: number })?.__op ===
-          "increment" &&
-        (w.payload.available as { n?: number })?.n === -30 // half of 60
-    );
-    expect(halfBuyerDebit).toBeUndefined();
-  });
-
-  test("seller receives the FULL totalAmount (not sellerNetCredit)", async () => {
-    world = buildFakeWorld({ deliveryStatus: "picked_up", courierId: "unassigned" });
-    await callAs(BUYER);
-    const sellerCredit = world.txWrites.find(
-      (w) =>
-        w.path === `wallets/${SELLER}` &&
-        w.op === "update" &&
-        (w.payload.available as { __op?: string; n?: number })?.__op ===
-          "increment"
-    );
-    expect(sellerCredit).toBeDefined();
-    expect((sellerCredit?.payload.available as { n?: number })?.n).toBe(
-      TOTAL_AMOUNT
-    );
-  });
-
-  test("seller also playing courier: same bypass applies", async () => {
-    world = buildFakeWorld({
-      deliveryStatus: "picked_up",
-      courierId: "unassigned",
-      buyerEmail: "buyer@promoshake.net", // still needed for the setup, but caller is SELLER
+    test("courier-fee credit IS applied to the outsider courier's wallet (full fee)", async () => {
+      await callAs(OUTSIDER_COURIER);
+      const courierCredit = findWalletIncrement(
+        `wallets/${OUTSIDER_COURIER}`,
+        COURIER_FEE
+      );
+      expect(courierCredit).toBeDefined();
     });
-    await expect(callAs(SELLER)).resolves.toBeDefined();
-    const sellerCredit = world.txWrites.find(
-      (w) =>
-        w.path === `wallets/${SELLER}` &&
-        w.op === "update" &&
-        (w.payload.available as { __op?: string; n?: number })?.__op ===
-          "increment"
-    );
-    expect((sellerCredit?.payload.available as { n?: number })?.n).toBe(
-      TOTAL_AMOUNT
-    );
+
+    test("buyer IS debited halfBuyer for their share of the courier fee", async () => {
+      await callAs(OUTSIDER_COURIER);
+      const halfBuyerDebit = findWalletIncrement(
+        `wallets/${BUYER}`,
+        -HALF_BUYER
+      );
+      expect(halfBuyerDebit).toBeDefined();
+    });
+
+    test("seller receives sellerNetCredit (= totalAmount − halfSeller)", async () => {
+      await callAs(OUTSIDER_COURIER);
+      const sellerCredit = findAnyWalletIncrement(`wallets/${SELLER}`);
+      expect((sellerCredit?.payload.available as { n?: number })?.n).toBe(
+        SELLER_NET_CREDIT
+      );
+    });
+
+    test("also works with SANDBOX_ENABLED off (bypass gate irrelevant)", async () => {
+      delete process.env.SANDBOX_ENABLED;
+      world = buildFakeWorld({
+        deliveryStatus: "picked_up",
+        courierId: OUTSIDER_COURIER,
+      });
+      await callAs(OUTSIDER_COURIER);
+      const sellerCredit = findAnyWalletIncrement(`wallets/${SELLER}`);
+      expect((sellerCredit?.payload.available as { n?: number })?.n).toBe(
+        SELLER_NET_CREDIT
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // CASE 4 : trade party but sandbox off OR email non-authorised
+  //          → REFUSED (bypass requires both gates simultaneously).
+  //          The regular courier check kicks in and the caller is not the
+  //          assigned courier → permission-denied.
+  // -------------------------------------------------------------------------
+  describe("CASE 4: trade party but bypass conditions unmet → permission-denied", () => {
+    test("4a: SANDBOX_ENABLED=false + sandbox email → permission-denied", async () => {
+      delete process.env.SANDBOX_ENABLED;
+      world = buildFakeWorld({
+        deliveryStatus: "picked_up",
+        courierId: OUTSIDER_COURIER, // ensure caller is NOT the assigned courier
+        buyerEmail: "buyer@promoshake.net",
+      });
+      await expect(callAs(BUYER)).rejects.toMatchObject({
+        code: "permission-denied",
+      });
+    });
+
+    test("4b: SANDBOX_ENABLED=true + non-sandbox email → permission-denied", async () => {
+      process.env.SANDBOX_ENABLED = "true";
+      world = buildFakeWorld({
+        deliveryStatus: "picked_up",
+        courierId: OUTSIDER_COURIER,
+        buyerEmail: "real@gmail.com",
+      });
+      await expect(callAs(BUYER)).rejects.toMatchObject({
+        code: "permission-denied",
+      });
+    });
+
+    test("4c: neither env nor sandbox email + trade-party caller not courier → permission-denied", async () => {
+      delete process.env.SANDBOX_ENABLED;
+      world = buildFakeWorld({
+        deliveryStatus: "picked_up",
+        courierId: OUTSIDER_COURIER,
+        buyerEmail: "real@gmail.com",
+      });
+      await expect(callAs(BUYER)).rejects.toMatchObject({
+        code: "permission-denied",
+      });
+    });
   });
 });

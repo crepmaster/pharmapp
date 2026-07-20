@@ -191,29 +191,40 @@ Boutons visibles selon le statut de la delivery :
 
 | Status | Bouton | Callable appelée | Effet |
 |---|---|---|---|
-| `pending` | **Pickup** | `sandboxDeliveryAdvance` (action=pickup) | status → `picked_up`, courierId = caller uid |
-| `picked_up` / `in_transit` | **Delivered** | `completeExchangeDelivery` (avec bypass sandbox) | Settlement complet — vrai débit wallet buyer + crédit wallet seller + transfert inventaire, en une transaction Firestore |
+| `pending` | **Pickup** | `sandboxDeliveryAdvance` (action=pickup) | status → `picked_up`, courierId = caller uid, dans une transaction Firestore |
+| `picked_up` / `in_transit` | **Delivered** | `completeExchangeDelivery` (avec bypass sandbox) | Settlement complet — crédit wallet seller (montant TOTAL, pas de coupe courier), transfert inventaire, en une transaction Firestore |
 | `delivered` | (rien) | — | Fin du flow, la démo est terminée |
-| `failed` / `cancelled` | **Reset delivery** | `sandboxDeliveryAdvance` (action=reset) | status → `pending`, courierId + pickedUpAt clearés → on peut rejouer |
+| `failed` / `cancelled` | **Reset delivery** | `sandboxDeliveryAdvance` (action=reset) | status → `pending`, courierId + pickedUpAt effacés dans une transaction (relecture atomique → refuse si un settlement concurrent a atteint `delivered`) |
 
 Points importants pour le testeur :
 - L'utilisateur qui clique DOIT être connecté avec l'email `*@promoshake.net`
   ET l'une des deux pharmacies du deal (buyer OU seller). Le backend refuse
   autrement avec `permission-denied`.
 - Le bouton **Delivered** **court-circuite le courier fee** (pas de courier
-  réel à payer). Le vendeur reçoit le montant TOTAL du deal, le buyer voit
-  son wallet débité du même montant. La balance de la transaction est
-  préservée.
+  réel à payer) : le vendeur reçoit le montant TOTAL du deal, aucun débit
+  `halfBuyer` n'est appliqué, aucun crédit courier n'est émis. La balance
+  de la transaction reste équilibrée. Le gate d'activation ne dépend PAS
+  de `courierId` (round-4 fix P0#1) : peu importe si le bouton Pickup a été
+  cliqué avant, la sandbox math s'applique dès que l'appelant est bien un
+  compte `@promoshake.net` et une pharmacie du deal.
 - La delivery card se rafraîchit en temps réel (StreamBuilder Firestore)
   — pas besoin de refresh manuel entre deux clics.
-- **Reset ne fonctionne PAS sur une delivery `delivered`** (le settlement
-  a déjà mouvementé les wallets, le rewind serait incohérent). Si besoin
-  de rejouer un flow entier, créer une nouvelle proposal.
-- Défense en profondeur : la variable `SANDBOX_ENABLED` n'existe QUE dans
-  `functions/.env.mediexchange-staging` (gitignored) et une garde
-  `assertSandboxAllowedForProject()` refuse le chargement des modules
-  demo si `GCLOUD_PROJECT === "mediexchange"` — un déploiement prod
-  accidentel plante fort au lieu d'ouvrir silencieusement le bypass.
+- **Reset** est réservé aux statuts `failed` et `cancelled`. Tout autre
+  statut (dont `delivered`, `picked_up`, `in_transit`, `pending`, inconnu)
+  est refusé avec `failed-precondition`. La vérification est atomique
+  dans une transaction Firestore : un settlement concurrent qui atteint
+  `delivered` pendant la préparation d'un reset est observé à la relecture
+  et empêche l'écriture — plus de risque de double settlement (P0#2).
+- **Défense en profondeur (allowlist projet)** : la variable
+  `SANDBOX_ENABLED` n'existe QUE dans `functions/.env.mediexchange-staging`
+  (gitignored). En complément, `assertSandboxAllowedForProject()` refuse
+  le chargement des modules demo à moins que le runtime soit :
+  l'émulateur Cloud Functions (`FUNCTIONS_EMULATOR=true`), ou un projet
+  listé dans `SANDBOX_ALLOWED_PROJECT_IDS` (aujourd'hui :
+  `mediexchange-staging` uniquement, cf. `functions/src/lib/sandboxGate.ts`).
+  Tout autre project id — prod (`mediexchange`), inconnu, ou absent —
+  fait crasher le module au boot. Élargir l'allowlist doit rester une
+  modification explicite en PR, pas un effet de bord.
 
 ## 6. Garde-fous
 

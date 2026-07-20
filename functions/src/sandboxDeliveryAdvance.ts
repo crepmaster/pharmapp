@@ -11,16 +11,26 @@
  * 🔒 Gated (both conditions required, otherwise permission-denied):
  *   1. `process.env.SANDBOX_ENABLED === "true"` (only set on staging via
  *      `functions/.env.mediexchange-staging`, gitignored — prod never has it).
- *   2. Caller pharmacy email ends in `@promoshake.net` (same pattern as
- *      the other sandbox callables: sandboxCredit / sandboxDebit / etc).
+ *   2. Caller pharmacy email matches `SANDBOX_ACCOUNT_PATTERNS`
+ *      (currently `*@promoshake.net`).
  *
  * Contract:
- *   Input : { deliveryId: string, action: 'pickup' }
- *   Output: { ok: true, deliveryId, newStatus: 'picked_up' }
+ *   Input : { deliveryId: string, action: 'pickup' | 'reset' }
+ *   Output: { ok: true, deliveryId, newStatus }
  *
- * Only 'pickup' is currently accepted — 'deliver' would just be a proxy for
- * `completeExchangeDelivery` which the Flutter client already calls
- * directly (and which now carries its own sandbox bypass).
+ *   - action='pickup' : starting status must be `pending` → becomes
+ *     `picked_up`, courierId is set to the caller.
+ *   - action='reset'  : starting status must be `failed` OR `cancelled`
+ *     → becomes `pending`, courierId + pickedUpAt cleared. Any other
+ *     starting status is refused (including `delivered`, `picked_up`,
+ *     `in_transit`, `pending`, or unknown). See P0#2 + P1#1 in the
+ *     architect review round-4.
+ *
+ * Both actions run inside a single Firestore `runTransaction` so that the
+ * check-then-write is atomic — a concurrent `completeExchangeDelivery`
+ * (which flips status to `delivered` and settles wallets) that races with
+ * a reset will be observed by the re-read inside the transaction and the
+ * reset will be refused.
  */
 
 import { onCall, HttpsError } from "firebase-functions/v2/https";
@@ -39,6 +49,12 @@ import {
 assertSandboxAllowedForProject();
 
 const db = getFirestore();
+
+/** Statuses from which a demo delivery may be reset back to `pending`. */
+export const RESET_ALLOWED_FROM_STATUSES: readonly string[] = [
+  "failed",
+  "cancelled",
+];
 
 interface AdvanceInput {
   deliveryId?: string;
@@ -71,9 +87,10 @@ export const sandboxDeliveryAdvance = onCall<AdvanceInput>(
       );
     }
 
-    // Verify caller is a @promoshake.net pharmacy (bypasses the courier
-    // check, so the identity gate matters — a random user must not be able
-    // to hijack a delivery even on staging).
+    // Verify caller is a @promoshake.net pharmacy. This read is fine outside
+    // the transaction: pharmacy identity + email do not change during a
+    // single call, and even a stale read cannot escalate — the identity
+    // must match the sandbox-account pattern.
     const pharmacySnap = await db.collection("pharmacies").doc(userId).get();
     if (!pharmacySnap.exists) {
       throw new HttpsError(
@@ -90,79 +107,75 @@ export const sandboxDeliveryAdvance = onCall<AdvanceInput>(
       );
     }
 
-    // Load the delivery and check the caller is one of the trade parties.
     const deliveryRef = db.collection("deliveries").doc(deliveryId);
-    const deliverySnap = await deliveryRef.get();
-    if (!deliverySnap.exists) {
-      throw new HttpsError("not-found", "Delivery not found.");
-    }
-    const delivery = deliverySnap.data() ?? {};
-    const buyerId = delivery.fromPharmacyId as string | undefined;
-    const sellerId = delivery.toPharmacyId as string | undefined;
-    if (userId !== buyerId && userId !== sellerId) {
-      throw new HttpsError(
-        "permission-denied",
-        "Only the buyer or the seller can drive the demo delivery."
-      );
-    }
 
-    const currentStatus = (delivery.status as string) || "";
-
-    if (action === "pickup") {
-      if (currentStatus !== "pending") {
+    // Whole check-and-write is transactional so a concurrent flip to
+    // `delivered` (which runs settlement) is observed by the re-read below
+    // and the write is rejected. Fixes P0#2 in the round-4 review.
+    const result = await db.runTransaction(async (tx) => {
+      const deliverySnap = await tx.get(deliveryRef);
+      if (!deliverySnap.exists) {
+        throw new HttpsError("not-found", "Delivery not found.");
+      }
+      const delivery = deliverySnap.data() ?? {};
+      const buyerId = delivery.fromPharmacyId as string | undefined;
+      const sellerId = delivery.toPharmacyId as string | undefined;
+      if (userId !== buyerId && userId !== sellerId) {
         throw new HttpsError(
-          "failed-precondition",
-          `Cannot pickup a delivery in status '${currentStatus}'. Expected 'pending'.`
+          "permission-denied",
+          "Only the buyer or the seller can drive the demo delivery."
         );
       }
 
-      await deliveryRef.update({
-        status: "picked_up",
-        courierId: userId,
-        pickedUpAt: FieldValue.serverTimestamp(),
+      const currentStatus = (delivery.status as string) || "";
+
+      if (action === "pickup") {
+        if (currentStatus !== "pending") {
+          throw new HttpsError(
+            "failed-precondition",
+            `Cannot pickup a delivery in status '${currentStatus}'. Expected 'pending'.`
+          );
+        }
+        tx.update(deliveryRef, {
+          status: "picked_up",
+          courierId: userId,
+          pickedUpAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+          sandboxDemoAdvancedBy: userId,
+        });
+        return { newStatus: "picked_up" as const, previousStatus: currentStatus };
+      }
+
+      // action === "reset" — explicit allowlist. Refuses everything not in
+      // RESET_ALLOWED_FROM_STATUSES (in particular `delivered`, whose
+      // settlement has already moved wallets and stock, and `pending` /
+      // `picked_up` / `in_transit` which are already replayable through
+      // the normal pickup+deliver flow).
+      if (!RESET_ALLOWED_FROM_STATUSES.includes(currentStatus)) {
+        throw new HttpsError(
+          "failed-precondition",
+          `Cannot reset a delivery in status '${currentStatus}'. Reset is only allowed from: ${RESET_ALLOWED_FROM_STATUSES.join(", ")}.`
+        );
+      }
+      tx.update(deliveryRef, {
+        status: "pending",
+        courierId: FieldValue.delete(),
+        pickedUpAt: FieldValue.delete(),
         updatedAt: FieldValue.serverTimestamp(),
         sandboxDemoAdvancedBy: userId,
+        sandboxDemoResetAt: FieldValue.serverTimestamp(),
       });
-
-      logger.info("sandboxDeliveryAdvance: pickup applied", {
-        deliveryId,
-        callerUid: userId,
-        callerEmail,
-        buyerId,
-        sellerId,
-      });
-
-      return { ok: true, deliveryId, newStatus: "picked_up" };
-    }
-
-    // action === "reset" — recycle a failed / cancelled / picked_up delivery
-    // back to `pending` so the demo can be replayed without recreating the
-    // whole proposal. Refuses to reset a `delivered` delivery because that
-    // path already ran the settlement transaction (wallets debited, stock
-    // transferred) and rewinding would leave the money math inconsistent.
-    if (currentStatus === "delivered") {
-      throw new HttpsError(
-        "failed-precondition",
-        "Cannot reset a delivered delivery — the settlement has already run. Create a new proposal instead."
-      );
-    }
-
-    await deliveryRef.update({
-      status: "pending",
-      courierId: FieldValue.delete(),
-      pickedUpAt: FieldValue.delete(),
-      updatedAt: FieldValue.serverTimestamp(),
-      sandboxDemoAdvancedBy: userId,
-      sandboxDemoResetAt: FieldValue.serverTimestamp(),
+      return { newStatus: "pending" as const, previousStatus: currentStatus };
     });
 
-    logger.info("sandboxDeliveryAdvance: reset applied", {
+    logger.info(`sandboxDeliveryAdvance: ${action} applied`, {
       deliveryId,
-      previousStatus: currentStatus,
+      previousStatus: result.previousStatus,
+      newStatus: result.newStatus,
       callerUid: userId,
       callerEmail,
     });
 
-    return { ok: true, deliveryId, newStatus: "pending" };
+    return { ok: true, deliveryId, newStatus: result.newStatus };
   }
 );

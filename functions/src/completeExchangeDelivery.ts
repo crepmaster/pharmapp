@@ -91,20 +91,31 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
       const delivery = deliverySnapshot.data();
 
       // ------------------------------------------------------------------
-      // Staging demo bypass (round-2 follow-up). When SANDBOX_ENABLED is set
-      // (staging only via .env.mediexchange-staging, gitignored) AND the
-      // caller is one of the two pharmacies in the trade AND their email is
-      // a `@promoshake.net` test account, we let them play the courier role
-      // for the demo. Client-facing demos have no real courier — this lets
-      // the pharmacy-side "Delivered" demo button drive the full settlement
+      // Staging demo bypass (round-4 review fix P0#1). When SANDBOX_ENABLED
+      // is set (staging only via .env.mediexchange-staging, gitignored) AND
+      // the caller is one of the two pharmacies in the trade AND their email
+      // is a `@promoshake.net` test account, we let them play the courier
+      // role for the demo. Client-facing demos have no real courier — this
+      // lets the pharmacy-side "Delivered" button drive the full settlement
       // transaction (wallet swap + inventory transfer) end-to-end.
-      // In this mode:
+      //
+      // The gate is *orthogonal* to `courierId` : the pharmacy will typically
+      // BECOME the courier through the "Pickup" button (which sets
+      // `courierId = caller`), so requiring `courierId !== userId` here would
+      // make the bypass never trigger on the real pickup→delivered chain —
+      // and the standard courier settlement (fee split + buyer debit) would
+      // silently run instead. Root cause of P0#1: previously the gate
+      // included that predicate. It doesn't any more.
+      //
+      // In sandbox demo mode:
       //   - the courier-check is skipped (buyer/seller plays courier),
       //   - `status='pending'` is also accepted as a valid starting state
       //     (so the demo can go straight to `delivered` if the pickup step
       //     was skipped),
-      //   - the courier-fee credit is redirected to skip (`sandboxNoCourierFee=true`
-      //     below) so the caller doesn't accidentally credit themselves.
+      //   - the courier-fee credit is skipped so the caller doesn't credit
+      //     themselves, and the buyer's `halfBuyer` debit is also skipped
+      //     so the trade balance stays whole and the seller receives the
+      //     full `totalAmount`.
       // ------------------------------------------------------------------
       const buyerIdRaw = delivery?.fromPharmacyId as string | undefined;
       const sellerIdRaw = delivery?.toPharmacyId as string | undefined;
@@ -112,14 +123,10 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
         userId === buyerIdRaw || userId === sellerIdRaw;
       let sandboxDemoActive = false;
       // Only read the pharmacy doc + evaluate the sandbox gate when the env
-      // flag is on AND the caller is one of the trade parties AND they are
-      // not the assigned courier already — spares an extra Firestore read
-      // in the prod happy path (99.9% of invocations).
-      if (
-        isSandboxEnabled() &&
-        callerIsTradeParty &&
-        delivery?.courierId !== userId
-      ) {
+      // flag is on AND the caller is one of the trade parties — spares an
+      // extra Firestore read in the prod happy path (99.9% of invocations,
+      // and prod never has SANDBOX_ENABLED anyway).
+      if (isSandboxEnabled() && callerIsTradeParty) {
         const callerPharmacy = await transaction.get(
           db.collection("pharmacies").doc(userId)
         );
