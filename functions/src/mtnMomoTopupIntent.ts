@@ -27,6 +27,15 @@ import {
   toMinor,
 } from "./lib/moneyUnits.js";
 import { requirePharmacyOwner } from "./lib/auth.js";
+import {
+  assertSandboxAllowedForProject,
+  isSandboxDemoCaller,
+} from "./lib/sandboxGate.js";
+
+// Defence in depth: fail-fast at module load if SANDBOX_ENABLED slipped
+// through to prod. Prevents the "synthetic 202 accepted" bypass from ever
+// firing against real customers.
+assertSandboxAllowedForProject();
 
 const db = getFirestore();
 
@@ -114,9 +123,7 @@ export const mtnMomoTopupIntent = onCall<TopupIntentData>(
     // exercise the full top-up UX (button -> spinner -> credited wallet)
     // without provisioning real MTN sandbox credentials.
     // ------------------------------------------------------------------
-    const isStagingSandbox =
-      process.env.SANDBOX_ENABLED === "true" &&
-      /@promoshake\.net$/i.test(pharmacyEmail);
+    const isStagingSandbox = isSandboxDemoCaller({ email: pharmacyEmail });
 
     const subscriptionKey = MTN_MOMO_SUBSCRIPTION_KEY.value();
     const apiUser = MTN_MOMO_API_USER.value();

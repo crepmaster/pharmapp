@@ -26,6 +26,17 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
+import {
+  assertSandboxAllowedForProject,
+  isSandboxAccountEmail,
+  isSandboxEnabled,
+} from "./lib/sandboxGate.js";
+
+// Defence in depth: fail-fast at module load if SANDBOX_ENABLED slipped
+// through to prod. This callable is inherently sandbox-only — a prod deploy
+// with the env var set would let any @promoshake.net-looking account hijack
+// deliveries, so crash the whole module rather than expose that path.
+assertSandboxAllowedForProject();
 
 const db = getFirestore();
 
@@ -37,7 +48,7 @@ interface AdvanceInput {
 export const sandboxDeliveryAdvance = onCall<AdvanceInput>(
   { region: "europe-west1", cors: true },
   async (request) => {
-    if (process.env.SANDBOX_ENABLED !== "true") {
+    if (!isSandboxEnabled()) {
       throw new HttpsError(
         "failed-precondition",
         "Sandbox delivery advance is disabled outside the staging environment."
@@ -53,10 +64,10 @@ export const sandboxDeliveryAdvance = onCall<AdvanceInput>(
     if (!deliveryId || typeof deliveryId !== "string") {
       throw new HttpsError("invalid-argument", "deliveryId is required.");
     }
-    if (action !== "pickup") {
+    if (action !== "pickup" && action !== "reset") {
       throw new HttpsError(
         "invalid-argument",
-        "Only action='pickup' is supported. Use completeExchangeDelivery for the 'deliver' step."
+        "Only action='pickup' or 'reset' is supported. Use completeExchangeDelivery for the 'deliver' step."
       );
     }
 
@@ -72,10 +83,10 @@ export const sandboxDeliveryAdvance = onCall<AdvanceInput>(
     }
     const callerEmail =
       (pharmacySnap.data()?.email as string | undefined) ?? "";
-    if (!/@promoshake\.net$/i.test(callerEmail)) {
+    if (!isSandboxAccountEmail(callerEmail)) {
       throw new HttpsError(
         "permission-denied",
-        "Sandbox delivery advance requires a @promoshake.net test account."
+        "Sandbox delivery advance requires a recognised test account (see SANDBOX_ACCOUNT_PATTERNS)."
       );
     }
 
@@ -96,29 +107,62 @@ export const sandboxDeliveryAdvance = onCall<AdvanceInput>(
     }
 
     const currentStatus = (delivery.status as string) || "";
-    if (currentStatus !== "pending") {
+
+    if (action === "pickup") {
+      if (currentStatus !== "pending") {
+        throw new HttpsError(
+          "failed-precondition",
+          `Cannot pickup a delivery in status '${currentStatus}'. Expected 'pending'.`
+        );
+      }
+
+      await deliveryRef.update({
+        status: "picked_up",
+        courierId: userId,
+        pickedUpAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        sandboxDemoAdvancedBy: userId,
+      });
+
+      logger.info("sandboxDeliveryAdvance: pickup applied", {
+        deliveryId,
+        callerUid: userId,
+        callerEmail,
+        buyerId,
+        sellerId,
+      });
+
+      return { ok: true, deliveryId, newStatus: "picked_up" };
+    }
+
+    // action === "reset" — recycle a failed / cancelled / picked_up delivery
+    // back to `pending` so the demo can be replayed without recreating the
+    // whole proposal. Refuses to reset a `delivered` delivery because that
+    // path already ran the settlement transaction (wallets debited, stock
+    // transferred) and rewinding would leave the money math inconsistent.
+    if (currentStatus === "delivered") {
       throw new HttpsError(
         "failed-precondition",
-        `Cannot pickup a delivery in status '${currentStatus}'. Expected 'pending'.`
+        "Cannot reset a delivered delivery — the settlement has already run. Create a new proposal instead."
       );
     }
 
     await deliveryRef.update({
-      status: "picked_up",
-      courierId: userId, // demo: the trade party plays courier
-      pickedUpAt: FieldValue.serverTimestamp(),
+      status: "pending",
+      courierId: FieldValue.delete(),
+      pickedUpAt: FieldValue.delete(),
       updatedAt: FieldValue.serverTimestamp(),
       sandboxDemoAdvancedBy: userId,
+      sandboxDemoResetAt: FieldValue.serverTimestamp(),
     });
 
-    logger.info("sandboxDeliveryAdvance: pickup applied", {
+    logger.info("sandboxDeliveryAdvance: reset applied", {
       deliveryId,
+      previousStatus: currentStatus,
       callerUid: userId,
       callerEmail,
-      buyerId,
-      sellerId,
     });
 
-    return { ok: true, deliveryId, newStatus: "picked_up" };
+    return { ok: true, deliveryId, newStatus: "pending" };
   }
 );

@@ -194,6 +194,44 @@ TEST_CASES = [
      "Check the notification bell / inbox.",
      "-",
      "A notification for the event appears in the inbox."),
+
+    # ----- Delivery demo flow (staging-only Pickup / Delivered / Reset) -----
+    ("TC-DLV-01", "Delivery - Demo", "S4/S5", "P1",
+     "An offer was accepted (TC-MRP-03 or TC-MRE-03). Delivery status is 'pending'. "
+     "Logged in as buyer or seller with a @promoshake.net email.",
+     "Open the Exchange Status screen of the accepted proposal. In the 'Demo actions "
+     "(staging only)' panel, click the purple 'Pickup' button.",
+     "-",
+     "Delivery status updates to 'picked_up' in real time (no manual refresh). "
+     "Snackbar 'Pickup done — the courier is on the way.' A courier ID equal to "
+     "the caller's uid is written on the delivery doc."),
+    ("TC-DLV-02", "Delivery - Demo", "S4/S5", "P1",
+     "TC-DLV-01 (delivery in 'picked_up').",
+     "Click the green 'Delivered' button in the demo panel.",
+     "-",
+     "Snackbar 'Delivered — wallet credited and inventory transferred.' Status "
+     "updates to 'delivered'. Seller wallet increases by the trade totalAmount "
+     "(no courier fee deducted in demo mode). Buyer's deducted balance decreases "
+     "by the same amount. For exchange: buyer's item B is transferred to seller "
+     "and seller's item A to buyer."),
+    ("TC-DLV-03", "Delivery - Demo", "-", "P2",
+     "Delivered delivery (TC-DLV-02).",
+     "Confirm the 'Reset delivery' button is NOT visible on a delivered delivery.",
+     "-",
+     "Only a 'Delivered — nothing left to do for the demo.' line is shown; no reset "
+     "button (backend would refuse because settlement already ran)."),
+    ("TC-DLV-04", "Delivery - Demo", "-", "P3",
+     "A delivery in 'failed' or 'cancelled' status (rare - trigger via the courier "
+     "UI or by canceling the proposal).",
+     "Open the delivery card; click the orange 'Reset delivery' button.",
+     "-",
+     "Status returns to 'pending', courierId + pickedUpAt cleared. Demo can be replayed."),
+    ("TC-DLV-05", "Delivery - Demo", "-", "P2",
+     "Not logged in as buyer or seller of the delivery (a third pharmacy).",
+     "Somehow reach the Exchange Status screen and click a demo button.",
+     "-",
+     "Backend refuses with 'permission-denied' (only the two trade parties can "
+     "drive the demo)."),
 ]
 
 
@@ -421,6 +459,16 @@ def build_pdf():
     pdf.bullet("Create and complete an EXCHANGE (barter) medicine request.")
     pdf.bullet("Verify cross-mode rejection rules.")
     pdf.bullet("Perform a wallet withdrawal (valid and invalid cases).")
+    pdf.bullet("Walk the delivery through Pickup -> Delivered on the Exchange Status screen (see below).")
+
+    pdf.h1("6b. Delivery demo panel (staging-only)")
+    pdf.body("Once an offer is accepted, the Exchange Status screen shows a purple 'Demo actions (staging only)' panel that lets the buyer OR the seller walk the delivery through its states without a real courier. The panel is invisible on prod builds.")
+    pdf.bullet("Status 'pending' -> click 'Pickup' -> status becomes 'picked_up'.")
+    pdf.bullet("Status 'picked_up' -> click 'Delivered' -> the real settlement runs: buyer wallet debited, seller wallet credited, inventory transferred. For exchange, both items swap in the same transaction.")
+    pdf.bullet("Status 'delivered' -> nothing more to do; create a new proposal to replay.")
+    pdf.bullet("Status 'failed' / 'cancelled' -> orange 'Reset delivery' button restores the delivery to 'pending' so the flow can be replayed.")
+    pdf.bullet("Delivery status updates in real time (no manual refresh between clicks).")
+    pdf.bullet("The caller must be either the buyer or the seller of the deal AND use a @promoshake.net email. Any other account is rejected with 'permission-denied'.")
 
     pdf.add_page()
     pdf.h1("7. Test cases (overview)")

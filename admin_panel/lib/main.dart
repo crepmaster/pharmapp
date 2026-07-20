@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:pharmapp_shared/config/build_flags.dart';
 import 'firebase_options.dart';
 import 'blocs/admin_auth_bloc.dart';
 import 'screens/admin_login_screen.dart';
@@ -25,7 +26,9 @@ import 'screens/admin_dashboard_screen.dart';
 // We override it via synthetic FirebaseOptions when `USE_EMULATOR=true`
 // so admin_panel sees the same emulator namespace as pharmapp_unified
 // and the seed scripts.
-const _useEmulator = bool.fromEnvironment('USE_EMULATOR');
+// `kUseEmulator` / `kUseStaging` come from `pharmapp_shared/config/build_flags.dart`
+// (single source of truth). The `_emulator*` / `_staging*` formatters below
+// stay local to this file because they are Firebase-options-specific.
 const _emulatorProjectId =
     String.fromEnvironment('FIREBASE_PROJECT_ID', defaultValue: 'demo-pharmapp');
 const _emulatorHost =
@@ -34,7 +37,6 @@ const _emulatorHost =
 // Sprint 5 phase 2 — staging wiring (mirror of pharmapp_unified/lib/main.dart).
 // `USE_STAGING=true` initialises Firebase against mediexchange-staging via
 // `--dart-define` (keys not committed). Prod build sees neither flag.
-const _useStaging = bool.fromEnvironment('USE_STAGING');
 const _stagingApiKey = String.fromEnvironment('STAGING_API_KEY');
 const _stagingAppId = String.fromEnvironment('STAGING_APP_ID');
 const _stagingSenderId = String.fromEnvironment('STAGING_SENDER_ID');
@@ -45,7 +47,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Firebase.initializeApp(
-    options: _useEmulator
+    options: kUseEmulator
         ? const FirebaseOptions(
             apiKey: 'demo-api-key',
             appId: '1:123:web:demo',
@@ -53,7 +55,7 @@ void main() async {
             projectId: _emulatorProjectId,
             authDomain: 'localhost',
           )
-        : _useStaging
+        : kUseStaging
             ? const FirebaseOptions(
                 apiKey: _stagingApiKey,
                 appId: _stagingAppId,
@@ -64,7 +66,7 @@ void main() async {
             : DefaultFirebaseOptions.currentPlatform,
   );
 
-  if (_useEmulator) {
+  if (kUseEmulator) {
     await FirebaseAuth.instance.useAuthEmulator(_emulatorHost, 9099);
     FirebaseFirestore.instance.useFirestoreEmulator(_emulatorHost, 8080);
     FirebaseFunctions.instanceFor(region: 'europe-west1')

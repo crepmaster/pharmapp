@@ -1,11 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:pharmapp_shared/config/build_flags.dart';
 import '../../../models/exchange_proposal.dart';
-
-/// Compile-time flag. Set at build time via `--dart-define=USE_STAGING=true`.
-/// Prod builds have this at `false` so the demo-only widgets tree-shake out.
-const bool _kUseStaging = bool.fromEnvironment('USE_STAGING');
 
 class ExchangeStatusScreen extends StatelessWidget {
   final String proposalId;
@@ -267,7 +264,7 @@ class ExchangeStatusScreen extends StatelessWidget {
                                     _buildDetailRow('Courier', courierId),
                                   if (paymentStatus != null && paymentStatus.isNotEmpty)
                                     _buildDetailRow('Payment', paymentStatus),
-                                  if (_kUseStaging) ...[
+                                  if (kUseStaging) ...[
                                     const SizedBox(height: 12),
                                     const Divider(),
                                     _DemoDeliveryActions(
@@ -301,7 +298,7 @@ class ExchangeStatusScreen extends StatelessWidget {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            _kUseStaging
+                            kUseStaging
                                 ? 'Demo mode — use the "Pickup" / "Delivered" buttons above to walk the delivery through its states. The status refreshes in real time.'
                                 : 'Delivery is in progress. Assigned courier updates completion from the courier app.',
                             style: TextStyle(color: Colors.blue.shade700),
@@ -452,7 +449,7 @@ class ExchangeStatusScreen extends StatelessWidget {
 
 /// Two-button demo panel embedded in the Delivery Status card. Only ever
 /// rendered when the app was built with `--dart-define=USE_STAGING=true`
-/// (the outer `if (_kUseStaging)` guard means the entire subtree tree-shakes
+/// (the outer `if (kUseStaging)` guard means the entire subtree tree-shakes
 /// out on prod builds — this widget's body is unreachable in production).
 ///
 /// Buttons drive the delivery lifecycle without a real courier:
@@ -522,6 +519,34 @@ class _DemoDeliveryActionsState extends State<_DemoDeliveryActions> {
     }
   }
 
+  /// Standard demo button: swaps the icon for an inline spinner while
+  /// `_busy` so the loading feedback stays inside the tap target.
+  Widget _actionButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback? onPressed,
+  }) {
+    return ElevatedButton.icon(
+      icon: _busy
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            )
+          : Icon(icon, size: 18),
+      label: Text(label),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: color,
+        foregroundColor: Colors.white,
+      ),
+      onPressed: _busy ? null : onPressed,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final status = widget.currentStatus;
@@ -552,51 +577,69 @@ class _DemoDeliveryActionsState extends State<_DemoDeliveryActions> {
           ),
           const SizedBox(height: 8),
           if (status == 'pending')
-            ElevatedButton.icon(
-              icon: const Icon(Icons.local_shipping_outlined, size: 18),
-              label: const Text('Pickup — courier picked up the items'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.deepPurple.shade600,
-                foregroundColor: Colors.white,
+            _actionButton(
+              icon: Icons.local_shipping_outlined,
+              label: 'Pickup',
+              color: Colors.deepPurple.shade600,
+              onPressed: () => _run(
+                callable: 'sandboxDeliveryAdvance',
+                data: {
+                  'deliveryId': widget.deliveryId,
+                  'action': 'pickup',
+                },
+                successMessage: 'Pickup done — the courier is on the way.',
               ),
-              onPressed: _busy
-                  ? null
-                  : () => _run(
-                        callable: 'sandboxDeliveryAdvance',
-                        data: {
-                          'deliveryId': widget.deliveryId,
-                          'action': 'pickup',
-                        },
-                        successMessage:
-                            'Pickup applied — status now "picked_up".',
-                      ),
             )
           else if (status == 'picked_up' || status == 'in_transit')
-            ElevatedButton.icon(
-              icon: const Icon(Icons.check_circle_outline, size: 18),
-              label: const Text(
-                  'Delivered — trigger settlement (wallet + inventory)'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green.shade700,
-                foregroundColor: Colors.white,
+            _actionButton(
+              icon: Icons.check_circle_outline,
+              label: 'Delivered',
+              color: Colors.green.shade700,
+              onPressed: () => _run(
+                callable: 'completeExchangeDelivery',
+                data: {'deliveryId': widget.deliveryId},
+                successMessage:
+                    'Delivered — wallet credited and inventory transferred.',
               ),
-              onPressed: _busy
-                  ? null
-                  : () => _run(
-                        callable: 'completeExchangeDelivery',
-                        data: {'deliveryId': widget.deliveryId},
-                        successMessage:
-                            'Delivered — settlement applied (wallets updated, inventory transferred).',
-                      ),
             )
           else if (status == 'delivered')
             Row(
               children: [
                 Icon(Icons.done_all, size: 18, color: Colors.green.shade700),
                 const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Delivered — nothing left to do for the demo.',
+                    style: TextStyle(color: Colors.green.shade700),
+                  ),
+                ),
+              ],
+            )
+          else if (status == 'failed' || status == 'cancelled')
+            // Failed / cancelled: give the demoer a way to replay the flow
+            // without recreating the whole proposal. Reset writes status
+            // back to `pending` and clears the courier assignment.
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Text(
-                  'Delivered — nothing left to do for the demo.',
-                  style: TextStyle(color: Colors.green.shade700),
+                  'Delivery is "$status" — reset to replay the demo.',
+                  style: TextStyle(
+                      color: Colors.orange.shade800, fontSize: 12),
+                ),
+                const SizedBox(height: 6),
+                _actionButton(
+                  icon: Icons.replay,
+                  label: 'Reset delivery',
+                  color: Colors.orange.shade700,
+                  onPressed: () => _run(
+                    callable: 'sandboxDeliveryAdvance',
+                    data: {
+                      'deliveryId': widget.deliveryId,
+                      'action': 'reset',
+                    },
+                    successMessage: 'Delivery reset — you can walk it again.',
+                  ),
                 ),
               ],
             )
@@ -605,10 +648,6 @@ class _DemoDeliveryActionsState extends State<_DemoDeliveryActions> {
               'No demo action available for status "$status".',
               style: TextStyle(color: Colors.deepPurple.shade400, fontSize: 12),
             ),
-          if (_busy) ...[
-            const SizedBox(height: 8),
-            const LinearProgressIndicator(minHeight: 2),
-          ],
         ],
       ),
     );

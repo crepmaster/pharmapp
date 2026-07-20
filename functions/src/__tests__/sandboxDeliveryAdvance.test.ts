@@ -37,7 +37,10 @@ jest.mock("firebase-admin/app", () => ({
 
 jest.mock("firebase-admin/firestore", () => ({
   getFirestore: jest.fn(() => ({ collection: mockCollection })),
-  FieldValue: { serverTimestamp: jest.fn(() => "mock-timestamp") },
+  FieldValue: {
+    serverTimestamp: jest.fn(() => "mock-timestamp"),
+    delete: jest.fn(() => "__delete__"),
+  },
 }));
 
 jest.mock("firebase-functions/logger", () => ({
@@ -98,10 +101,76 @@ describe("sandboxDeliveryAdvance — input validation (env on)", () => {
     });
   });
 
-  test("rejects unknown action", async () => {
+  test("rejects unknown action (only pickup + reset are accepted)", async () => {
     await expect(
       callAs("u1", { deliveryId: "d1", action: "deliver" })
     ).rejects.toMatchObject({ code: "invalid-argument" });
+  });
+});
+
+describe("sandboxDeliveryAdvance — reset action (env on)", () => {
+  beforeEach(() => {
+    process.env.SANDBOX_ENABLED = "true";
+    mockPharmacyGet.mockResolvedValue({
+      exists: true,
+      data: () => ({ email: "buyer@promoshake.net" }),
+    });
+  });
+
+  test("resets a picked_up delivery back to pending + clears courierId/pickedUpAt", async () => {
+    mockDeliveryGet.mockResolvedValue({
+      exists: true,
+      data: () => ({
+        fromPharmacyId: "buyer-uid",
+        toPharmacyId: "seller-uid",
+        status: "picked_up",
+        courierId: "buyer-uid",
+      }),
+    });
+
+    const result = (await callAs("buyer-uid", {
+      deliveryId: "d1",
+      action: "reset",
+    })) as { ok: boolean; newStatus: string };
+
+    expect(result.newStatus).toBe("pending");
+    const payload = mockDeliveryUpdate.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload.status).toBe("pending");
+    // FieldValue.delete() mocked as "mock-timestamp" — just prove it's non-undefined
+    expect(payload.courierId).toBeDefined();
+    expect(payload.pickedUpAt).toBeDefined();
+    expect(payload.sandboxDemoResetAt).toBe("mock-timestamp");
+  });
+
+  test("rejects reset on a delivered delivery (settlement already ran, cannot rewind)", async () => {
+    mockDeliveryGet.mockResolvedValue({
+      exists: true,
+      data: () => ({
+        fromPharmacyId: "buyer-uid",
+        toPharmacyId: "seller-uid",
+        status: "delivered",
+      }),
+    });
+    await expect(
+      callAs("buyer-uid", { deliveryId: "d1", action: "reset" })
+    ).rejects.toMatchObject({ code: "failed-precondition" });
+    expect(mockDeliveryUpdate).not.toHaveBeenCalled();
+  });
+
+  test("resets a failed delivery back to pending", async () => {
+    mockDeliveryGet.mockResolvedValue({
+      exists: true,
+      data: () => ({
+        fromPharmacyId: "buyer-uid",
+        toPharmacyId: "seller-uid",
+        status: "failed",
+      }),
+    });
+    const result = (await callAs("buyer-uid", {
+      deliveryId: "d1",
+      action: "reset",
+    })) as { newStatus: string };
+    expect(result.newStatus).toBe("pending");
   });
 });
 

@@ -1,46 +1,35 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
+import '../config/build_flags.dart';
 
 /// Reusable authenticated HTTP client for all PharmApp services.
 /// Injects Firebase ID token as Bearer header on every request.
 class AuthenticatedHttpService {
   static final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  // Sprint 5 phase 1 emulator HTTP routing — Single source of truth for the
-  // Cloud Functions HTTP base URL. Gated by the same `--dart-define` flags
-  // as `pharmapp_unified/lib/main.dart`'s Firebase wiring so the prod build
-  // never resolves to localhost. When `USE_EMULATOR=true`, points at the
-  // local Functions emulator endpoint (which honours `useFunctionsEmulator`).
-  // Otherwise, the canonical prod europe-west1 URL.
+  // Cloud Functions HTTP base URL. Gated by the shared `kUseEmulator` /
+  // `kUseStaging` build flags from `pharmapp_shared/config/build_flags.dart`
+  // (single source of truth). Tree-shaking elides the unused branches on
+  // prod builds because the flags are compile-time constants.
   //
-  // Why a getter and not a `const`: the prod URL is still a constant string,
-  // but selecting between prod and emulator at runtime requires evaluating
-  // `bool.fromEnvironment` — those are compile-time constants but the *if*
-  // can't be const. Tree-shaking elides the emulator branch on prod builds
-  // because `_useEmulator` is `false` at compile time.
-  static const bool _useEmulator = bool.fromEnvironment('USE_EMULATOR');
+  // Priority : emulator > staging > prod. Only the `*_PROJECT_ID` /
+  // `EMULATOR_*` env vars stay declared locally because they are getter-
+  // specific formatters, not gates.
   static const String _emulatorProjectId =
       String.fromEnvironment('FIREBASE_PROJECT_ID', defaultValue: 'demo-pharmapp');
   static const String _emulatorHost =
       String.fromEnvironment('EMULATOR_HOST', defaultValue: 'localhost');
   static const String _emulatorFunctionsPort =
       String.fromEnvironment('EMULATOR_FUNCTIONS_PORT', defaultValue: '5001');
-
-  // Sprint 5 phase 2 — staging routing. A `USE_STAGING=true` build points the
-  // HTTP base URL at the staging project's europe-west1 endpoint so the
-  // staging app never leaks HTTP calls (wallet/subscription) to prod. Prod
-  // build (both flags false) keeps the canonical mediexchange URL. Tree-shaking
-  // elides the unused branches because the flags are compile-time constants.
-  static const bool _useStaging = bool.fromEnvironment('USE_STAGING');
   static const String _stagingProjectId = String.fromEnvironment(
       'STAGING_PROJECT_ID',
       defaultValue: 'mediexchange-staging');
 
   /// Base URL for Cloud Functions (europe-west1).
-  static String get functionsBaseUrl => _useEmulator
+  static String get functionsBaseUrl => kUseEmulator
       ? 'http://$_emulatorHost:$_emulatorFunctionsPort/$_emulatorProjectId/europe-west1'
-      : _useStaging
+      : kUseStaging
           ? 'https://europe-west1-$_stagingProjectId.cloudfunctions.net'
           : 'https://europe-west1-mediexchange.cloudfunctions.net';
 

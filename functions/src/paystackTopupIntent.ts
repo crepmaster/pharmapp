@@ -21,6 +21,15 @@ import {
   toLegacyWalletUnits,
 } from "./lib/moneyUnits.js";
 import { requirePharmacyOwner } from "./lib/auth.js";
+import {
+  assertSandboxAllowedForProject,
+  isSandboxDemoCaller,
+} from "./lib/sandboxGate.js";
+
+// Defence in depth: fail-fast at module load if SANDBOX_ENABLED slipped
+// through to prod. Would otherwise let a call skip Paystack + credit a
+// real wallet synchronously via the demo bypass.
+assertSandboxAllowedForProject();
 
 const db = getFirestore();
 
@@ -117,10 +126,7 @@ export const paystackTopupIntent = onCall<PaystackTopupData>(
     // `sandboxCredited: true` instead of an authorizationUrl so the Flutter
     // top-up dialog can short-circuit the launchUrl step.
     // ----------------------------------------------------------------------
-    if (
-      process.env.SANDBOX_ENABLED === "true" &&
-      /@promoshake\.net$/i.test(email)
-    ) {
+    if (isSandboxDemoCaller({ email })) {
       const paymentRef = db.collection("payments").doc(reference);
       const walletRef = db.collection("wallets").doc(userId);
       const walletLegacyDelta = toLegacyWalletUnits(amountMinor, currencyDecimals);

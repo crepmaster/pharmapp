@@ -21,6 +21,16 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
+import {
+  assertSandboxAllowedForProject,
+  isSandboxDemoCaller,
+  isSandboxEnabled,
+} from "./lib/sandboxGate.js";
+
+// Defence in depth: fail-fast at module load if SANDBOX_ENABLED slipped
+// through to prod. Called BEFORE any handler runs — makes a bad deploy
+// crash loudly instead of silently opening the courier bypass.
+assertSandboxAllowedForProject();
 
 const db = getFirestore();
 
@@ -101,8 +111,12 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
       const callerIsTradeParty =
         userId === buyerIdRaw || userId === sellerIdRaw;
       let sandboxDemoActive = false;
+      // Only read the pharmacy doc + evaluate the sandbox gate when the env
+      // flag is on AND the caller is one of the trade parties AND they are
+      // not the assigned courier already — spares an extra Firestore read
+      // in the prod happy path (99.9% of invocations).
       if (
-        process.env.SANDBOX_ENABLED === "true" &&
+        isSandboxEnabled() &&
         callerIsTradeParty &&
         delivery?.courierId !== userId
       ) {
@@ -110,7 +124,7 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
           db.collection("pharmacies").doc(userId)
         );
         const callerEmail = (callerPharmacy.data()?.email as string) ?? "";
-        if (/@promoshake\.net$/i.test(callerEmail)) {
+        if (isSandboxDemoCaller({ email: callerEmail })) {
           sandboxDemoActive = true;
           logger.info(
             "completeExchangeDelivery: SANDBOX MODE — buyer/seller playing courier for demo",

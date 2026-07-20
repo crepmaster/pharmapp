@@ -19,6 +19,15 @@ import {
   toLegacyWalletUnits,
   FALLBACK_DECIMALS,
 } from "./lib/moneyUnits.js";
+import {
+  assertSandboxAllowedForProject,
+  isSandboxEnabled,
+} from "./lib/sandboxGate.js";
+
+// Defence in depth: fail-fast at module load if SANDBOX_ENABLED slipped
+// through to prod. Would otherwise let a sandboxMode payment auto-credit
+// a real wallet without any external MTN call.
+assertSandboxAllowedForProject();
 
 const db = getFirestore();
 
@@ -96,8 +105,7 @@ export const mtnMomoCheckStatus = onCall<CheckStatusData>(
     // the wallet gets credited via the regular settlement code below. The
     // env gate guards against any reuse of the flag on prod (the prod
     // functions env never carries `SANDBOX_ENABLED=true`).
-    const isStagingSandbox =
-      payment.sandboxMode === true && process.env.SANDBOX_ENABLED === "true";
+    const isStagingSandbox = payment.sandboxMode === true && isSandboxEnabled();
 
     let normalizedStatus: string;
     let mtnStatus: {

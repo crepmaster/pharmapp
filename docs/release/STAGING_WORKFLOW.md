@@ -179,6 +179,42 @@ Bugs cosmétiques connus (non bloquants, voir CLAUDE.md backlog) :
 - **TD-WALLET-CURRENCY-SERVER-SIDE** : un wallet Ghana peut naître en `XAF` si
   le client n'envoie pas `currency` (cosmétique ; corrigeable côté data).
 
+### 5c. Boutons démo delivery (pilotés par le testeur / démoer)
+
+L'écran **Exchange Status** (ouvert depuis une proposal `accepted`) affiche
+un panneau **"Demo actions (staging only)"** qui remplace le vrai flow
+courier — car il n'y a pas de courier en staging. Ce panneau tree-shake
+complètement en build prod (guard `kUseStaging` du fichier partagé
+`shared/lib/config/build_flags.dart`).
+
+Boutons visibles selon le statut de la delivery :
+
+| Status | Bouton | Callable appelée | Effet |
+|---|---|---|---|
+| `pending` | **Pickup** | `sandboxDeliveryAdvance` (action=pickup) | status → `picked_up`, courierId = caller uid |
+| `picked_up` / `in_transit` | **Delivered** | `completeExchangeDelivery` (avec bypass sandbox) | Settlement complet — vrai débit wallet buyer + crédit wallet seller + transfert inventaire, en une transaction Firestore |
+| `delivered` | (rien) | — | Fin du flow, la démo est terminée |
+| `failed` / `cancelled` | **Reset delivery** | `sandboxDeliveryAdvance` (action=reset) | status → `pending`, courierId + pickedUpAt clearés → on peut rejouer |
+
+Points importants pour le testeur :
+- L'utilisateur qui clique DOIT être connecté avec l'email `*@promoshake.net`
+  ET l'une des deux pharmacies du deal (buyer OU seller). Le backend refuse
+  autrement avec `permission-denied`.
+- Le bouton **Delivered** **court-circuite le courier fee** (pas de courier
+  réel à payer). Le vendeur reçoit le montant TOTAL du deal, le buyer voit
+  son wallet débité du même montant. La balance de la transaction est
+  préservée.
+- La delivery card se rafraîchit en temps réel (StreamBuilder Firestore)
+  — pas besoin de refresh manuel entre deux clics.
+- **Reset ne fonctionne PAS sur une delivery `delivered`** (le settlement
+  a déjà mouvementé les wallets, le rewind serait incohérent). Si besoin
+  de rejouer un flow entier, créer une nouvelle proposal.
+- Défense en profondeur : la variable `SANDBOX_ENABLED` n'existe QUE dans
+  `functions/.env.mediexchange-staging` (gitignored) et une garde
+  `assertSandboxAllowedForProject()` refuse le chargement des modules
+  demo si `GCLOUD_PROJECT === "mediexchange"` — un déploiement prod
+  accidentel plante fort au lieu d'ouvrir silencieusement le bypass.
+
 ## 6. Garde-fous
 
 - Build **prod** = aucun flag `USE_STAGING`/`USE_EMULATOR` → pointe `mediexchange`.
