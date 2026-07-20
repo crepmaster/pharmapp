@@ -255,43 +255,7 @@ class _ProposalsScreenState extends State<ProposalsScreen>
                 
                 const SizedBox(height: 12),
                 
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[50],
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Quantity:'),
-                          Text('${proposal.details.requestedQuantity} units'),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Price per unit:'),
-                          Text('${proposal.details.offeredPrice} ${proposal.details.currency}'),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Total:', style: TextStyle(fontWeight: FontWeight.bold)),
-                          Text(
-                            '${proposal.details.totalOfferAmount} ${proposal.details.currency}',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
+                _buildProposalSummary(proposal),
                 
                 if (proposal.isPending) ...[
                   const SizedBox(height: 16),
@@ -422,10 +386,7 @@ class _ProposalsScreenState extends State<ProposalsScreen>
                   
                   const SizedBox(height: 8),
                   
-                  Text(
-                    'Offered: ${proposal.details.totalOfferAmount} ${proposal.details.currency} for ${proposal.details.requestedQuantity} units',
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
+                  _buildProposalOneLiner(proposal),
                   
                   if (proposal.rejectionReason != null) ...[
                     const SizedBox(height: 8),
@@ -518,10 +479,7 @@ class _ProposalsScreenState extends State<ProposalsScreen>
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    Text(
-                      '${proposal.details.requestedQuantity} units • ${proposal.details.totalOfferAmount} ${proposal.details.currency}',
-                      style: TextStyle(color: Colors.grey[600]),
-                    ),
+                    _buildProposalOneLiner(proposal, subtle: true),
                   ],
                   
                   const SizedBox(height: 12),
@@ -777,6 +735,147 @@ class _ProposalsScreenState extends State<ProposalsScreen>
         );
       }
     }
+  }
+
+  // Round-4 currency sprint — proposal summary widget that BRANCHES on
+  // purchase vs exchange type. Exchange proposals never carry a price
+  // (barter — no money on the medicine leg) ; showing "0 USD/unit" +
+  // "Total 0 USD" is misleading and USD is just the ProposalDetails
+  // model default when currency is missing from the doc. For exchange,
+  // show what the requester offers in barter using the
+  // exchangeInventorySnapshot the backend persists at create time.
+  Widget _buildProposalSummary(ExchangeProposal proposal) {
+    final isExchange = proposal.details.proposalType == ProposalType.exchange;
+    final snap = proposal.details.exchangeInventorySnapshot;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Requested quantity:'),
+              Text('${proposal.details.requestedQuantity} units'),
+            ],
+          ),
+          if (!isExchange) ...[
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Price per unit:'),
+                Text(
+                  '${proposal.details.offeredPrice} ${proposal.details.currency}',
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Total:',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                Text(
+                  '${proposal.details.totalOfferAmount} ${proposal.details.currency}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          ] else ...[
+            const SizedBox(height: 8),
+            const Divider(),
+            const SizedBox(height: 4),
+            Text(
+              'In exchange, they offer',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[700],
+              ),
+            ),
+            const SizedBox(height: 6),
+            if (snap != null) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Medicine:'),
+                  Flexible(
+                    child: Text(
+                      '${snap.medicineName}'
+                      '${snap.dosage.isNotEmpty ? " ${snap.dosage}" : ""}'
+                      '${snap.form.isNotEmpty ? " • ${snap.form}" : ""}',
+                      textAlign: TextAlign.end,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Barter quantity:'),
+                  Text(
+                    '${proposal.details.exchangeQuantity ?? 0}'
+                    '${(snap.packaging ?? "").isNotEmpty ? " ${snap.packaging}" : ""}',
+                  ),
+                ],
+              ),
+            ] else ...[
+              // Legacy proposals created before the snapshot was persisted.
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Medicine ID:'),
+                  Flexible(
+                    child: Text(
+                      proposal.details.exchangeMedicineId ?? '—',
+                      textAlign: TextAlign.end,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Barter quantity:'),
+                  Text('${proposal.details.exchangeQuantity ?? 0}'),
+                ],
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Compact one-liner used by Sent + Active cards.
+  Widget _buildProposalOneLiner(
+    ExchangeProposal proposal, {
+    bool subtle = false,
+  }) {
+    final isExchange = proposal.details.proposalType == ProposalType.exchange;
+    final snap = proposal.details.exchangeInventorySnapshot;
+    final baseStyle = subtle
+        ? TextStyle(color: Colors.grey[600])
+        : const TextStyle(fontWeight: FontWeight.w600);
+    if (isExchange) {
+      final label = snap != null
+          ? 'Barter — ${proposal.details.requestedQuantity} units against '
+              '${proposal.details.exchangeQuantity ?? 0} of ${snap.medicineName}'
+          : 'Barter — ${proposal.details.requestedQuantity} units against '
+              '${proposal.details.exchangeQuantity ?? 0} units';
+      return Text(label, style: baseStyle);
+    }
+    return Text(
+      'Offered: ${proposal.details.totalOfferAmount} ${proposal.details.currency} '
+      'for ${proposal.details.requestedQuantity} units',
+      style: baseStyle,
+    );
   }
 }
 
