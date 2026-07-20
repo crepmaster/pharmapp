@@ -142,7 +142,7 @@ class PharmacyInventoryItem extends Equatable {
         expirationDate: expirationDate,
       ),
       availabilitySettings: AvailabilitySettings(
-        availableForExchange: true,
+        availableForExchange: false,
         minExchangeQuantity: 1,
         maxExchangeQuantity: totalQuantity,
       ),
