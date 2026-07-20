@@ -212,6 +212,30 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
         courierFee,
       });
 
+      // Resolve the operating currency of the delivery from the pharmacy's
+      // country config. The proposal-side `details.currency` is only set
+      // for PURCHASE proposals (CanonicalPurchaseDetails); exchange
+      // proposals never carry a currency because no money changes hands
+      // on the medicine leg. But the delivery ALWAYS has a courier fee,
+      // and that fee must display in the country's currency — falling
+      // back to "XAF" here was the root cause of "3,000 XAF" appearing on
+      // Ghana deliveries. We prefer `system_config/main.countries[cc].defaultCurrencyCode`
+      // as the single source of truth (mirrors createMedicineRequest.ts
+      // and createPharmacyRegistration.ts contracts).
+      const systemConfigCountries = (systemConfigSnapshot.exists
+        ? (systemConfigSnapshot.data()?.countries as
+            | Record<string, { defaultCurrencyCode?: string } | undefined>
+            | undefined)
+        : undefined) ?? {};
+      const countryDefaultCurrency =
+        (systemConfigCountries[deliveryCountry]?.defaultCurrencyCode as
+          | string
+          | undefined) ?? undefined;
+      const resolvedDeliveryCurrency: string =
+        (proposal.details?.currency as string | undefined) ||
+        countryDefaultCurrency ||
+        "XAF";
+
       // Resolve the medicine display name for the delivery item. Priority:
       // 1. Denormalized `medicineName` on the inventory doc (new write path)
       // 2. `medicines/{medicineId}` document (custom medicines created via UI)
@@ -281,7 +305,7 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
         });
 
         logger.info(
-          `acceptExchangeProposal: Moved ${proposal.reservations.walletReserved} ${proposal.details?.currency || "XAF"} from held → deducted`,
+          `acceptExchangeProposal: Moved ${proposal.reservations.walletReserved} ${resolvedDeliveryCurrency} from held → deducted`,
           {
             userId: proposal.fromPharmacyId,
             amount: proposal.reservations.walletReserved,
@@ -295,7 +319,7 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
           proposalId: proposalId,
           userId: proposal.fromPharmacyId,
           amount: proposal.reservations.walletReserved,
-          currency: proposal.details?.currency || "XAF",
+          currency: resolvedDeliveryCurrency,
           from: "held",
           to: "deducted",
           description: "Wallet hold committed after proposal accepted",
@@ -367,7 +391,7 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
         // Financial details
         proposalType: proposal.details?.type || "exchange",
         totalPrice: proposal.details?.totalPrice || 0,
-        currency: proposal.details?.currency || "XAF",
+        currency: resolvedDeliveryCurrency,
         // Courier fee resolved from system_config/main per city (purchase:
         // deliveryFee; exchange: exchangeFee or deliveryFee × 1.2). Split 50/50
         // between buyer and seller at delivery completion by
