@@ -13,6 +13,10 @@ import { cancelExchangeTx } from "./lib/exchange.js";
 import { validateFields, validators, sendValidationError, sendError, BusinessErrors, AppError } from "./lib/validation.js";
 import { requireAuth } from "./lib/auth.js";
 import { checkCurrencySupported, currencyRefusalHttpStatus } from "./lib/currencyResolver.js";
+import {
+  resolveCurrencyForWalletOwner,
+  walletOwnerRefusalHttpStatus,
+} from "./lib/walletOwnerCurrency.js";
 // 👉 expose aussi la tâche planifiée
 export { expireExchangeHolds } from "./scheduled.js";
 
@@ -155,18 +159,67 @@ export const getWallet = onRequest({ region: "europe-west1", cors: true }, async
 
     const userId = uid;
 
-    // Get or create wallet
     const walletRef = db.collection("wallets").doc(userId);
     const walletDoc = await walletRef.get();
-    
-    if (!walletDoc.exists) {
-      // Create wallet if it doesn't exist
-      const initialWallet = walletInit();
-      await walletRef.set(initialWallet);
-      res.status(200).json(initialWallet);
-    } else {
+
+    // ---- Existing wallet: return the snapshot, untouched ----------------
+    // Its balances and history are denominated in the currency stored on
+    // it. Re-deriving from the owner's country here would risk silently
+    // re-denominating real value — `10000 XAF` is not `10000 GHS`. A wallet
+    // whose currency contradicts its owner's country is a data-repair
+    // matter (see scripts/auditWalletCurrencyMismatch.mjs), never something
+    // a read endpoint fixes on the fly.
+    if (walletDoc.exists) {
       res.status(200).json(walletDoc.data());
+      return;
     }
+
+    // ---- Absent wallet: derive the currency, or refuse ------------------
+    // Previously `walletInit()` defaulted to "XAF" regardless of country,
+    // so merely opening the dashboard minted a Ghanaian pharmacy an XAF
+    // wallet. A GET that writes is bad enough; writing the wrong currency
+    // is worse.
+    const resolved = await resolveCurrencyForWalletOwner(db, userId);
+    if (!resolved.ok) {
+      logger.error("getWallet: cannot resolve wallet currency", {
+        endpoint: "getWallet",
+        userId,
+        reason: resolved.reason,
+        ownerType: resolved.ownerType ?? null,
+        identitySource: resolved.identitySource ?? null,
+      });
+      return sendError(
+        res,
+        new AppError(
+          "WALLET_CURRENCY_UNRESOLVED",
+          "Wallet configuration unavailable",
+          walletOwnerRefusalHttpStatus(resolved.reason),
+          resolved.reason
+        )
+      );
+    }
+
+    // Create-if-absent inside a transaction: two concurrent first-time
+    // reads would otherwise both see "no wallet" and both write, the second
+    // clobbering the first. The re-read inside the transaction makes the
+    // loser return the winner's document instead of overwriting it.
+    const wallet = await db.runTransaction(async (tx) => {
+      const fresh = await tx.get(walletRef);
+      if (fresh.exists) return fresh.data();
+      const initialWallet = walletInit(resolved.currency);
+      tx.set(walletRef, initialWallet);
+      return initialWallet;
+    });
+
+    logger.info("getWallet: wallet created", {
+      userId,
+      currency: resolved.currency,
+      countryCode: resolved.countryCode,
+      ownerType: resolved.ownerType,
+      identitySource: resolved.identitySource,
+    });
+
+    res.status(200).json(wallet);
   } catch (error: any) {
     logger.error("getWallet error", error);
     res.status(500).json({ error: "Internal server error" });
