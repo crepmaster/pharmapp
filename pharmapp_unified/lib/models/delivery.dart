@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 
 /// Delivery status enum
@@ -145,7 +146,12 @@ class Delivery extends Equatable {
     required this.status,
     required this.courierFee,
     required this.totalPrice,
-    this.currency = 'XAF',
+    // Round-4 currency sprint (phase 2) — mandatory at the boundary. The
+    // historical `= 'XAF'` default silently produced wrong-currency
+    // displays for every non-Cameroon country. Callers now MUST pass the
+    // currency explicitly. Legacy Firestore docs without a currency are
+    // handled defensively in [fromMap] with a debugPrint drift warning.
+    required this.currency,
     required this.createdAt,
     this.acceptedAt,
     this.pickedUpAt,
@@ -321,7 +327,12 @@ class Delivery extends Equatable {
       status: statusFromBackend(map['status'] ?? 'pending'),
       courierFee: map['courierFee']?.toDouble() ?? map['deliveryFee']?.toDouble() ?? 0.0,
       totalPrice: map['totalPrice']?.toDouble() ?? map['totalValue']?.toDouble() ?? 0.0,
-      currency: map['currency'] as String? ?? 'XAF',
+      // Legacy fallback with telemetry — every hit is a drifted document
+      // that should have been fixed at write time (see
+      // acceptExchangeProposal.ts commit c5715f60). Kept for read-only
+      // resilience ; the constructor param above is `required` so no NEW
+      // Delivery ever lands without an explicit currency.
+      currency: _readCurrencyOrWarn(map, id),
       createdAt: _parseDateTime(map['createdAt']) ?? DateTime.now(),
       acceptedAt: _parseDateTime(map['acceptedAt']) ?? _parseDateTime(map['assignedAt']),
       pickedUpAt: _parseDateTime(map['pickedUpAt']),
@@ -335,6 +346,21 @@ class Delivery extends Equatable {
   factory Delivery.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
     return Delivery.fromMap(data, doc.id);
+  }
+
+  /// Reads the currency field from a Firestore doc payload with a legacy
+  /// fallback and drift telemetry. Returns 'XAF' on missing/empty so the
+  /// UI does not blow up on legacy documents ; every hit is logged via
+  /// [debugPrint] so operators can measure how many docs still need a
+  /// backfill.
+  static String _readCurrencyOrWarn(Map<String, dynamic> map, String docId) {
+    final raw = map['currency'] as String?;
+    if (raw != null && raw.isNotEmpty) return raw;
+    debugPrint(
+      'Delivery.fromMap: doc $docId is missing `currency` — falling back '
+      'to XAF for display. Backfill from acceptExchangeProposal write path.',
+    );
+    return 'XAF';
   }
 
   static DateTime? _parseDateTime(dynamic value) {

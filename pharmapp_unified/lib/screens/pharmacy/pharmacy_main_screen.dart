@@ -446,8 +446,21 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
                                         children: [
                                           Text('Available',
                                                style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-                                          Text('${(available / 100).toStringAsFixed(0)} $_walletCurrency',
-                                               style: const TextStyle(fontWeight: FontWeight.bold)),
+                                          Text(
+                                            // Round-4 currency sprint phase 2
+                                            // — canonical MoneyFormatter with
+                                            // thousand separators + correct
+                                            // decimal count per currency (ISO
+                                            // fallback : 0 for XAF, 2 for GHS).
+                                            // Wallet.available is stored in
+                                            // major-unit cents (÷100) legacy
+                                            // convention.
+                                            MoneyFormatter.formatMajor(
+                                              available / 100,
+                                              currencyCode: _walletCurrency,
+                                            ),
+                                            style: const TextStyle(fontWeight: FontWeight.bold),
+                                          ),
                                         ],
                                       ),
                                       Column(
@@ -455,9 +468,14 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
                                         children: [
                                           Text('Held',
                                                style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-                                          Text('${(held / 100).toStringAsFixed(0)} $_walletCurrency',
-                                               style: TextStyle(color: Colors.orange[700],
-                                                                fontWeight: FontWeight.bold)),
+                                          Text(
+                                            MoneyFormatter.formatMajor(
+                                              held / 100,
+                                              currencyCode: _walletCurrency,
+                                            ),
+                                            style: TextStyle(color: Colors.orange[700],
+                                                             fontWeight: FontWeight.bold),
+                                          ),
                                         ],
                                       ),
                                     ],

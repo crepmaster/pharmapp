@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
+import 'package:pharmapp_shared/pharmapp_shared.dart';
 import '../../blocs/unified_auth_bloc.dart';
 import '../../blocs/delivery_bloc.dart';
 import '../../models/delivery.dart';
@@ -508,9 +509,19 @@ class _DeliveryRow extends StatelessWidget {
     final medicineName = items.isNotEmpty
         ? (items[0]['medicineName'] as String? ?? '—')
         : '—';
-    final courierFee = data['courierFee'] ?? 0;
+    final courierFee = (data['courierFee'] as num?)?.toDouble() ?? 0.0;
     final currency = (data['currency'] as String?) ?? '';
     final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
+    // Round-4 currency sprint phase 2 — canonical MoneyFormatter with the
+    // currency STORED on this delivery doc (historical transaction, must
+    // not be overwritten by the current MoneyContext). Falls back to
+    // the ISO code as symbol when master data is unavailable in this
+    // sync context. Adds thousand separators + correct decimal count
+    // (0 for XAF, 2 for GHS) via the fallback ISO table in
+    // shared/lib/money/money_formatter.dart.
+    final formattedFee = currency.isEmpty
+        ? courierFee.toStringAsFixed(0)
+        : MoneyFormatter.formatMajor(courierFee, currencyCode: currency);
 
     return ListTile(
       leading: Container(
@@ -540,7 +551,7 @@ class _DeliveryRow extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Text('$courierFee $currency',
+          Text(formattedFee,
               style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.bold,
