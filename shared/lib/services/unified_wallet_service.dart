@@ -5,6 +5,25 @@ import 'authenticated_http_service.dart';
 /// Unified Wallet Service for all PharmApp applications.
 /// Handles wallet operations for pharmacies, couriers, and admins consistently.
 /// All HTTP calls send Firebase Bearer token for backend auth enforcement.
+///
+/// Round-4 currency sprint phase 4a (2026-07-20) : XAF-baked helpers
+/// removed — see memory `project-currency-money-context-sprint.md` for
+/// the "no hardcoded currency in producers" contract. Specifically :
+///
+///   - `createTopup(amountXAF, ...)` : deleted. Zero external callers.
+///     Top-up creation goes directly through the payment-provider
+///     callables (mtnMomoTopupIntent / paystackTopupIntent) which
+///     derive currency server-side from the pharmacy country.
+///   - `createSubscriptionPayment(amountXAF, ...)` : deleted. Zero
+///     external callers ; admin_panel has its own subscription flow.
+///   - `getPharmacyWalletWithSubscription` : deleted. Its
+///     `canPaySubscription: available >= 6000` field baked in the
+///     Cameroon subscription threshold — meaningless for Ghana's ~10
+///     GHS equivalent. Zero external callers.
+///   - `formatXAF(int)` : deleted. Zero external callers. Callers
+///     should use `MoneyFormatter.formatMajor` from pharmapp_shared
+///     with the wallet's actual currency, not hard-code XAF.
+///   - `getWalletStatus` : deleted (relied on formatXAF).
 class UnifiedWalletService {
   // Sprint 5 phase 1 emulator HTTP routing — was `static const`, now
   // a getter so it tracks `AuthenticatedHttpService.functionsBaseUrl`
@@ -35,72 +54,6 @@ class UnifiedWalletService {
     } else {
       throw Exception('Failed to get wallet balance (${response.statusCode})');
     }
-  }
-
-  /// Creates top-up intent for mobile money payment.
-  static Future<Map<String, dynamic>> createTopup({
-    required String userId,
-    required int amountXAF,
-    required String method,
-    required String phoneNumber,
-    String description = 'Wallet top-up',
-  }) async {
-    if (userId.isEmpty) throw ArgumentError('userId must not be empty');
-    if (amountXAF <= 0) throw ArgumentError('amount must be positive');
-    if (method.isEmpty) throw ArgumentError('method must not be empty');
-    if (phoneNumber.isEmpty) throw ArgumentError('phoneNumber must not be empty');
-
-    final response = await AuthenticatedHttpService.post(
-      Uri.parse('$_baseUrl/topupIntent'),
-      {
-        'userId': userId,
-        'method': method,
-        'amount': amountXAF,
-        'currency': 'XAF',
-        'msisdn': phoneNumber,
-        'description': description,
-      },
-    );
-
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      return jsonDecode(response.body) as Map<String, dynamic>;
-    } else if (response.statusCode == 401) {
-      throw Exception('Authentication required – please log in again');
-    } else if (response.statusCode == 403) {
-      throw Exception('Access denied');
-    } else {
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      throw Exception(body['message'] ?? 'Top-up failed (${response.statusCode})');
-    }
-  }
-
-  // ======================= PHARMACY-SPECIFIC OPERATIONS =======================
-
-  /// Creates subscription payment for pharmacies.
-  static Future<Map<String, dynamic>> createSubscriptionPayment({
-    required String pharmacyId,
-    required int amountXAF,
-    required String subscriptionPlan,
-    required String method,
-    required String phoneNumber,
-  }) async {
-    return createTopup(
-      userId: pharmacyId,
-      amountXAF: amountXAF,
-      method: method,
-      phoneNumber: phoneNumber,
-      description: 'Subscription payment - $subscriptionPlan plan',
-    );
-  }
-
-  /// Gets pharmacy wallet with subscription context.
-  static Future<Map<String, dynamic>> getPharmacyWalletWithSubscription({
-    required String pharmacyId,
-  }) async {
-    final wallet = await getWalletBalance(userId: pharmacyId);
-    wallet['type'] = 'pharmacy';
-    wallet['canPaySubscription'] = (wallet['available'] ?? 0) >= 6000;
-    return wallet;
   }
 
   // ======================= COURIER-SPECIFIC OPERATIONS =======================
@@ -181,27 +134,10 @@ class UnifiedWalletService {
 
   // ======================= UTILITY METHODS =======================
 
-  /// Formats XAF currency for display.
-  static String formatXAF(int amount) {
-    return '${amount.toString().replaceAllMapped(
-      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-      (Match m) => '${m[1]},',
-    )} XAF';
-  }
-
   /// Checks if amount is sufficient for operation.
-  static bool hasSufficientBalance(Map<String, dynamic> wallet, int requiredAmount) {
+  static bool hasSufficientBalance(
+      Map<String, dynamic> wallet, int requiredAmount) {
     final available = wallet['available'] ?? 0;
     return available >= requiredAmount;
-  }
-
-  /// Gets user-friendly wallet status.
-  static String getWalletStatus(Map<String, dynamic> wallet) {
-    final available = wallet['available'] ?? 0;
-    final held = wallet['held'] ?? 0;
-    if (available == 0 && held == 0) return 'Empty';
-    if (held > 0) return 'Active (${formatXAF(held)} held)';
-    if (available > 0) return 'Active';
-    return 'Unknown';
   }
 }
