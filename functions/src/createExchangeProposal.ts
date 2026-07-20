@@ -363,7 +363,12 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
             currency: details.currency!,
             medicineName: inventorySnapshotCanonical.medicineName,
             medicineId: inventorySnapshotCanonical.medicineId,
-            notes: details.notes,
+            // Firestore rejects `undefined`. When the client omits `notes`
+            // entirely (current create_proposal_screen contract) the field
+            // is undefined here — coerce to empty string so the doc write
+            // succeeds. Downstream reads should treat "" the same as
+            // "no notes provided".
+            notes: details.notes ?? "",
           };
         } else {
           // Sprint 4 Finding 1 + 2 (post-livraison) fix — snapshot built
@@ -389,7 +394,8 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
             exchangeMedicineId: details.exchangeMedicineId!,
             exchangeQuantity: details.exchangeQuantity!,
             exchangeInventorySnapshot: exchangeInventorySnapshotCanonical,
-            notes: details.notes,
+            // Same undefined→"" coercion as the purchase branch above.
+            notes: details.notes ?? "",
           };
         }
 
