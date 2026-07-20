@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:pharmapp_shared/pharmapp_shared.dart';
 
 import '../../../data/essential_medicines.dart';
 import '../../../models/medicine.dart';
@@ -690,8 +691,8 @@ class _OfferCard extends StatelessWidget {
             else
               Text(
                 'Qty: ${offer.offeredQuantity} · '
-                '${offer.unitPrice.toStringAsFixed(0)} ${offer.currencyCode}/unit · '
-                'Total: ${offer.totalPrice.toStringAsFixed(0)} ${offer.currencyCode}',
+                '${MoneyFormatter.formatMajor(offer.unitPrice, currencyCode: offer.currencyCode)}/unit · '
+                'Total: ${MoneyFormatter.formatMajor(offer.totalPrice, currencyCode: offer.currencyCode)}',
                 style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
               ),
             const SizedBox(height: 4),
@@ -1261,8 +1262,8 @@ class _OfferListTileState extends State<_OfferListTile> {
               )
             : Text(
                 'Qty: ${offer.offeredQuantity} · '
-                '${offer.unitPrice.toStringAsFixed(0)} ${offer.currencyCode}/unit · '
-                'Total: ${offer.totalPrice.toStringAsFixed(0)} ${offer.currencyCode}',
+                '${MoneyFormatter.formatMajor(offer.unitPrice, currencyCode: offer.currencyCode)}/unit · '
+                'Total: ${MoneyFormatter.formatMajor(offer.totalPrice, currencyCode: offer.currencyCode)}',
               ),
         trailing: offer.status == OfferStatus.pending && widget.request.isOpen
             ? _accepting
@@ -1306,7 +1307,7 @@ class _OfferListTileState extends State<_OfferListTile> {
         title: const Text('Accept this offer?'),
         content: Text(
           'This will purchase ${widget.offer.offeredQuantity} units at '
-          '${widget.offer.totalPrice.toStringAsFixed(0)} ${widget.offer.currencyCode} '
+          '${MoneyFormatter.formatMajor(widget.offer.totalPrice, currencyCode: widget.offer.currencyCode)} '
           'from ${widget.offer.sellerName}. '
           'All other offers will be declined.',
         ),

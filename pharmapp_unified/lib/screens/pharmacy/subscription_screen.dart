@@ -18,8 +18,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   Subscription? _currentSubscription;
   bool _isLoading = true;
   SubscriptionPlan _selectedPlan = SubscriptionPlan.basic;
-  String _currencySymbol = 'FCFA'; // Default to XAF
-  String _currencyCode = 'XAF'; // Canonical ISO currency for plan lookup
+  // Round-4 currency sprint phase 3b — replaces the hard-coded
+  // `_isoToCurrency` per-country map that used to live here. Currency +
+  // symbol now come from MasterData (system_config/main.countries[cc]
+  // .defaultCurrencyCode → currencies[currencyCode].symbol). Adding a
+  // new country becomes pure sysconfig work, no code touch here.
+  String _currencySymbol = 'FCFA';
+  String _currencyCode = 'XAF';
 
   /// Sprint 3 — flat-field subscription status read from
   /// `pharmacies/{uid}.subscriptionStatus`. This is the canonical
@@ -28,18 +33,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   /// enforce. Possible values include : `trial`, `active`,
   /// `trial_pending_license`, `expired`, or `pendingPayment`.
   String? _pharmacySubscriptionStatus;
-
-  /// Maps ISO 3166-1 alpha-2 country codes to (currencyCode, displaySymbol).
-  /// Used when the pharmacy document has the canonical `countryCode` field
-  /// (Sprint 2A+), avoiding an async MasterDataService call in this screen.
-  static const _isoToCurrency = {
-    'CM': ('XAF', 'FCFA'),
-    'GH': ('GHS', 'GH₵'),
-    'KE': ('KES', 'KSh'),
-    'TZ': ('TZS', 'TSh'),
-    'UG': ('UGX', 'USh'),
-    'NG': ('NGN', '₦'),
-  };
 
   @override
   void initState() {
@@ -66,14 +59,19 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         if (rawStatus is String) {
           _pharmacySubscriptionStatus = rawStatus;
         }
-        // Prefer the canonical countryCode field (written by Sprint 2A+ flow).
-        // Fall back to the legacy country enum-name string for older profiles.
         final isoCode = data['countryCode'] as String?;
         if (isoCode != null && isoCode.isNotEmpty) {
-          final entry = _isoToCurrency[isoCode];
-          if (entry != null) {
-            _currencyCode = entry.$1;
-            _currencySymbol = entry.$2;
+          // Resolve currency + symbol from MasterData — single source of
+          // truth. Falls back to XAF/FCFA if master data lookup fails.
+          try {
+            final snapshot = await MasterDataService.load();
+            final code = snapshot.getDefaultCurrencyForCountry(isoCode);
+            if (code != null) {
+              _currencyCode = code;
+              _currencySymbol = snapshot.getCurrency(code)?.symbol ?? code;
+            }
+          } catch (_) {
+            // Non-fatal — keep the loading-placeholder XAF/FCFA.
           }
         } else if (data.containsKey('country')) {
           final countryStr = data['country'] as String;

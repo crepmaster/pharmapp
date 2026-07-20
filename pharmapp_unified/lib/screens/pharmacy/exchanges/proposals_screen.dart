@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:pharmapp_shared/pharmapp_shared.dart';
 import '../../../data/essential_medicines.dart';
 import '../../../models/exchange_proposal.dart';
 import '../../../models/pharmacy_inventory.dart';
@@ -639,7 +640,11 @@ class _ProposalsScreenState extends State<ProposalsScreen>
       builder: (context) => AlertDialog(
         title: const Text('Accept Proposal'),
         content: Text(
-          'Accept this proposal for ${proposal.details.totalOfferAmount} ${proposal.details.currency}?\n\nThis will create the delivery workflow and notify the buyer.',
+          proposal.details.proposalType == ProposalType.exchange
+              ? 'Accept this barter proposal?\n\nThis will create the delivery workflow and notify the buyer.'
+              : 'Accept this proposal for '
+                '${MoneyFormatter.formatMajor(proposal.details.totalOfferAmount, currencyCode: proposal.details.currency)}?\n\n'
+                'This will create the delivery workflow and notify the buyer.',
         ),
         actions: [
           TextButton(
@@ -769,7 +774,10 @@ class _ProposalsScreenState extends State<ProposalsScreen>
               children: [
                 const Text('Price per unit:'),
                 Text(
-                  '${proposal.details.offeredPrice} ${proposal.details.currency}',
+                  MoneyFormatter.formatMajor(
+                    proposal.details.offeredPrice,
+                    currencyCode: proposal.details.currency,
+                  ),
                 ),
               ],
             ),
@@ -780,7 +788,10 @@ class _ProposalsScreenState extends State<ProposalsScreen>
                 const Text('Total:',
                     style: TextStyle(fontWeight: FontWeight.bold)),
                 Text(
-                  '${proposal.details.totalOfferAmount} ${proposal.details.currency}',
+                  MoneyFormatter.formatMajor(
+                    proposal.details.totalOfferAmount,
+                    currencyCode: proposal.details.currency,
+                  ),
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ],
@@ -872,7 +883,8 @@ class _ProposalsScreenState extends State<ProposalsScreen>
       return Text(label, style: baseStyle);
     }
     return Text(
-      'Offered: ${proposal.details.totalOfferAmount} ${proposal.details.currency} '
+      'Offered: '
+      '${MoneyFormatter.formatMajor(proposal.details.totalOfferAmount, currencyCode: proposal.details.currency)} '
       'for ${proposal.details.requestedQuantity} units',
       style: baseStyle,
     );

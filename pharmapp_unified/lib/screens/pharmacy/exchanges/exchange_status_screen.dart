@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:pharmapp_shared/config/build_flags.dart';
+import 'package:pharmapp_shared/pharmapp_shared.dart';
 import '../../../models/exchange_proposal.dart';
 
 class ExchangeStatusScreen extends StatelessWidget {
@@ -203,10 +204,17 @@ class ExchangeStatusScreen extends StatelessWidget {
                         // offeredPrice is always 0 and the currency default
                         // "USD" is misleading (no money changes hands).
                         if (!isExchange) ...[
-                          _buildDetailRow('Offered price',
-                              '${proposal.details.offeredPrice} ${proposal.details.currency}/unit'),
-                          _buildDetailRow('Total value',
-                              '${proposal.details.totalOfferAmount} ${proposal.details.currency}'),
+                          _buildDetailRow(
+                            'Offered price',
+                            '${MoneyFormatter.formatMajor(proposal.details.offeredPrice, currencyCode: proposal.details.currency)}/unit',
+                          ),
+                          _buildDetailRow(
+                            'Total value',
+                            MoneyFormatter.formatMajor(
+                              proposal.details.totalOfferAmount,
+                              currencyCode: proposal.details.currency,
+                            ),
+                          ),
                         ],
                         // Exchange-only rows — surface what the requester
                         // is offering in barter, so the receiver can decide.
