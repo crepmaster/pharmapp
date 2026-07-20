@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:pharmapp_shared/config/build_flags.dart';
 import '../../../models/exchange_proposal.dart';
 
@@ -46,6 +47,16 @@ class ExchangeStatusScreen extends StatelessWidget {
 
           final proposal = ExchangeProposal.fromFirestore(snapshot.data!);
           final linkedDeliveryId = proposal.deliveryId ?? deliveryId;
+          // Only the RECEIVING pharmacy (item owner) may accept or reject
+          // a pending proposal. The requester (fromPharmacyId) sees the
+          // same status card but no action buttons — matches the backend
+          // authorization on acceptExchangeProposal / rejectExchangeProposal
+          // (both throw permission-denied for a non-receiver caller).
+          final currentUid = FirebaseAuth.instance.currentUser?.uid;
+          final isReceiver = currentUid != null &&
+              currentUid == proposal.toPharmacyId;
+          final isExchange =
+              proposal.details.proposalType == ProposalType.exchange;
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16.0),
@@ -106,7 +117,8 @@ class ExchangeStatusScreen extends StatelessWidget {
                             ),
                           ],
                         ),
-                        if (proposal.status == ProposalStatus.pending)
+                        if (proposal.status == ProposalStatus.pending &&
+                            isReceiver)
                           Padding(
                             padding: const EdgeInsets.only(top: 16.0),
                             child: Row(
@@ -130,6 +142,30 @@ class ExchangeStatusScreen extends StatelessWidget {
                                       foregroundColor: Colors.white,
                                     ),
                                     child: const Text('Reject'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        // Info line for the requester so they understand
+                        // the wait — the receiver is the one who needs to
+                        // act, not them.
+                        if (proposal.status == ProposalStatus.pending &&
+                            !isReceiver)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 12.0),
+                            child: Row(
+                              children: [
+                                Icon(Icons.info_outline,
+                                    size: 16, color: Colors.grey[600]),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    'Waiting for the receiving pharmacy to accept or reject.',
+                                    style: TextStyle(
+                                      color: Colors.grey[700],
+                                      fontSize: 13,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -159,12 +195,72 @@ class ExchangeStatusScreen extends StatelessWidget {
                         const SizedBox(height: 12),
                         _buildPharmacyNameRow('From', proposal.fromPharmacyId),
                         _buildPharmacyNameRow('To', proposal.toPharmacyId),
-                        _buildDetailRow('Quantity', '${proposal.details.requestedQuantity}'),
-                        _buildDetailRow('Offered Price', 
-                            '${proposal.details.offeredPrice} ${proposal.details.currency}/unit'),
-                        _buildDetailRow('Total Value', 
-                            '${proposal.details.totalOfferAmount} ${proposal.details.currency}'),
-                        _buildDetailRow('Type', proposal.details.proposalType.toString().split('.').last),
+                        _buildDetailRow('Type',
+                            proposal.details.proposalType.toString().split('.').last),
+                        _buildDetailRow('Requested quantity',
+                            '${proposal.details.requestedQuantity}'),
+                        // Purchase-only rows — hidden for exchange, where
+                        // offeredPrice is always 0 and the currency default
+                        // "USD" is misleading (no money changes hands).
+                        if (!isExchange) ...[
+                          _buildDetailRow('Offered price',
+                              '${proposal.details.offeredPrice} ${proposal.details.currency}/unit'),
+                          _buildDetailRow('Total value',
+                              '${proposal.details.totalOfferAmount} ${proposal.details.currency}'),
+                        ],
+                        // Exchange-only rows — surface what the requester
+                        // is offering in barter, so the receiver can decide.
+                        // The exchangeInventorySnapshot is populated by the
+                        // backend at proposal-create time (Sprint 4).
+                        if (isExchange) ...[
+                          const SizedBox(height: 8),
+                          const Divider(),
+                          const SizedBox(height: 4),
+                          Text(
+                            'In exchange, they offer',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey[700],
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          if (proposal.details.exchangeInventorySnapshot !=
+                              null) ...[
+                            _buildDetailRow(
+                              'Medicine',
+                              '${proposal.details.exchangeInventorySnapshot!.medicineName}'
+                              '${proposal.details.exchangeInventorySnapshot!.dosage.isNotEmpty ? " ${proposal.details.exchangeInventorySnapshot!.dosage}" : ""}'
+                              '${proposal.details.exchangeInventorySnapshot!.form.isNotEmpty ? " • ${proposal.details.exchangeInventorySnapshot!.form}" : ""}',
+                            ),
+                            _buildDetailRow(
+                              'Barter quantity',
+                              '${proposal.details.exchangeQuantity ?? 0}'
+                              '${(proposal.details.exchangeInventorySnapshot!.packaging ?? "").isNotEmpty ? " ${proposal.details.exchangeInventorySnapshot!.packaging}" : ""}',
+                            ),
+                            if ((proposal.details.exchangeInventorySnapshot!
+                                        .lotNumber ??
+                                    '')
+                                .isNotEmpty)
+                              _buildDetailRow(
+                                'Lot number',
+                                proposal.details.exchangeInventorySnapshot!
+                                    .lotNumber!,
+                              ),
+                          ] else ...[
+                            // Older proposals created before the snapshot
+                            // was persisted — fall back to bare IDs so the
+                            // screen still shows something actionable.
+                            _buildDetailRow(
+                              'Medicine ID',
+                              proposal.details.exchangeMedicineId ?? '—',
+                            ),
+                            _buildDetailRow(
+                              'Barter quantity',
+                              '${proposal.details.exchangeQuantity ?? 0}',
+                            ),
+                          ],
+                        ],
                       ],
                     ),
                   ),

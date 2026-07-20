@@ -240,10 +240,15 @@ class ProposalDetails extends Equatable {
   final String currency;
   final ProposalType proposalType;
 
-  // 🆕 EXCHANGE-SPECIFIC FIELDS
+  // EXCHANGE-SPECIFIC FIELDS
   final String? exchangeMedicineId; // Medicine ID being offered in exchange
   final String? exchangeInventoryItemId; // Inventory item ID being offered
   final int? exchangeQuantity; // Quantity of exchange medicine offered
+  // Sprint 4 exchangeInventorySnapshot — rich metadata captured at create
+  // time by `reserveExchangeInventory` (functions/src/lib/exchangePipeline.ts).
+  // Needed so the receiving pharmacy can see what medicine is being offered
+  // in barter WITHOUT looking up the requester's inventory doc separately.
+  final ExchangeInventorySnapshot? exchangeInventorySnapshot;
 
   const ProposalDetails({
     required this.offeredPrice,
@@ -253,6 +258,7 @@ class ProposalDetails extends Equatable {
     this.exchangeMedicineId,
     this.exchangeInventoryItemId,
     this.exchangeQuantity,
+    this.exchangeInventorySnapshot,
   });
 
   @override
@@ -264,10 +270,12 @@ class ProposalDetails extends Equatable {
         exchangeMedicineId,
         exchangeInventoryItemId,
         exchangeQuantity,
+        exchangeInventorySnapshot,
       ];
 
   factory ProposalDetails.fromMap(Map<String, dynamic> map) {
     final rawType = (map['type'] ?? map['proposalType'] ?? 'purchase').toString();
+    final snapshotRaw = map['exchangeInventorySnapshot'];
 
     return ProposalDetails(
       offeredPrice: (map['pricePerUnit'] ?? map['offeredPrice'] ?? 0).toDouble(),
@@ -280,6 +288,10 @@ class ProposalDetails extends Equatable {
       exchangeMedicineId: map['exchangeMedicineId'],
       exchangeInventoryItemId: map['exchangeInventoryItemId'],
       exchangeQuantity: map['exchangeQuantity']?.toInt(),
+      exchangeInventorySnapshot: snapshotRaw is Map
+          ? ExchangeInventorySnapshot.fromMap(
+              Map<String, dynamic>.from(snapshotRaw))
+          : null,
     );
   }
 
@@ -298,6 +310,52 @@ class ProposalDetails extends Equatable {
 
   // Helper getter
   double get totalOfferAmount => offeredPrice * requestedQuantity;
+}
+
+/// Rich metadata about the medicine being offered in barter, captured by
+/// the backend at proposal-create time. Mirrors CanonicalExchangeInventorySnapshot
+/// in functions/src/lib/exchangePipeline.ts.
+class ExchangeInventorySnapshot extends Equatable {
+  final String medicineId;
+  final String medicineName;
+  final String dosage;
+  final String form;
+  final String? packaging;
+  final String? lotNumber;
+  final int quantityAtAcceptance;
+
+  const ExchangeInventorySnapshot({
+    required this.medicineId,
+    required this.medicineName,
+    required this.dosage,
+    required this.form,
+    this.packaging,
+    this.lotNumber,
+    required this.quantityAtAcceptance,
+  });
+
+  @override
+  List<Object?> get props => [
+        medicineId,
+        medicineName,
+        dosage,
+        form,
+        packaging,
+        lotNumber,
+        quantityAtAcceptance,
+      ];
+
+  factory ExchangeInventorySnapshot.fromMap(Map<String, dynamic> map) {
+    return ExchangeInventorySnapshot(
+      medicineId: (map['medicineId'] ?? '') as String,
+      medicineName: (map['medicineName'] ?? '') as String,
+      dosage: (map['dosage'] ?? '') as String,
+      form: (map['form'] ?? '') as String,
+      packaging: map['packaging'] as String?,
+      lotNumber: map['lotNumber'] as String?,
+      quantityAtAcceptance: (map['quantityAtAcceptance'] ?? 0) as int,
+    );
+  }
 }
 
 // Delivery information when proposal is accepted
