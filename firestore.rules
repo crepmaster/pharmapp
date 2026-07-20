@@ -198,11 +198,27 @@ service cloud.firestore {
       // that the original `allow create` did not deny license fields,
       // allowing a modified client to create pharmacies/{uid} with
       // `licenseStatus: "verified"` and self-verify. Fixed here.
+      //
+      // SEC-001 (2026-07-20) — subscription fields are backend-controlled
+      // too. They were type-checked but never provenance-checked, so a
+      // pharmacy could grant itself an active subscription by writing on
+      // its own document. Confirmed by emulator probe: all five writes were
+      // ALLOWED. The server-side check in getValidSubscription() offered no
+      // protection, because it reads these very fields. Authoritative write
+      // paths are all Admin SDK (createPharmacyRegistration,
+      // startTrialForPharmacy, adminVerifyPharmacyLicense,
+      // sandboxSubscriptionSuccess) and bypass these rules.
       allow create: if isOwner(userId)
                     && isValidPharmacyData(request.resource.data)
-                    && pharmacyLicenseFieldsAbsentAtCreate(request.resource.data);
+                    && pharmacyLicenseFieldsAbsentAtCreate(request.resource.data)
+                    && pharmacySubscriptionFieldsAbsentAtCreate(request.resource.data);
       allow update: if isOwner(userId)
                     && isValidPharmacyData(request.resource.data)
+                    && !pharmacySubscriptionFieldChanged(resource.data, request.resource.data, 'hasActiveSubscription')
+                    && !pharmacySubscriptionFieldChanged(resource.data, request.resource.data, 'subscriptionStatus')
+                    && !pharmacySubscriptionFieldChanged(resource.data, request.resource.data, 'subscriptionEndDate')
+                    && !pharmacySubscriptionFieldChanged(resource.data, request.resource.data, 'subscriptionPlan')
+                    && !pharmacySubscriptionFieldChanged(resource.data, request.resource.data, 'subscriptionStartDate')
                     && !pharmacyLicenseFieldChanged(resource.data, request.resource.data, 'licenseStatus')
                     && !pharmacyLicenseFieldChanged(resource.data, request.resource.data, 'licenseVerifiedBy')
                     && !pharmacyLicenseFieldChanged(resource.data, request.resource.data, 'licenseVerifiedAt')
@@ -228,6 +244,33 @@ service cloud.firestore {
     // (`submitPharmacyLicense` and `adminVerifyPharmacyLicense`) run with
     // admin SDK privileges and bypass these rules — they remain the only
     // legitimate way to set license metadata on a pharmacy doc.
+    // SEC-001 — mirrors PROTECTED_SUBSCRIPTION_FIELDS in
+    // functions/src/lib/subscriptionFields.ts. A drift-guard test asserts
+    // every entry of that constant appears in this file.
+    //
+    // Absent at create: a pharmacy document is created with no subscription
+    // state at all; the backend sets it (trial or trial_pending_license)
+    // via createPharmacyRegistration.
+    function pharmacySubscriptionFieldsAbsentAtCreate(data) {
+      return !data.keys().hasAny([
+        'hasActiveSubscription',
+        'subscriptionStatus',
+        'subscriptionEndDate',
+        'subscriptionPlan',
+        'subscriptionStartDate'
+      ]);
+    }
+
+    // SEC-001 — true when the named field's presence or value differs
+    // between pre- and post-image. Deleting the field counts as a change,
+    // which matters for subscriptionStartDate: erasing it would let a
+    // pharmacy claim a second trial (shouldStartTrial uses it as the
+    // "already consumed" trace).
+    function pharmacySubscriptionFieldChanged(before, after, name) {
+      return (before.keys().hasAny([name]) != after.keys().hasAny([name]))
+          || (before.keys().hasAny([name]) && before[name] != after[name]);
+    }
+
     function pharmacyLicenseFieldsAbsentAtCreate(data) {
       return !data.keys().hasAny([
         'licenseStatus',
