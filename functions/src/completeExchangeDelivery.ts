@@ -80,8 +80,47 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
 
       const delivery = deliverySnapshot.data();
 
-      // Verify user is the assigned courier
-      if (delivery?.courierId !== userId) {
+      // ------------------------------------------------------------------
+      // Staging demo bypass (round-2 follow-up). When SANDBOX_ENABLED is set
+      // (staging only via .env.mediexchange-staging, gitignored) AND the
+      // caller is one of the two pharmacies in the trade AND their email is
+      // a `@promoshake.net` test account, we let them play the courier role
+      // for the demo. Client-facing demos have no real courier — this lets
+      // the pharmacy-side "Delivered" demo button drive the full settlement
+      // transaction (wallet swap + inventory transfer) end-to-end.
+      // In this mode:
+      //   - the courier-check is skipped (buyer/seller plays courier),
+      //   - `status='pending'` is also accepted as a valid starting state
+      //     (so the demo can go straight to `delivered` if the pickup step
+      //     was skipped),
+      //   - the courier-fee credit is redirected to skip (`sandboxNoCourierFee=true`
+      //     below) so the caller doesn't accidentally credit themselves.
+      // ------------------------------------------------------------------
+      const buyerIdRaw = delivery?.fromPharmacyId as string | undefined;
+      const sellerIdRaw = delivery?.toPharmacyId as string | undefined;
+      const callerIsTradeParty =
+        userId === buyerIdRaw || userId === sellerIdRaw;
+      let sandboxDemoActive = false;
+      if (
+        process.env.SANDBOX_ENABLED === "true" &&
+        callerIsTradeParty &&
+        delivery?.courierId !== userId
+      ) {
+        const callerPharmacy = await transaction.get(
+          db.collection("pharmacies").doc(userId)
+        );
+        const callerEmail = (callerPharmacy.data()?.email as string) ?? "";
+        if (/@promoshake\.net$/i.test(callerEmail)) {
+          sandboxDemoActive = true;
+          logger.info(
+            "completeExchangeDelivery: SANDBOX MODE — buyer/seller playing courier for demo",
+            { deliveryId, callerUid: userId, callerEmail }
+          );
+        }
+      }
+
+      // Verify user is the assigned courier (skipped in sandbox demo mode)
+      if (!sandboxDemoActive && delivery?.courierId !== userId) {
         logger.warn(
           `completeExchangeDelivery: User ${userId} is not the assigned courier for delivery ${deliveryId}`,
           {
@@ -95,11 +134,15 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
         );
       }
 
-      // Verify delivery is in valid status (picked_up or in_transit)
-      if (!["picked_up", "in_transit"].includes(delivery?.status || "")) {
+      // Verify delivery is in valid status. In sandbox demo mode we also
+      // accept `pending` (no explicit pickup step required).
+      const validStartStatuses = sandboxDemoActive
+        ? ["pending", "picked_up", "in_transit"]
+        : ["picked_up", "in_transit"];
+      if (!validStartStatuses.includes(delivery?.status || "")) {
         logger.info(
           `completeExchangeDelivery: Cannot complete delivery with status ${delivery?.status}`,
-          { deliveryId, currentStatus: delivery?.status }
+          { deliveryId, currentStatus: delivery?.status, sandboxDemoActive }
         );
         throw new HttpsError(
           "failed-precondition",
@@ -216,23 +259,35 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
           updatedAt: FieldValue.serverTimestamp(),
         });
 
-        // Deduct buyer's courier fee share from available balance
-        if (halfBuyer > 0) {
+        // Deduct buyer's courier fee share from available balance.
+        // Skipped in sandbox demo mode: since we don't credit the courier
+        // (see below), we must also not debit the buyer's share — otherwise
+        // the trade "loses" the halfBuyer amount from the system.
+        if (halfBuyer > 0 && !sandboxDemoActive) {
           transaction.update(buyerWalletRef, {
             available: FieldValue.increment(-halfBuyer),
             updatedAt: FieldValue.serverTimestamp(),
           });
         }
 
-        // Credit seller with net amount (sale price minus courier share)
+        // Credit seller. In production this is `sellerNetCredit`
+        // (= totalAmount − halfSeller courier share). In sandbox demo mode
+        // the courier fee is neutral (no debit, no credit) so we pay the
+        // seller the FULL `totalAmount` — the trade balance still ties out.
         transaction.update(sellerWalletRef, {
-          available: FieldValue.increment(sellerNetCredit),
+          available: FieldValue.increment(
+            sandboxDemoActive ? totalAmount : sellerNetCredit
+          ),
           updatedAt: FieldValue.serverTimestamp(),
         });
 
         // Credit courier wallet (create if needed). Always (re)set currency
         // so legacy wallets created with the wrong default are corrected.
-        if (courierFee > 0) {
+        // Sandbox demo mode: `userId` here is the buyer OR the seller playing
+        // the courier — crediting them the courier fee would be nonsensical
+        // (they already sit on either side of the trade). Skip the credit;
+        // the buyer's `halfBuyer` debit was likewise held back above.
+        if (courierFee > 0 && !sandboxDemoActive) {
           if (!courierWalletSnap.exists) {
             transaction.set(courierWalletRef, {
               available: courierFee,

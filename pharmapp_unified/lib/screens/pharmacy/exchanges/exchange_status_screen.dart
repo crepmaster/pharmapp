@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import '../../../models/exchange_proposal.dart';
+
+/// Compile-time flag. Set at build time via `--dart-define=USE_STAGING=true`.
+/// Prod builds have this at `false` so the demo-only widgets tree-shake out.
+const bool _kUseStaging = bool.fromEnvironment('USE_STAGING');
 
 class ExchangeStatusScreen extends StatelessWidget {
   final String proposalId;
@@ -222,11 +227,16 @@ class ExchangeStatusScreen extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 12),
-                          FutureBuilder<DocumentSnapshot>(
-                            future: FirebaseFirestore.instance
+                          // StreamBuilder (was FutureBuilder) so the status
+                          // updates in real time as `sandboxDeliveryAdvance`
+                          // or `completeExchangeDelivery` writes to the
+                          // delivery doc — no manual refresh needed during
+                          // the demo.
+                          StreamBuilder<DocumentSnapshot>(
+                            stream: FirebaseFirestore.instance
                                 .collection('deliveries')
                                 .doc(linkedDeliveryId)
-                                .get(),
+                                .snapshots(),
                             builder: (context, snapshot) {
                               if (snapshot.connectionState == ConnectionState.waiting) {
                                 return const CircularProgressIndicator();
@@ -257,6 +267,14 @@ class ExchangeStatusScreen extends StatelessWidget {
                                     _buildDetailRow('Courier', courierId),
                                   if (paymentStatus != null && paymentStatus.isNotEmpty)
                                     _buildDetailRow('Payment', paymentStatus),
+                                  if (_kUseStaging) ...[
+                                    const SizedBox(height: 12),
+                                    const Divider(),
+                                    _DemoDeliveryActions(
+                                      deliveryId: linkedDeliveryId,
+                                      currentStatus: status,
+                                    ),
+                                  ],
                                 ],
                               );
                             },
@@ -283,7 +301,9 @@ class ExchangeStatusScreen extends StatelessWidget {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Delivery is in progress. Assigned courier updates completion from the courier app.',
+                            _kUseStaging
+                                ? 'Demo mode — use the "Pickup" / "Delivered" buttons above to walk the delivery through its states. The status refreshes in real time.'
+                                : 'Delivery is in progress. Assigned courier updates completion from the courier app.',
                             style: TextStyle(color: Colors.blue.shade700),
                           ),
                         ),
@@ -427,5 +447,170 @@ class ExchangeStatusScreen extends StatelessWidget {
         );
       }
     }
+  }
+}
+
+/// Two-button demo panel embedded in the Delivery Status card. Only ever
+/// rendered when the app was built with `--dart-define=USE_STAGING=true`
+/// (the outer `if (_kUseStaging)` guard means the entire subtree tree-shakes
+/// out on prod builds — this widget's body is unreachable in production).
+///
+/// Buttons drive the delivery lifecycle without a real courier:
+///   - "Pickup"   (visible when status == 'pending')
+///                calls the `sandboxDeliveryAdvance` callable
+///                → writes status='picked_up' + courierId=<caller uid>.
+///   - "Delivered" (visible when status ∈ {'picked_up','in_transit'})
+///                calls `completeExchangeDelivery` — the same callable prod
+///                couriers use — which now carries a symmetrical sandbox
+///                bypass letting buyer/seller play the courier and running
+///                the full settlement transaction (wallet swap + inventory
+///                transfer). No courier fee is applied in this mode.
+///
+/// The parent StreamBuilder on the delivery doc means the on-screen status
+/// updates in real time as the buttons write to Firestore.
+class _DemoDeliveryActions extends StatefulWidget {
+  final String deliveryId;
+  final String currentStatus;
+
+  const _DemoDeliveryActions({
+    required this.deliveryId,
+    required this.currentStatus,
+  });
+
+  @override
+  State<_DemoDeliveryActions> createState() => _DemoDeliveryActionsState();
+}
+
+class _DemoDeliveryActionsState extends State<_DemoDeliveryActions> {
+  bool _busy = false;
+
+  Future<void> _run({
+    required String callable,
+    required Map<String, dynamic> data,
+    required String successMessage,
+  }) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await FirebaseFunctions.instanceFor(region: 'europe-west1')
+          .httpsCallable(callable)
+          .call<Map<String, dynamic>>(data);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(successMessage),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } on FirebaseFunctionsException catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Demo action failed: ${e.message ?? e.code}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Demo action failed: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final status = widget.currentStatus;
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.deepPurple.shade50,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.deepPurple.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.movie_creation_outlined,
+                  size: 16, color: Colors.deepPurple.shade700),
+              const SizedBox(width: 6),
+              Text(
+                'Demo actions (staging only)',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.deepPurple.shade700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (status == 'pending')
+            ElevatedButton.icon(
+              icon: const Icon(Icons.local_shipping_outlined, size: 18),
+              label: const Text('Pickup — courier picked up the items'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.deepPurple.shade600,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: _busy
+                  ? null
+                  : () => _run(
+                        callable: 'sandboxDeliveryAdvance',
+                        data: {
+                          'deliveryId': widget.deliveryId,
+                          'action': 'pickup',
+                        },
+                        successMessage:
+                            'Pickup applied — status now "picked_up".',
+                      ),
+            )
+          else if (status == 'picked_up' || status == 'in_transit')
+            ElevatedButton.icon(
+              icon: const Icon(Icons.check_circle_outline, size: 18),
+              label: const Text(
+                  'Delivered — trigger settlement (wallet + inventory)'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green.shade700,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: _busy
+                  ? null
+                  : () => _run(
+                        callable: 'completeExchangeDelivery',
+                        data: {'deliveryId': widget.deliveryId},
+                        successMessage:
+                            'Delivered — settlement applied (wallets updated, inventory transferred).',
+                      ),
+            )
+          else if (status == 'delivered')
+            Row(
+              children: [
+                Icon(Icons.done_all, size: 18, color: Colors.green.shade700),
+                const SizedBox(width: 6),
+                Text(
+                  'Delivered — nothing left to do for the demo.',
+                  style: TextStyle(color: Colors.green.shade700),
+                ),
+              ],
+            )
+          else
+            Text(
+              'No demo action available for status "$status".',
+              style: TextStyle(color: Colors.deepPurple.shade400, fontSize: 12),
+            ),
+          if (_busy) ...[
+            const SizedBox(height: 8),
+            const LinearProgressIndicator(minHeight: 2),
+          ],
+        ],
+      ),
+    );
   }
 }

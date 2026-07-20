@@ -26,6 +26,10 @@ export { cancelExchangeProposal } from "./cancelExchangeProposal.js";
 // writes ledger entry, activates subscription on pharmacies/{uid}.
 // ⚠️ SANDBOX ONLY — production payment flow to be wired in a future sprint.
 export { sandboxSubscriptionSuccess } from "./sandboxSubscriptionSuccess.js";
+// Staging demo helper — advances a delivery from pending → picked_up without
+// requiring a real courier (paired with the sandbox bypass in
+// completeExchangeDelivery for the picked_up → delivered step + settlement).
+export { sandboxDeliveryAdvance } from "./sandboxDeliveryAdvance.js";
 
 // ======================= Platform Payout (Lot 4 — Sprint 4B) =======================
 // Admin callables for requesting and resolving platform treasury payouts.
