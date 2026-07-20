@@ -3,6 +3,33 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'package:pharmapp_shared/services/authenticated_http_service.dart';
+import 'package:pharmapp_shared/services/master_data_service.dart';
+import 'package:pharmapp_shared/money/money_formatter.dart';
+
+/// Derive sandbox quick-amount chips from the currency's credit cap
+/// (major units). Pure + exported for unit testing — no map of hardcoded
+/// per-currency amounts anywhere.
+///
+/// Percentages of the cap: 1%, 2.5%, 5%, 10%, 25%, 50%. So an XAF cap of
+/// 100000 yields 1000/2500/5000/10000/25000/50000 and a GHS cap of 2000
+/// yields 20/50/100/200/500/1000.
+///
+/// Returns an EMPTY list when the cap is null or non-positive — the screen
+/// then hides the chips and keeps manual entry, never inventing a fallback
+/// different from the backend (which refuses credit without a cap).
+/// Rounded values that collapse to 0 or duplicate are dropped so a tiny cap
+/// cannot produce degenerate chips.
+List<int> sandboxQuickAmounts(int? capMajor) {
+  if (capMajor == null || capMajor <= 0) return const [];
+  const percentages = [0.01, 0.025, 0.05, 0.10, 0.25, 0.50];
+  final seen = <int>{};
+  final result = <int>[];
+  for (final pct in percentages) {
+    final value = (capMajor * pct).round();
+    if (value > 0 && seen.add(value)) result.add(value);
+  }
+  return result;
+}
 
 /// 🧪 SANDBOX TESTING SCREEN - REMOVE BEFORE PRODUCTION
 ///
@@ -29,6 +56,30 @@ class _SandboxTestingScreenState extends State<SandboxTestingScreen> {
   bool _isLoading = false;
   String? _lastOperation;
   Map<String, dynamic>? _walletBalance;
+
+  // Sandbox credit cap (major) for the wallet currency, loaded from master
+  // data. Null until the wallet currency is known and the config is read.
+  int? _creditCapMajor;
+
+  // Currency comes from the wallet returned by getWallet (derived
+  // server-side), never hardcoded. Empty until the wallet loads.
+  String get _currency => (_walletBalance?['currency'] as String?) ?? '';
+
+  // This is the pharmacy sandbox screen, so wallet amounts are stored in
+  // legacy `major × 100` units — the same convention the main dashboard
+  // divides by 100 to display. Convert to major for display and checks.
+  num _walletUnitsToMajor(num walletUnits) => walletUnits / 100;
+
+  num get _availableMajor =>
+      _walletUnitsToMajor(((_walletBalance?['available'] ?? 0) as num));
+  num get _heldMajor =>
+      _walletUnitsToMajor(((_walletBalance?['held'] ?? 0) as num));
+
+  /// Format a MAJOR amount in the wallet's currency. Falls back to a bare
+  /// number while the currency is still loading.
+  String _fmtMajor(num major) => _currency.isEmpty
+      ? _formatAmount(major.round())
+      : MoneyFormatter.formatMajor(major, currencyCode: _currency);
 
   @override
   void initState() {
@@ -65,6 +116,7 @@ class _SandboxTestingScreenState extends State<SandboxTestingScreen> {
         setState(() {
           _walletBalance = jsonDecode(response.body);
         });
+        await _loadCreditCap();
       }
     } catch (e) {
       if (mounted) {
@@ -72,6 +124,20 @@ class _SandboxTestingScreenState extends State<SandboxTestingScreen> {
           SnackBar(content: Text('Error loading wallet: $e')),
         );
       }
+    }
+  }
+
+  /// Resolve the sandbox credit cap for the wallet's currency from master
+  /// data. Leaves `_creditCapMajor` null (chips hidden) if unresolved —
+  /// never a fabricated fallback.
+  Future<void> _loadCreditCap() async {
+    if (_currency.isEmpty) return;
+    try {
+      final master = await MasterDataService.load();
+      final cap = master.currencies[_currency]?.sandboxMaxCreditMajor;
+      if (mounted) setState(() => _creditCapMajor = cap);
+    } catch (_) {
+      if (mounted) setState(() => _creditCapMajor = null);
     }
   }
 
@@ -93,24 +159,25 @@ class _SandboxTestingScreenState extends State<SandboxTestingScreen> {
       final response = await http.post(
         Uri.parse('$functionsUrl/sandboxCredit'),
         headers: await _authHeaders(),
+        // Amount is MAJOR; currency is derived server-side (no client field).
         body: jsonEncode({
           'userId': user.uid,
           'amount': amount,
-          'currency': 'XAF',
         }),
       );
 
       if (response.statusCode == 200) {
         jsonDecode(response.body);
-        setState(() {
-          _lastOperation = '✅ Credit successful: ${_formatAmount(amount)} XAF';
-        });
+        // Reload first so `_currency` reflects the wallet before formatting.
         await _loadWalletBalance();
+        setState(() {
+          _lastOperation = '✅ Credit successful: ${_fmtMajor(amount)}';
+        });
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('✅ Added ${_formatAmount(amount)} XAF to wallet'),
+              content: Text('✅ Added ${_fmtMajor(amount)} to wallet'),
               backgroundColor: Colors.green,
             ),
           );
@@ -148,18 +215,18 @@ class _SandboxTestingScreenState extends State<SandboxTestingScreen> {
       return;
     }
 
-    // Check if sufficient balance
-    if (_walletBalance != null) {
-      final available = _walletBalance!['available'] ?? 0;
-      if (amount > available) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Insufficient balance: ${_formatAmount(available)} XAF available'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-        return;
-      }
+    // Pre-check in MAJOR units. `amount` is major; `_availableMajor`
+    // converts the stored wallet units (÷100) to major. The backend is
+    // authoritative — this is only a UX guard. Comparing raw wallet units
+    // to a major amount (the old bug) never fired after the ×100 change.
+    if (_walletBalance != null && amount > _availableMajor) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Insufficient balance: ${_fmtMajor(_availableMajor)} available'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
     }
 
     setState(() => _isLoading = true);
@@ -168,24 +235,24 @@ class _SandboxTestingScreenState extends State<SandboxTestingScreen> {
       final response = await http.post(
         Uri.parse('$functionsUrl/sandboxDebit'),
         headers: await _authHeaders(),
+        // Amount is MAJOR; currency is derived server-side (no client field).
         body: jsonEncode({
           'userId': user.uid,
           'amount': amount,
-          'currency': 'XAF',
         }),
       );
 
       if (response.statusCode == 200) {
         jsonDecode(response.body);
-        setState(() {
-          _lastOperation = '✅ Debit successful: ${_formatAmount(amount)} XAF';
-        });
         await _loadWalletBalance();
+        setState(() {
+          _lastOperation = '✅ Debit successful: ${_fmtMajor(amount)}';
+        });
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('✅ Withdrew ${_formatAmount(amount)} XAF from wallet'),
+              content: Text('✅ Withdrew ${_fmtMajor(amount)} from wallet'),
               backgroundColor: Colors.green,
             ),
           );
@@ -328,7 +395,7 @@ class _SandboxTestingScreenState extends State<SandboxTestingScreen> {
                         children: [
                           const Text('Available:'),
                           Text(
-                            '${_formatAmount(_walletBalance!['available'] ?? 0)} XAF',
+                            _fmtMajor(_availableMajor),
                             style: const TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
@@ -343,7 +410,7 @@ class _SandboxTestingScreenState extends State<SandboxTestingScreen> {
                         children: [
                           const Text('Held:'),
                           Text(
-                            '${_formatAmount(_walletBalance!['held'] ?? 0)} XAF',
+                            _fmtMajor(_heldMajor),
                             style: const TextStyle(
                               fontSize: 16,
                               color: Colors.orange,
@@ -383,10 +450,10 @@ class _SandboxTestingScreenState extends State<SandboxTestingScreen> {
                     TextField(
                       controller: _creditAmountController,
                       keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Amount (XAF)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.attach_money),
+                      decoration: InputDecoration(
+                        labelText: _currency.isEmpty ? 'Amount' : 'Amount ($_currency)',
+                        border: const OutlineInputBorder(),
+                        prefixIcon: const Icon(Icons.attach_money),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -440,10 +507,10 @@ class _SandboxTestingScreenState extends State<SandboxTestingScreen> {
                     TextField(
                       controller: _debitAmountController,
                       keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Amount (XAF)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.money_off),
+                      decoration: InputDecoration(
+                        labelText: _currency.isEmpty ? 'Amount' : 'Amount ($_currency)',
+                        border: const OutlineInputBorder(),
+                        prefixIcon: const Icon(Icons.money_off),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -500,26 +567,24 @@ class _SandboxTestingScreenState extends State<SandboxTestingScreen> {
 
             const SizedBox(height: 24),
 
-            // Quick Amounts
-            const Text(
-              'Quick Amounts:',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
+            // Quick Amounts — derived from the currency's credit cap, not a
+            // hardcoded per-currency map. Hidden when the cap is unresolved.
+            if (sandboxQuickAmounts(_creditCapMajor).isNotEmpty) ...[
+              const Text(
+                'Quick Amounts:',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: [
-                _buildQuickAmountChip(1000),
-                _buildQuickAmountChip(5000),
-                _buildQuickAmountChip(10000),
-                _buildQuickAmountChip(25000),
-                _buildQuickAmountChip(50000),
-                _buildQuickAmountChip(100000),
-              ],
-            ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: sandboxQuickAmounts(_creditCapMajor)
+                    .map(_buildQuickAmountChip)
+                    .toList(),
+              ),
+            ],
           ],
         ),
       ),
@@ -528,7 +593,7 @@ class _SandboxTestingScreenState extends State<SandboxTestingScreen> {
 
   Widget _buildQuickAmountChip(int amount) {
     return ActionChip(
-      label: Text('${_formatAmount(amount)} XAF'),
+      label: Text(_currency.isEmpty ? _formatAmount(amount) : '${_formatAmount(amount)} $_currency'),
       onPressed: () {
         setState(() {
           _creditAmountController.text = amount.toString();

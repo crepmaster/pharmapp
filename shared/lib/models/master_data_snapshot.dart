@@ -155,6 +155,14 @@ class MasterDataCurrency {
   /// table when null.
   final int? minWithdrawalMinor;
 
+  /// Maximum sandbox CREDIT, expressed in MAJOR units of this currency.
+  /// Mirrors `system_config/main.currencies[code].sandboxMaxCreditMajor`,
+  /// the backend cap enforced by `sandboxCredit` in `functions/src/index.ts`.
+  /// Nullable so a missing field does NOT break parsing; consumers that need
+  /// it (sandbox quick-amount chips) MUST treat null as "unconfigured" and
+  /// never invent a fallback — the backend refuses credit without it.
+  final int? sandboxMaxCreditMajor;
+
   const MasterDataCurrency({
     required this.code,
     required this.name,
@@ -163,6 +171,7 @@ class MasterDataCurrency {
     required this.sortOrder,
     this.decimals,
     this.minWithdrawalMinor,
+    this.sandboxMaxCreditMajor,
   });
 }
 

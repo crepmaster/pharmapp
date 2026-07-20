@@ -129,6 +129,7 @@ class MasterDataService {
         sortOrder: m['sortOrder'] as int? ?? 0,
         decimals: (m['decimals'] as num?)?.toInt(),
         minWithdrawalMinor: (m['minWithdrawalMinor'] as num?)?.toInt(),
+        sandboxMaxCreditMajor: (m['sandboxMaxCreditMajor'] as num?)?.toInt(),
       );
     }
 
