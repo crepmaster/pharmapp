@@ -124,7 +124,7 @@ export const cancelExchangeProposal = onCall<CancelProposalData>(
         });
 
         logger.info(
-          `cancelExchangeProposal: Released ${proposal.reservations.walletReserved} ${proposal.details?.currency || "XAF"} from wallet`,
+          `cancelExchangeProposal: Released ${proposal.reservations.walletReserved} ${proposal.details?.currency ?? ""} from wallet`,
           {
             userId: proposal.fromPharmacyId,
             amount: proposal.reservations.walletReserved,

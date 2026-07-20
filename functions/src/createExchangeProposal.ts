@@ -414,7 +414,10 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
 
         transaction.set(proposalRef, proposalData);
 
-        // Ledger: record the wallet hold event (after proposalRef is available)
+        // Ledger: record the wallet hold event (after proposalRef is available).
+        // Purchase branch — `details.currency` is required + validated at the
+        // top of the callable, so it's always a non-empty string here. The
+        // historical `|| "XAF"` fallback was dead code and misleading.
         if (details.type === "purchase" && details.totalPrice) {
           const holdLedgerRef = db.collection("ledger").doc();
           transaction.set(holdLedgerRef, {
@@ -422,7 +425,7 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
             proposalId: proposalRef.id,
             userId,
             amount: details.totalPrice,
-            currency: details.currency || "XAF",
+            currency: details.currency!,
             from: "available",
             to: "held",
             description: "Wallet balance reserved for purchase proposal",
