@@ -112,12 +112,17 @@ class InventoryService {
 
       // Enrich the Firestore doc with denormalized display fields so backend
       // flows (delivery creation, notifications) can show the medicine name
-      // without client-side catalogue resolution.
+      // without client-side catalogue resolution. Round-4 optimize #4 :
+      // `medicineCategory` is now denormalized too — custom medicines
+      // (voie #3 add flow, not in EssentialMedicines) would otherwise
+      // silently drop out of the marketplace category filter, since the
+      // read-side `medicine?.category` returns null for them.
       final data = inventoryItem.toFirestore();
       data['medicineName'] = medicine.name;
       data['medicineGenericName'] = medicine.genericName;
       data['medicineDosage'] = medicine.strength;
       data['medicineForm'] = medicine.form;
+      data['medicineCategory'] = medicine.category;
 
       final docRef = await _firestore
           .collection('pharmacy_inventory')
@@ -223,22 +228,20 @@ class InventoryService {
         yield <PharmacyInventoryItem>[];
         return;
       }
-      final List<String> eligibleIds;
-      try {
-        eligibleIds = await fetchMarketplacePharmacyIds(
-          countryCode: ownCountryCode,
-          cityCode: resolvedCityCode,
-          // Sprint 2B.2b architect follow-up — dual-mode for legacy
-          // pharmacies that have only `city` (display name) without
-          // `cityCode` slug. The backend callable unions both result
-          // sets, deduplicated by document id.
-          legacyCityName: legacyCityName,
-        );
-      } catch (e) {
-        debugPrint('⚠️ getMarketplacePharmacies failed: $e');
-        yield <PharmacyInventoryItem>[];
-        return;
-      }
+      // Round-4 optimize #8 — do NOT swallow the callable error. Rethrowing
+      // lets StreamBuilder.hasError render an actionable state instead of
+      // "no medicines available" that indistinguishably means "genuinely
+      // empty" OR "callable exploded". `debugPrint` is stripped in release,
+      // so we lose all signal on prod bugs otherwise.
+      final List<String> eligibleIds = await fetchMarketplacePharmacyIds(
+        countryCode: ownCountryCode,
+        cityCode: resolvedCityCode,
+        // Sprint 2B.2b architect follow-up — dual-mode for legacy
+        // pharmacies that have only `city` (display name) without
+        // `cityCode` slug. The backend callable unions both result
+        // sets, deduplicated by document id.
+        legacyCityName: legacyCityName,
+      );
       debugPrint('📍 Backend returned ${eligibleIds.length} eligible pharmacy UIDs');
 
       // Exclude self.
@@ -294,12 +297,13 @@ class InventoryService {
           })
           .toList();
 
-      // Apply category filter
+      // Apply category filter — use `resolvedCategory` so custom medicines
+      // (not in the EssentialMedicines catalogue) match on the denormalized
+      // `medicineCategory` field written at creation time.
       if (categoryFilter != null && categoryFilter != 'All') {
-        items = items.where((item) {
-          final medicine = item.medicine;
-          return medicine?.category == categoryFilter;
-        }).toList();
+        items = items
+            .where((item) => item.resolvedCategory == categoryFilter)
+            .toList();
       }
 
       // Apply search filter
@@ -362,25 +366,36 @@ class InventoryService {
 
   /// Toggle availability for exchange.
   ///
-  /// When publishing ([available] = true), an optional [maxExchangeQuantity]
-  /// can be provided to cap how many units are offered to other pharmacies.
-  /// If null, the caller signals "no explicit cap" and `maxExchangeQuantity`
-  /// is reset so the full inventory quantity is offered.
+  /// When publishing ([available] = true), [maxExchangeQuantity] is required
+  /// and must be a positive integer — it caps how many units are offered on
+  /// the marketplace. Passing null / non-positive while publishing throws
+  /// [ArgumentError] : publishing "up to zero units" is meaningless and used
+  /// to slip through the previous version of this method.
+  ///
+  /// When unpublishing ([available] = false), [maxExchangeQuantity] is
+  /// ignored — the cap is left as-is so a re-publish without a new cap
+  /// keeps the last value.
   static Future<void> toggleAvailability({
     required String inventoryId,
     required bool available,
     int? maxExchangeQuantity,
   }) async {
+    if (available) {
+      if (maxExchangeQuantity == null || maxExchangeQuantity <= 0) {
+        throw ArgumentError(
+          'maxExchangeQuantity must be a positive integer when publishing '
+          '(got: $maxExchangeQuantity).',
+        );
+      }
+    }
     try {
       final Map<String, dynamic> updates = {
         'availabilitySettings.availableForExchange': available,
         'updatedAt': FieldValue.serverTimestamp(),
       };
-      if (available && maxExchangeQuantity != null) {
+      if (available) {
         updates['availabilitySettings.maxExchangeQuantity'] =
             maxExchangeQuantity;
-      } else if (available && maxExchangeQuantity == null) {
-        updates['availabilitySettings.maxExchangeQuantity'] = 0;
       }
       await _firestore
           .collection('pharmacy_inventory')

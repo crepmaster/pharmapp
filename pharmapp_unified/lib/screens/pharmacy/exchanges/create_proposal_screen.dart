@@ -31,13 +31,16 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
   final exchangeQuantityController = TextEditingController();
 
   bool isLoading = false;
-  String selectedCurrency = 'XAF';
+  // Round-4 optimize — currency is auto-derived from the caller pharmacy's
+  // country (single source of truth : `MasterDataCountry.defaultCurrencyCode`
+  // per the createMedicineRequest.ts backend contract). The user has NO
+  // choice — a Ghana pharmacy cannot invoice in XAF. Displayed read-only
+  // as a suffix on the price field. Loading placeholder is empty string so
+  // the UI doesn't flash a wrong value before master data resolves.
+  String selectedCurrency = '';
   ProposalType proposalType = ProposalType.exchange; // Exchange is PRIMARY
   PharmacyInventoryItem? selectedMyInventory;
   List<PharmacyInventoryItem> myInventoryList = [];
-
-  // Loading-only initial value; always replaced after MasterDataService.load().
-  List<String> _currencies = const ['XAF', 'USD', 'EUR'];
   // Estimated delivery fee from system_config/main for the pharmacy's city.
   // Null until loaded; shown as informational hint only (actual fee set by backend).
   double? _estimatedDeliveryFee;
@@ -50,21 +53,15 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
     _loadMasterData();
   }
 
-  /// Loads runtime currencies and city delivery fee from MasterDataService.
-  /// MasterDataService owns the fallback — no screen-level static config needed.
+  /// Loads master data + resolves the pharmacy's country → currency and
+  /// city → estimated delivery fee. The currency is NOT user-selectable :
+  /// each country has exactly one operating currency
+  /// (`MasterDataCountry.defaultCurrencyCode`, enforced backend-side in
+  /// `createMedicineRequest.ts` and `createExchangeProposal.ts` flows).
   Future<void> _loadMasterData() async {
     final snapshot = await MasterDataService.load();
 
-    // Currencies: MasterDataService owns the fallback — always use its result.
-    // If enabled is empty the snapshot itself is broken; screen stays on loading values.
-    final enabled = snapshot.currencies.values
-        .where((c) => c.enabled)
-        .toList()
-      ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
-    if (enabled.isEmpty) return; // MasterDataService invariant violated — keep loading state
-    final codes = enabled.map((c) => c.code).toList();
-
-    // Delivery fee: read from pharmacy profile to resolve countryCode + cityCode.
+    String? resolvedCurrency;
     double? estimatedFee;
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -77,21 +74,37 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
         if (data != null) {
           final countryCode = data['countryCode'] as String?;
           final cityCode = data['cityCode'] as String?;
+          if (countryCode != null && countryCode.isNotEmpty) {
+            final country = snapshot.countries[countryCode];
+            final code = country?.defaultCurrencyCode;
+            if (code != null && code.isNotEmpty) {
+              resolvedCurrency = code;
+            }
+          }
           if (countryCode != null && cityCode != null) {
             estimatedFee = snapshot.getCityDeliveryFee(countryCode, cityCode);
           }
         }
       }
     } catch (_) {
-      // Non-blocking — fee hint is informational only.
+      // Non-blocking — fee hint and currency lookup are best-effort.
+    }
+
+    // Last-resort fallback : first enabled currency of the master snapshot.
+    // Reaches only if the pharmacy's countryCode is missing or unknown to
+    // master data — a data-quality bug that should be surfaced elsewhere,
+    // not silently blocking proposal creation.
+    if (resolvedCurrency == null) {
+      final enabled = snapshot.currencies.values
+          .where((c) => c.enabled)
+          .toList()
+        ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+      if (enabled.isNotEmpty) resolvedCurrency = enabled.first.code;
     }
 
     if (!mounted) return;
     setState(() {
-      _currencies = codes;
-      if (!_currencies.contains(selectedCurrency)) {
-        selectedCurrency = _currencies.first;
-      }
+      if (resolvedCurrency != null) selectedCurrency = resolvedCurrency;
       _estimatedDeliveryFee = estimatedFee;
     });
   }
@@ -599,58 +612,41 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
 
                             const SizedBox(height: 16),
 
-                            // Price Offer (only for purchase)
+                            // Price Offer (only for purchase). Round-4
+                            // optimize — currency is server-derived from
+                            // the pharmacy's country and shown as a suffix,
+                            // not a dropdown. See _loadMasterData().
                             if (proposalType == ProposalType.purchase) ...[
-                              Row(
-                                children: [
-                                  Expanded(
-                                    flex: 3,
-                                    child: TextFormField(
-                                      controller: priceController,
-                                      decoration: const InputDecoration(
-                                        labelText: 'Price Per Unit *',
-                                        hintText: '0.00',
-                                        border: OutlineInputBorder(),
-                                        prefixIcon: Icon(Icons.attach_money),
-                                      ),
-                                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                      validator: (value) {
-                                        if (proposalType == ProposalType.purchase) {
-                                          if (value == null || value.isEmpty) {
-                                            return 'Price is required';
-                                          }
-                                          final price = double.tryParse(value);
-                                          if (price == null || price <= 0) {
-                                            return 'Enter a valid price';
-                                          }
-                                        }
-                                        return null;
-                                      },
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    flex: 1,
-                                    child: DropdownButtonFormField<String>(
-                                      value: selectedCurrency,
-                                      decoration: const InputDecoration(
-                                        labelText: 'Currency',
-                                        border: OutlineInputBorder(),
-                                      ),
-                                      items: _currencies.map((currency) {
-                                        return DropdownMenuItem(
-                                          value: currency,
-                                          child: Text(currency),
-                                        );
-                                      }).toList(),
-                                      onChanged: (value) {
-                                        setState(() {
-                                          selectedCurrency = value!;
-                                        });
-                                      },
-                                    ),
-                                  ),
-                                ],
+                              TextFormField(
+                                controller: priceController,
+                                decoration: InputDecoration(
+                                  labelText: 'Price Per Unit *',
+                                  hintText: '0.00',
+                                  border: const OutlineInputBorder(),
+                                  prefixIcon: const Icon(Icons.attach_money),
+                                  suffixText: selectedCurrency.isEmpty
+                                      ? null
+                                      : selectedCurrency,
+                                  helperText: selectedCurrency.isEmpty
+                                      ? 'Loading currency…'
+                                      : 'Currency $selectedCurrency (from your country)',
+                                ),
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                validator: (value) {
+                                  if (proposalType == ProposalType.purchase) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Price is required';
+                                    }
+                                    final price = double.tryParse(value);
+                                    if (price == null || price <= 0) {
+                                      return 'Enter a valid price';
+                                    }
+                                    if (selectedCurrency.isEmpty) {
+                                      return 'Currency not resolved yet — please wait';
+                                    }
+                                  }
+                                  return null;
+                                },
                               ),
 
                               const SizedBox(height: 16),

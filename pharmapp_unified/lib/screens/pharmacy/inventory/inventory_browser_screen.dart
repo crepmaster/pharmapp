@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../models/pharmacy_inventory.dart';
 import '../../../services/inventory_service.dart';
@@ -17,6 +18,12 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen>
   late TabController _tabController;
   String selectedCategory = 'All';
   String searchQuery = '';
+  // Round-4 optimize #2 — debounce so each keystroke does NOT rebuild the
+  // Marketplace StreamBuilder, which restarts the callable + Firestore
+  // whereIn chunks pipeline on every character (see inventory_service.dart
+  // getAvailableMedicines). 300ms is comfortable typing pace without lag.
+  Timer? _searchDebounce;
+  static const _searchDebounceDelay = Duration(milliseconds: 300);
   final Set<String> _togglingItems = {};
 
   final List<String> categories = [
@@ -42,6 +49,7 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen>
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _tabController.dispose();
     super.dispose();
   }
@@ -93,8 +101,10 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen>
               children: [
                 TextField(
                   onChanged: (value) {
-                    setState(() {
-                      searchQuery = value;
+                    _searchDebounce?.cancel();
+                    _searchDebounce = Timer(_searchDebounceDelay, () {
+                      if (!mounted) return;
+                      setState(() => searchQuery = value);
                     });
                   },
                   decoration: InputDecoration(
@@ -188,25 +198,26 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen>
 
         final allItems = snapshot.data ?? [];
         final items = allItems.where((item) {
-          final medicine = item.medicine;
-          if (medicine == null) return false;
-
-          if (searchQuery.isNotEmpty &&
-              !medicine.name
-                  .toLowerCase()
-                  .contains(searchQuery.toLowerCase()) &&
-              !medicine.genericName
-                  .toLowerCase()
-                  .contains(searchQuery.toLowerCase())) {
-            return false;
-          }
-
+          // Round-4 optimize #4 — use `resolvedCategory` so custom
+          // medicines (not in EssentialMedicines) also pass the filter.
           if (selectedCategory != 'All' &&
-              medicine.category != selectedCategory) {
+              item.resolvedCategory != selectedCategory) {
             return false;
           }
-
-          return true;
+          if (searchQuery.isEmpty) return true;
+          final q = searchQuery.toLowerCase();
+          final medicine = item.medicine;
+          if (medicine != null) {
+            if (medicine.name.toLowerCase().contains(q) ||
+                medicine.genericName.toLowerCase().contains(q)) {
+              return true;
+            }
+          }
+          // Fallback for custom medicines missing from EssentialMedicines.
+          if ((item.resolvedCategory ?? '').toLowerCase().contains(q)) {
+            return true;
+          }
+          return false;
         }).toList();
 
         if (items.isEmpty) {

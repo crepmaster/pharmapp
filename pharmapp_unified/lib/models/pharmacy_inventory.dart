@@ -6,20 +6,6 @@ import '../data/essential_medicines.dart';
 // Pharmacy Inventory Item Model
 // Represents medicines a pharmacy has AVAILABLE FOR EXCHANGE/SALE
 // NO FIXED PRICE - Other pharmacies make proposals, seller chooses best offer
-//
-// Simple Flow:
-// 1. List medicine: "Amoxicillin, 50 boxes, expires Dec 31" (no price!)
-// 2. Receive proposals: "$20/box for 10", "$18/box for 20", "$25/box for 5"
-// 3. Accept best proposal(s)
-//
-// Quick Usage Example:
-// final item = PharmacyInventoryItem.list(
-//   medicineId: 'med_456', 
-//   pharmacyId: 'pharm_789',
-//   availableQuantity: 50,
-//   expirationDate: DateTime(2024, 12, 31),
-//   lotNumber: 'LOT123',
-// );
 class PharmacyInventoryItem extends Equatable {
   final String id;
   final String medicineId;
@@ -34,6 +20,12 @@ class PharmacyInventoryItem extends Equatable {
   final AvailabilitySettings availabilitySettings; // For exchange/sale
   final DateTime createdAt;
   final DateTime updatedAt;
+  // Round-4 optimize #4 — denormalized category from the source medicine
+  // catalogue (EssentialMedicines) OR the custom-medicine flow. Read side
+  // uses this as a fallback when `medicine` (EssentialMedicines lookup)
+  // returns null — otherwise custom medicines are silently dropped by the
+  // marketplace category filter.
+  final String? medicineCategory;
 
   const PharmacyInventoryItem({
     required this.id,
@@ -49,6 +41,7 @@ class PharmacyInventoryItem extends Equatable {
     required this.availabilitySettings,
     required this.createdAt,
     required this.updatedAt,
+    this.medicineCategory,
   });
 
   @override
@@ -66,6 +59,7 @@ class PharmacyInventoryItem extends Equatable {
         availabilitySettings,
         createdAt,
         updatedAt,
+        medicineCategory,
       ];
 
   factory PharmacyInventoryItem.fromFirestore(DocumentSnapshot doc) {
@@ -85,37 +79,7 @@ class PharmacyInventoryItem extends Equatable {
       availabilitySettings: AvailabilitySettings.fromMap(data['availabilitySettings'] ?? {}),
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-    );
-  }
-
-  // Simple listing constructor - no price needed, wait for proposals
-  factory PharmacyInventoryItem.list({
-    required String id,
-    required String medicineId,
-    required String pharmacyId,
-    required int availableQuantity,
-    required DateTime expirationDate,
-    required String lotNumber,
-    bool availableForExchange = true,
-  }) {
-    final now = DateTime.now();
-    
-    return PharmacyInventoryItem(
-      id: id,
-      medicineId: medicineId,
-      pharmacyId: pharmacyId,
-      availableQuantity: availableQuantity,
-      batch: BatchInfo(
-        lotNumber: lotNumber,
-        expirationDate: expirationDate,
-      ),
-      availabilitySettings: AvailabilitySettings(
-        availableForExchange: availableForExchange,
-        minExchangeQuantity: 1,
-        maxExchangeQuantity: availableQuantity,
-      ),
-      createdAt: now,
-      updatedAt: now,
+      medicineCategory: data['medicineCategory'] as String?,
     );
   }
 
@@ -213,10 +177,19 @@ class PharmacyInventoryItem extends Equatable {
   String get expiryStatus => batch.expiryStatus;
   
   // Available for proposals - no price needed, just quantity and not expired
-  bool get canExchange => 
-      availabilitySettings.availableForExchange && 
-      !isExpired && 
+  bool get canExchange =>
+      availabilitySettings.availableForExchange &&
+      !isExpired &&
       availableQuantity > 0;
+
+  // Round-4 optimize #4 — unified category accessor. `medicine?.category`
+  // routes through the EssentialMedicines catalogue and returns null for
+  // custom (user-added) medicines. `medicineCategory` is the denormalized
+  // Firestore field written at creation time (see InventoryService
+  // .addMedicineToInventory). This getter prefers the catalogue lookup
+  // (canonical WHO taxonomy) then falls back to the denormalized value.
+  String? get resolvedCategory =>
+      medicine?.category ?? medicineCategory;
 
   // UI Compatibility Getters - Static medicine lookup from essential medicines
   Medicine? get medicine {
