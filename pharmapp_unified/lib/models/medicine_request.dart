@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart';
 
 /// Sprint 4 (F-BLOC2-P2): `either` est retiré. Le contrat est strictement
 /// `purchase | exchange`. Toute écriture/lecture qui rencontre `either`
@@ -70,7 +71,11 @@ class MedicineRequest extends Equatable {
           Map<String, dynamic>.from(data['medicineSnapshot'] ?? {}),
       requestedQuantity: (data['requestedQuantity'] as num?)?.toInt() ?? 0,
       requestMode: _parseRequestMode(data['requestMode'] as String?),
-      currencyCode: data['currencyCode'] ?? 'XAF',
+      // Round-4 currency sprint phase 3a — telemetric legacy fallback.
+      // New writes derive currency from pharmacy country
+      // (createMedicineRequest.ts backend enforces this) ; only
+      // pre-migration docs land here without a currencyCode.
+      currencyCode: _readCurrencyOrWarn(data, doc.id),
       notes: data['notes'] ?? '',
       status: _parseStatus(data['status'] as String?),
       selectedOfferId: data['selectedOfferId'] as String?,
@@ -132,5 +137,21 @@ class MedicineRequest extends Equatable {
       default:
         return RequestStatus.open;
     }
+  }
+
+  /// Round-4 currency sprint phase 3a — telemetric legacy read. New writes
+  /// pass `currencyCode` explicitly (backend derives it in
+  /// `createMedicineRequest.ts` from the requester country). Returns an
+  /// empty string on missing so the UI can render "no currency" instead
+  /// of a silent "XAF" default that was misleading Ghana requests.
+  static String _readCurrencyOrWarn(Map<String, dynamic> map, String docId) {
+    final raw = map['currencyCode'] as String?;
+    if (raw != null && raw.isNotEmpty) return raw;
+    debugPrint(
+      'MedicineRequest.fromFirestore: doc $docId is missing `currencyCode` — '
+      'falling back to empty. Backfill from createMedicineRequest.ts write '
+      'path.',
+    );
+    return '';
   }
 }

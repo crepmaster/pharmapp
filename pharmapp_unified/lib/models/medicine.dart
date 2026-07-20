@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart';
 
 // African Medicine Categories
 enum MedicineCategory {
@@ -415,9 +416,23 @@ class PricingInfo extends Equatable {
   List<Object?> get props => [averagePrice, currency, minPrice, maxPrice];
 
   factory PricingInfo.fromMap(Map<String, dynamic> map) {
+    // Round-4 currency sprint phase 3a — telemetric legacy fallback.
+    // Catalogue seed prices historically stored 'USD' as a placeholder ;
+    // new writes must pass the reference currency explicitly.
+    String currency;
+    final raw = map['currency'] as String?;
+    if (raw != null && raw.isNotEmpty) {
+      currency = raw;
+    } else {
+      debugPrint(
+        'PricingInfo(medicine).fromMap: missing `currency` — falling back '
+        'to empty. Catalogue seed data should carry the reference currency.',
+      );
+      currency = '';
+    }
     return PricingInfo(
       averagePrice: (map['averagePrice'] ?? 0).toDouble(),
-      currency: map['currency'] ?? 'USD',
+      currency: currency,
       minPrice: (map['minPrice'] ?? 0).toDouble(),
       maxPrice: (map['maxPrice'] ?? 0).toDouble(),
     );

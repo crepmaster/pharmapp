@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart';
 
 // Medicine Purchase Proposal Model
 // Simple proposal system: Multiple buyers can propose on same medicine
@@ -72,35 +73,11 @@ class ExchangeProposal extends Equatable {
         inventorySnapshot,
       ];
 
-  // Make offer on available medicine
-  factory ExchangeProposal.makeOffer({
-    required String id,
-    required String inventoryItemId,
-    required String buyerPharmacyId,
-    required String sellerPharmacyId,
-    required double offerPricePerUnit, // Buyer's offer
-    required int quantity,
-    String currency = 'USD',
-  }) {
-    final now = DateTime.now();
-    
-    return ExchangeProposal(
-      id: id,
-      inventoryItemId: inventoryItemId,
-      fromPharmacyId: buyerPharmacyId,
-      toPharmacyId: sellerPharmacyId,
-      details: ProposalDetails(
-        offeredPrice: offerPricePerUnit,
-        requestedQuantity: quantity,
-        currency: currency,
-        proposalType: ProposalType.purchase,
-      ),
-      status: ProposalStatus.pending,
-      createdAt: now,
-      updatedAt: now,
-      expiresAt: now.add(const Duration(hours: 48)), // 48h to respond
-    );
-  }
+  // Round-4 currency sprint phase 3a — the historical
+  // `ExchangeProposal.makeOffer` factory was dead code (referenced only
+  // in a doc-comment example, no runtime callers). Its `currency = 'USD'`
+  // default was one of the silent XAF/USD trap sources the architect
+  // review flagged. Removed rather than migrated.
 
   factory ExchangeProposal.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
@@ -253,7 +230,11 @@ class ProposalDetails extends Equatable {
   const ProposalDetails({
     required this.offeredPrice,
     required this.requestedQuantity,
-    this.currency = 'USD',
+    // Round-4 currency sprint phase 3a — mandatory at boundary. Callers
+    // must resolve currency from the pharmacy country (MoneyContext) or
+    // pass it explicitly. The previous `= 'USD'` default was the root of
+    // "Offered Price: 0 USD" appearing on Ghana exchange proposals.
+    required this.currency,
     required this.proposalType,
     this.exchangeMedicineId,
     this.exchangeInventoryItemId,
@@ -280,7 +261,11 @@ class ProposalDetails extends Equatable {
     return ProposalDetails(
       offeredPrice: (map['pricePerUnit'] ?? map['offeredPrice'] ?? 0).toDouble(),
       requestedQuantity: map['quantity']?.toInt() ?? map['requestedQuantity']?.toInt() ?? 0,
-      currency: map['currency'] ?? 'USD',
+      // Legacy fallback with telemetry — new writers pass currency
+      // explicitly (constructor is `required`) ; only legacy Firestore
+      // docs land here without a currency, and we surface each hit so
+      // ops can measure backfill scope.
+      currency: _readCurrencyOrWarn(map, 'ProposalDetails'),
       proposalType: ProposalType.values.firstWhere(
         (e) => e.toString().split('.').last == rawType,
         orElse: () => ProposalType.purchase,
@@ -293,6 +278,21 @@ class ProposalDetails extends Equatable {
               Map<String, dynamic>.from(snapshotRaw))
           : null,
     );
+  }
+
+  /// Legacy Firestore documents may lack a `currency` field for exchange
+  /// proposals (no money on the medicine leg). We return an empty string
+  /// so the UI can render "no currency" instead of a lying "USD" — the
+  /// exchange-branch of every consumer already hides monetary rows.
+  static String _readCurrencyOrWarn(Map<String, dynamic> map, String tag) {
+    final raw = map['currency'] as String?;
+    if (raw != null && raw.isNotEmpty) return raw;
+    debugPrint(
+      '$tag.fromMap: missing `currency` — returning empty. This is expected '
+      'for exchange-type documents (no money on the medicine leg). '
+      'Purchase-type documents without currency are a data-quality bug.',
+    );
+    return '';
   }
 
   Map<String, dynamic> toMap() {

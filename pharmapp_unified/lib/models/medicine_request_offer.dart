@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart';
 
 enum OfferStatus { pending, accepted, declined, withdrawn, expired, converted }
 
@@ -124,7 +125,11 @@ class MedicineRequestOffer extends Equatable {
       offeredQuantity: (data['offeredQuantity'] as num?)?.toInt() ?? 0,
       unitPrice: (data['unitPrice'] as num?)?.toDouble() ?? 0,
       totalPrice: (data['totalPrice'] as num?)?.toDouble() ?? 0,
-      currencyCode: data['currencyCode'] ?? 'XAF',
+      // Round-4 currency sprint phase 3a — telemetric legacy fallback.
+      // New writes derive currency from pharmacy country in the backend
+      // (submitMedicineRequestOffer) ; only pre-migration docs land here
+      // without a currencyCode.
+      currencyCode: _readCurrencyOrWarn(data, doc.id),
       offerType: _parseOfferType(data['offerType'] as String?),
       exchangeItem: exchangeItemRaw is Map
           ? ExchangeItem.fromMap(Map<String, dynamic>.from(exchangeItemRaw))
@@ -181,5 +186,21 @@ class MedicineRequestOffer extends Equatable {
       default:
         return OfferStatus.pending;
     }
+  }
+
+  /// Round-4 currency sprint phase 3a — telemetric legacy read. New writes
+  /// derive currency from pharmacy country (submitMedicineRequestOffer
+  /// backend). Returns empty on missing so the UI can render "no currency"
+  /// instead of a lying XAF default.
+  static String _readCurrencyOrWarn(Map<String, dynamic> map, String docId) {
+    final raw = map['currencyCode'] as String?;
+    if (raw != null && raw.isNotEmpty) return raw;
+    debugPrint(
+      'MedicineRequestOffer.fromFirestore: doc $docId is missing '
+      '`currencyCode` — falling back to empty. Expected for exchange-type '
+      'offers (no money on the medicine leg). Purchase-type offers without '
+      'currency are a data-quality bug.',
+    );
+    return '';
   }
 }

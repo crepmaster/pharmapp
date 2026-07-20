@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart';
 import 'medicine.dart';
 import '../data/essential_medicines.dart';
 
@@ -284,7 +285,11 @@ class PricingInfo extends Equatable {
     required this.retailPrice,
     required this.exchangePrice,
     this.insurancePrice,
-    this.currency = 'USD',
+    // Round-4 currency sprint phase 3a — mandatory. Historical `= 'USD'`
+    // default was misleading catalogue seed data where the actual
+    // reference currency depends on the pharmacy's country. Callers must
+    // pass explicitly.
+    required this.currency,
   });
 
   @override
@@ -302,7 +307,19 @@ class PricingInfo extends Equatable {
       retailPrice: (map['retailPrice'] ?? 0).toDouble(),
       exchangePrice: (map['exchangePrice'] ?? 0).toDouble(),
       insurancePrice: map['insurancePrice']?.toDouble(),
-      currency: map['currency'] ?? 'USD',
+      // Legacy fallback with telemetry — see PricingInfo constructor
+      // comment for the mandatory-at-boundary rationale.
+      currency: () {
+        final raw = map['currency'] as String?;
+        if (raw != null && raw.isNotEmpty) return raw;
+        // ignore: avoid_print
+        debugPrint(
+          'PricingInfo.fromMap: missing `currency` — falling back to empty. '
+          'This is expected on inventory items without prices ; a persisted '
+          'PricingInfo without currency is a data-quality bug.',
+        );
+        return '';
+      }(),
     );
   }
 
