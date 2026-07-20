@@ -10,7 +10,11 @@ module.exports = {
   testPathIgnorePatterns: [
     '/node_modules/',
     '/lib/',
-    '/__tests__/firestore-rules\\.test\\.ts$'
+    // All rules-emulator suites (firestore-rules*.test.ts) need Java + the
+    // Firestore emulator and run via `npm run test:rules`. Pattern widened
+    // from the single original file so new rules suites are excluded by
+    // naming convention rather than by editing this list each time.
+    '/__tests__/firestore-rules.*\\.test\\.ts$'
   ],
   transform: {
     '^.+\\.ts$': ['ts-jest', {

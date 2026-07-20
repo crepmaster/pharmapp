@@ -128,11 +128,35 @@ service cloud.firestore {
     }
 
     // User profiles (base user records)
+    //
+    // Currency sprint (C1) — `role` / `userType` are the canonical identity
+    // input of `resolveCurrencyForWalletOwner`, which decides WHICH profile
+    // collection a wallet's currency is derived from. They were freely
+    // rewritable by the owner. That was harmless while nothing read them as
+    // authority (verified: no `get(/databases/.../users/...)` anywhere in
+    // these rules, and isAdmin() uses the auth token custom claim, not this
+    // document) — but it stops being harmless the moment getWallet consumes
+    // the resolver. Locked BEFORE that wiring, not after.
+    //
+    // Immutable after creation: the client sets its role once at signup and
+    // never legitimately changes it. No client update path writes these
+    // fields (verified across pharmapp_unified, shared and admin_panel).
     match /users/{userId} {
       allow read: if isOwner(userId) || isSuperAdmin(request.auth.uid);
       allow create: if isAuthenticated() && request.auth.uid == userId;
-      allow update: if isOwner(userId);
+      allow update: if isOwner(userId)
+                    && userIdentityFieldUnchanged(resource.data, request.resource.data, 'role')
+                    && userIdentityFieldUnchanged(resource.data, request.resource.data, 'userType');
       allow delete: if isSuperAdmin(request.auth.uid);
+    }
+
+    // Currency sprint (C1) — true when the named identity field neither
+    // changed value nor appeared/disappeared between the pre- and
+    // post-image. Mirrors `pharmacyLicenseFieldChanged` (Sprint 2A.2),
+    // inverted for readability at the call site.
+    function userIdentityFieldUnchanged(before, after, name) {
+      return (before.keys().hasAny([name]) == after.keys().hasAny([name]))
+          && (!before.keys().hasAny([name]) || before[name] == after[name]);
     }
 
     // Mobile app collections
@@ -267,16 +291,39 @@ service cloud.firestore {
              address.displayText is string;
     }
 
+    // Currency sprint (C1) — `countryCode` is the sole input from which the
+    // backend derives a courier's operating currency
+    // (lib/walletOwnerCurrency.ts). It was previously absent from
+    // isValidCourierData entirely: optional at creation, unvalidated, and
+    // freely rewritable afterwards — which would have let a modified client
+    // choose the currency its wallet is created in. Now mandatory, shaped,
+    // and immutable client-side.
+    //
+    // Server-side validation against system_config.countries stays in the
+    // backend (rules cannot reasonably read config on every write). The
+    // target remains a backend-owned `createCourierRegistration`, mirroring
+    // createPharmacyRegistration; this is the intermediate checkpoint.
     match /couriers/{userId} {
       allow read: if isAuthenticated(); // Pharmacies can read courier profiles
       allow create: if isOwner(userId) && isValidCourierData(request.resource.data);
-      allow update: if isOwner(userId) && isValidCourierData(request.resource.data);
+      allow update: if isOwner(userId)
+                    && isValidCourierData(request.resource.data)
+                    && courierCountryCodeUnchanged(resource.data, request.resource.data);
       allow delete: if isOwner(userId);
     }
-    
+
+    // Currency sprint (C1) — countryCode may never change or disappear via a
+    // client write. Deleting the field is caught by the key-presence
+    // comparison, not just the value comparison.
+    function courierCountryCodeUnchanged(before, after) {
+      return (before.keys().hasAny(['countryCode']) == after.keys().hasAny(['countryCode']))
+          && (!before.keys().hasAny(['countryCode'])
+              || before.countryCode == after.countryCode);
+    }
+
     // Courier data validation function
     function isValidCourierData(data) {
-      return data.keys().hasAll(['email', 'fullName', 'phoneNumber', 'vehicleType', 'licensePlate', 'role']) &&
+      return data.keys().hasAll(['email', 'fullName', 'phoneNumber', 'vehicleType', 'licensePlate', 'role', 'countryCode']) &&
              data.role == 'courier' &&
              data.email is string &&
              data.fullName is string &&
@@ -284,6 +331,11 @@ service cloud.firestore {
              data.vehicleType is string &&
              data.licensePlate is string &&
              data.isActive is bool &&
+             // Currency sprint (C1): ISO 3166-1 alpha-2, uppercase. Shape
+             // only — membership in system_config.countries is a backend
+             // check, so onboarding a country stays a pure config change.
+             data.countryCode is string &&
+             data.countryCode.matches('^[A-Z]{2}$') &&
              // Optional fields validation
              (!data.keys().hasAny(['hasActiveSubscription']) || data.hasActiveSubscription is bool) &&
              (!data.keys().hasAny(['subscriptionStatus']) || data.subscriptionStatus is string) &&
