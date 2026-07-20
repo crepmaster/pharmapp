@@ -65,10 +65,14 @@ describe('Unit Tests - No Emulator Required', () => {
       expect(validators.amount(20000000, 'amount')?.code).toBe('TOO_LARGE');
     });
 
-    test('should validate currency codes', () => {
+    test('should validate currency codes syntactically (ISO 4217 shape)', () => {
       expect(validators.currency('XAF', 'currency')).toBeNull();
+      expect(validators.currency('GHS', 'currency')).toBeNull();
       expect(validators.currency('USD', 'currency')).toBeNull();
-      expect(validators.currency('GBP', 'currency')?.code).toBe('INVALID_CURRENCY');
+      // Shape-only: GBP passes here, the semantic layer rejects it.
+      expect(validators.currency('GBP', 'currency')).toBeNull();
+      expect(validators.currency('gbp', 'currency')?.code).toBe('INVALID_CURRENCY');
+      expect(validators.currency('GBPX', 'currency')?.code).toBe('INVALID_CURRENCY');
     });
 
     test('should validate multiple fields', () => {

@@ -110,14 +110,17 @@ describe('Payment Function Unit Tests', () => {
     });
 
     test('should validate currency codes', () => {
-      const validCurrencies = ['XAF', 'USD', 'EUR'];
-      const invalidCurrencies = ['GBP', 'JPY', 'invalid'];
+      // Shape-only validation (ISO 4217): any 3-letter uppercase code passes.
+      // Platform support is checked semantically against system_config by the
+      // async services that move money, not here.
+      const wellFormed = ['XAF', 'GHS', 'KES', 'NGN', 'XOF', 'USD', 'EUR', 'GBP', 'JPY'];
+      const malformed = ['invalid', 'xaf', 'XA', 'XAFF', ''];
 
-      validCurrencies.forEach(currency => {
+      wellFormed.forEach(currency => {
         expect(validators.currency(currency, 'currency')).toBeNull();
       });
 
-      invalidCurrencies.forEach(currency => {
+      malformed.forEach(currency => {
         const error = validators.currency(currency, 'currency');
         expect(error).not.toBeNull();
         expect(error?.code).toBe('INVALID_CURRENCY');

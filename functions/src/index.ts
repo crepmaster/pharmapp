@@ -12,6 +12,7 @@ import { withIdempotency } from "./lib/idempotency.js";
 import { cancelExchangeTx } from "./lib/exchange.js";
 import { validateFields, validators, sendValidationError, sendError, BusinessErrors, AppError } from "./lib/validation.js";
 import { requireAuth } from "./lib/auth.js";
+import { checkCurrencySupported, currencyRefusalHttpStatus } from "./lib/currencyResolver.js";
 // 👉 expose aussi la tâche planifiée
 export { expireExchangeHolds } from "./scheduled.js";
 
@@ -192,6 +193,34 @@ export const topupIntent = onRequest({ region: "europe-west1", cors: true }, asy
 
     if (errors.length > 0) {
       return sendValidationError(res, errors);
+    }
+
+    // Semantic currency check — `validators.currency` above only guarantees
+    // the ISO 4217 shape. Refuse before any Firestore write if the code is
+    // not a currency the platform operates in.
+    // NOTE: this does NOT yet verify that the currency matches the caller's
+    // country. That consistency check needs the generic wallet-owner
+    // resolver and lands in a follow-up commit.
+    const topupCurrencySupport = await checkCurrencySupported(db, currency);
+    if (!topupCurrencySupport.ok) {
+      // `cause` carries the underlying Firestore failure and stays
+      // server-side; the client only ever sees the reason code.
+      logger.error("currency not supported", {
+        endpoint: "topupIntent",
+        currency,
+        reason: topupCurrencySupport.reason,
+        cause: topupCurrencySupport.cause ?? null,
+        uid,
+      });
+      return sendError(
+        res,
+        new AppError(
+          "CURRENCY_NOT_SUPPORTED",
+          `Currency ${currency} is not available on this platform`,
+          currencyRefusalHttpStatus(topupCurrencySupport.reason),
+          topupCurrencySupport.reason
+        )
+      );
     }
 
     // Validate payment method
@@ -432,6 +461,35 @@ export const createExchangeHold = onRequest({ region: "europe-west1" }, async (r
 
     if (errors.length > 0) {
       return sendValidationError(res, errors);
+    }
+
+    // Semantic currency check — `validators.currency` above only guarantees
+    // the ISO 4217 shape. This endpoint moves money (wallet holds + ledger
+    // entries), so an unconfigured code must be refused BEFORE the
+    // transaction, not absorbed into a hold.
+    // NOTE: this does NOT yet verify that the currency matches the
+    // participants' country. That consistency check needs the generic
+    // wallet-owner resolver and lands in a follow-up commit.
+    const holdCurrencySupport = await checkCurrencySupported(db, currency);
+    if (!holdCurrencySupport.ok) {
+      // `cause` carries the underlying Firestore failure and stays
+      // server-side; the client only ever sees the reason code.
+      logger.error("currency not supported", {
+        endpoint: "createExchangeHold",
+        currency,
+        reason: holdCurrencySupport.reason,
+        cause: holdCurrencySupport.cause ?? null,
+        uid,
+      });
+      return sendError(
+        res,
+        new AppError(
+          "CURRENCY_NOT_SUPPORTED",
+          `Currency ${currency} is not available on this platform`,
+          currencyRefusalHttpStatus(holdCurrencySupport.reason),
+          holdCurrencySupport.reason
+        )
+      );
     }
 
     // Business validation

@@ -76,17 +76,41 @@ describe('Validators', () => {
     });
   });
 
-  describe('currency validator', () => {
-    test('should pass for valid currencies', () => {
-      expect(validators.currency('XAF', 'field')).toBeNull();
-      expect(validators.currency('USD', 'field')).toBeNull();
-      expect(validators.currency('EUR', 'field')).toBeNull();
+  describe('currency validator (syntactic ISO 4217 only)', () => {
+    // Contract: this validator checks SHAPE, not platform support. The
+    // semantic check (currency exists in system_config + enabled +
+    // consistent with the owner's country) belongs to the async services
+    // that move money.
+
+    test('accepts the currencies of every active and planned market', () => {
+      // GHS is the regression that motivated this change: Ghana was live in
+      // production while the old hardcoded allowlist rejected its currency.
+      for (const code of ['XAF', 'GHS', 'KES', 'NGN', 'XOF', 'USD', 'EUR']) {
+        expect(validators.currency(code, 'field')).toBeNull();
+      }
     });
 
-    test('should fail for invalid currencies', () => {
-      const error = validators.currency('GBP', 'field');
-      expect(error?.code).toBe('INVALID_CURRENCY');
-      expect(error?.message).toContain('XAF, USD, EUR');
+    test('accepts syntactically valid codes the platform does not operate in', () => {
+      // Intentional: shape-only validation. Rejecting these is the job of
+      // the semantic layer, so that onboarding a country never requires
+      // editing validation.ts.
+      for (const code of ['GBP', 'JPY', 'ZZZ']) {
+        expect(validators.currency(code, 'field')).toBeNull();
+      }
+    });
+
+    test('rejects malformed codes', () => {
+      for (const code of ['', 'XA', 'XAFF', 'XA1', 'X F', 'invalid']) {
+        const error = validators.currency(code, 'field');
+        expect(error?.code).toBe('INVALID_CURRENCY');
+      }
+    });
+
+    test('rejects lowercase and mixed case', () => {
+      for (const code of ['xaf', 'Xaf', 'ghs', 'gHs']) {
+        const error = validators.currency(code, 'field');
+        expect(error?.code).toBe('INVALID_CURRENCY');
+      }
     });
 
     test('should fail for non-string currencies', () => {

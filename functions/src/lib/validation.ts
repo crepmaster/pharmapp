@@ -64,13 +64,31 @@ export const validators = {
     return null;
   },
 
+  /**
+   * SYNTACTIC ISO 4217 check only — three uppercase letters.
+   *
+   * Deliberately does NOT check that the code is a currency the platform
+   * actually operates in. That is a semantic question whose answer lives in
+   * `system_config/main.currencies` and changes every time ops onboard a
+   * country. Hard-coding the allowed set here is what left `GHS` rejected
+   * while Ghana was live in production, and it would drift again on the
+   * next market (XOF, KES, NGN…).
+   *
+   * This validator therefore accepts `GBP`, `JPY`, `ZZZ` by design: it
+   * guarantees the SHAPE, nothing more. Any caller that moves money MUST
+   * additionally validate the code against `system_config` asynchronously
+   * (currency exists + enabled + consistent with the owner's country).
+   */
   currency: (value: any, field: string): ValidationError | null => {
     if (typeof value !== "string") {
       return { field, message: `${field} must be a string`, code: "INVALID_TYPE" };
     }
-    const validCurrencies = ["XAF", "USD", "EUR"];
-    if (!validCurrencies.includes(value)) {
-      return { field, message: `${field} must be one of: ${validCurrencies.join(", ")}`, code: "INVALID_CURRENCY" };
+    if (!/^[A-Z]{3}$/.test(value)) {
+      return {
+        field,
+        message: `${field} must be a 3-letter uppercase ISO 4217 code (e.g. XAF, GHS)`,
+        code: "INVALID_CURRENCY",
+      };
     }
     return null;
   },
