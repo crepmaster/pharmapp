@@ -17,6 +17,7 @@ import {
   resolveCurrencyForWalletOwner,
   walletOwnerRefusalHttpStatus,
 } from "./lib/walletOwnerCurrency.js";
+import { majorToWalletUnits, type WalletOwnerKind } from "./lib/moneyUnits.js";
 // 👉 expose aussi la tâche planifiée
 export { expireExchangeHolds } from "./scheduled.js";
 
@@ -991,6 +992,35 @@ function isSandboxAllowed(): boolean {
   return process.env.FUNCTIONS_EMULATOR === "true" || process.env.SANDBOX_ENABLED === "true";
 }
 
+/**
+ * Resolve the per-currency sandbox CREDIT cap (major units) from
+ * `system_config/main.currencies[code].sandboxMaxCreditMajor`.
+ *
+ * Applies to sandboxCredit ONLY — sandboxDebit is bounded by the available
+ * balance, never by this field. A demo guard rail, not an FX equivalence.
+ *
+ * Fail-loud: the field is MANDATORY and must be a positive integer. A
+ * missing, non-integer, zero or negative value is a config error, never a
+ * silent default — otherwise an unconfigured currency would credit
+ * unbounded fake money.
+ */
+async function resolveSandboxCreditCapMajor(currencyCode: string): Promise<number> {
+  const snap = await db.collection("system_config").doc("main").get();
+  const raw = snap.exists
+    ? (snap.data()?.currencies as Record<string, { sandboxMaxCreditMajor?: unknown }> | undefined)
+        ?.[currencyCode]?.sandboxMaxCreditMajor
+    : undefined;
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw <= 0) {
+    throw new AppError(
+      "SANDBOX_CAP_UNCONFIGURED",
+      `Sandbox credit cap is not configured for ${currencyCode}`,
+      422,
+      { currencyCode }
+    );
+  }
+  return raw;
+}
+
 // 🔒 Sandbox test-account patterns – entire @promoshake.net domain
 // B3 fix: allow any @promoshake.net address (all are test accounts)
 const SANDBOX_ACCOUNT_PATTERNS = [
@@ -1079,68 +1109,89 @@ export const sandboxCredit = onRequest({
       return;
     }
 
-    // Limit sandbox credits
-    if (amount > 100000) { // Max 100,000 XAF
+    // Derive the wallet currency + owner type SERVER-SIDE (never "XAF").
+    // sandboxCredit is pharmacy-only (F1b above), so ownerType is always
+    // "pharmacy" here, but we route through the same resolver as getWallet
+    // for a single source of truth.
+    const resolved = await resolveCurrencyForWalletOwner(db, userId);
+    if (!resolved.ok) {
+      logger.error("sandboxCredit: cannot resolve wallet currency", {
+        userId,
+        reason: resolved.reason,
+      });
+      return sendError(
+        res,
+        new AppError(
+          "WALLET_CURRENCY_UNRESOLVED",
+          "Wallet configuration unavailable",
+          walletOwnerRefusalHttpStatus(resolved.reason),
+          resolved.reason
+        )
+      );
+    }
+    const { currency, ownerType } = resolved;
+
+    // Cap is checked in MAJOR, before conversion. Mandatory, no fallback.
+    const capMajor = await resolveSandboxCreditCapMajor(currency);
+    if (amount > capMajor) {
       res.status(400).json({
-        error: "Maximum sandbox credit is 100,000 XAF",
-        code: "AMOUNT_TOO_HIGH"
+        error: `Maximum sandbox credit is ${capMajor} ${currency}`,
+        code: "AMOUNT_TOO_HIGH",
       });
       return;
     }
 
-    const currency = "XAF";
-    // B5 fix: store in raw XAF units (no centimes conversion)
-    // to match webhooks, topupIntent, and exchange functions
-    const amountRaw = Math.round(amount);
+    // Convert to wallet units at the write boundary (pharmacy × 100).
+    const amountWU = majorToWalletUnits(amount, ownerType as WalletOwnerKind);
 
     // Credit wallet with transaction
     await db.runTransaction(async (tx) => {
       const walletRef = db.collection("wallets").doc(userId);
       const walletDoc = await tx.get(walletRef);
 
-      let currentWallet;
-      if (!walletDoc.exists) {
-        // Create new wallet
-        currentWallet = walletInit(currency);
+      if (walletDoc.exists) {
+        // Existing wallet keeps its snapshotted currency. Refuse — never
+        // silently correct — if it contradicts the owner's derived currency.
+        const storedCurrency = walletDoc.data()?.currency;
+        if (storedCurrency !== currency) {
+          throw new AppError(
+            "WALLET_CURRENCY_MISMATCH",
+            `Wallet currency ${storedCurrency} does not match owner currency ${currency}`,
+            409,
+            { userId, storedCurrency, expected: currency }
+          );
+        }
+      } else {
+        // Absent wallet created in the derived currency.
         tx.set(walletRef, {
-          ...currentWallet,
+          ...walletInit(currency),
           userId,
-          userType: userData?.userType || "unknown",
+          userType: userData?.userType || ownerType,
           createdAt: FieldValue.serverTimestamp(),
         });
-      } else {
-        currentWallet = walletDoc.data()!;
       }
 
-      // Update wallet balance
-      const newAvailable = (currentWallet.available || 0) + amountRaw;
       tx.update(walletRef, {
-        available: newAvailable,
+        available: FieldValue.increment(amountWU),
         updatedAt: FieldValue.serverTimestamp(),
       });
 
-      // Add ledger entry
+      // Ledger keeps `amount` in MAJOR; `walletUnitsDelta` records the
+      // converted delta explicitly for reconciliation.
       const ledgerRef = db.collection("ledger").doc();
       tx.set(ledgerRef, {
         userId,
         type: "sandbox_credit",
-        amount: amountRaw,
+        amount,
+        walletUnitsDelta: amountWU,
         currency,
         description,
         createdAt: FieldValue.serverTimestamp(),
-        metadata: {
-          isSandbox: true,
-          userEmail,
-        }
+        metadata: { isSandbox: true, userEmail },
       });
     });
 
-    logger.info("Sandbox credit applied", { 
-      userId, 
-      amount, 
-      userEmail,
-      description 
-    });
+    logger.info("Sandbox credit applied", { userId, amount, currency, userEmail, description });
 
     res.status(200).json({
       success: true,
@@ -1149,7 +1200,7 @@ export const sandboxCredit = onRequest({
       creditedAmount: amount,
       currency,
       isSandbox: true,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
 
   } catch (error: any) {
@@ -1224,9 +1275,29 @@ export const sandboxDebit = onRequest({
       return;
     }
 
-    const currency = "XAF";
-    // B5 fix: store in raw XAF units (no centimes conversion)
-    const amountRaw = Math.round(amount);
+    // Derive currency + owner type SERVER-SIDE. sandboxDebit supports both
+    // pharmacy and courier, so the conversion depends on ownerType.
+    const resolved = await resolveCurrencyForWalletOwner(db, userId);
+    if (!resolved.ok) {
+      logger.error("sandboxDebit: cannot resolve wallet currency", {
+        userId,
+        reason: resolved.reason,
+      });
+      return sendError(
+        res,
+        new AppError(
+          "WALLET_CURRENCY_UNRESOLVED",
+          "Wallet configuration unavailable",
+          walletOwnerRefusalHttpStatus(resolved.reason),
+          resolved.reason
+        )
+      );
+    }
+    const { currency, ownerType } = resolved;
+
+    // NOTE: sandboxDebit is bounded ONLY by the available balance — it does
+    // NOT read sandboxMaxCreditMajor. That cap governs credit alone.
+    const amountWU = majorToWalletUnits(amount, ownerType as WalletOwnerKind);
 
     // Debit wallet with transaction
     await db.runTransaction(async (tx) => {
@@ -1238,44 +1309,46 @@ export const sandboxDebit = onRequest({
       }
 
       const currentWallet = walletDoc.data();
-      const currentAvailable = currentWallet?.available || 0;
-
-      // Check if sufficient balance
-      if (currentAvailable < amountRaw) {
-        throw BusinessErrors.INSUFFICIENT_FUNDS(
-          `Insufficient balance: ${currentAvailable} XAF available, ${amount} XAF requested`
+      const storedCurrency = currentWallet?.currency;
+      if (storedCurrency !== currency) {
+        throw new AppError(
+          "WALLET_CURRENCY_MISMATCH",
+          `Wallet currency ${storedCurrency} does not match owner currency ${currency}`,
+          409,
+          { userId, storedCurrency, expected: currency }
         );
       }
 
-      // Update wallet balance
-      const newAvailable = currentAvailable - amountRaw;
+      const currentAvailable = currentWallet?.available || 0;
+
+      // Sufficiency check in WALLET UNITS, same unit as the mutation.
+      if (currentAvailable < amountWU) {
+        throw BusinessErrors.INSUFFICIENT_FUNDS(
+          `Insufficient balance: ${currentAvailable} available (wallet units), ${amountWU} requested`
+        );
+      }
+
       tx.update(walletRef, {
-        available: newAvailable,
+        available: FieldValue.increment(-amountWU),
         updatedAt: FieldValue.serverTimestamp(),
       });
 
-      // Add ledger entry
+      // Ledger keeps `amount` in MAJOR; `walletUnitsDelta` is the converted
+      // (negative) delta.
       const ledgerRef = db.collection("ledger").doc();
       tx.set(ledgerRef, {
         userId,
         type: "sandbox_debit",
-        amount: amountRaw,
+        amount,
+        walletUnitsDelta: -amountWU,
         currency,
         description,
         createdAt: FieldValue.serverTimestamp(),
-        metadata: {
-          isSandbox: true,
-          userEmail,
-        }
+        metadata: { isSandbox: true, userEmail },
       });
     });
 
-    logger.info("Sandbox debit applied", {
-      userId,
-      amount,
-      userEmail,
-      description
-    });
+    logger.info("Sandbox debit applied", { userId, amount, currency, userEmail, description });
 
     res.status(200).json({
       success: true,
@@ -1284,7 +1357,7 @@ export const sandboxDebit = onRequest({
       debitedAmount: amount,
       currency,
       isSandbox: true,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
 
   } catch (error: any) {
