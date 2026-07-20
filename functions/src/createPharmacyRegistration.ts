@@ -41,6 +41,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
+import { checkCurrencyConfigured } from "./lib/currencyResolver.js";
 
 const auth = getAuth();
 const db = getFirestore();
@@ -177,6 +178,7 @@ export const createPharmacyRegistration = onCall<CreatePharmacyRegistrationInput
         licenseFormatRegex?: string;
         defaultCurrencyCode?: string;
       } | undefined>;
+      currencies?: Record<string, { enabled?: unknown } | undefined>;
     };
     const country = sysConfig.countries?.[countryCode];
     if (!country) {
@@ -286,18 +288,47 @@ export const createPharmacyRegistration = onCall<CreatePharmacyRegistrationInput
         createdAt: now,
       };
 
-      // Sprint 5 optimisation #3 (TD-WALLET-CURRENCY-SERVER-SIDE): derive the
-      // wallet currency from the country sysconfig server-side instead of
-      // trusting an absent client field. Old fallback was the hardcoded "XAF"
-      // string which broke every non-Cameroon pharmacy (e.g. Ghana → wallet in
-      // XAF instead of GHS). Client-supplied `profile.currency` is still
-      // honoured if present, but the new fallback uses `country.defaultCurrencyCode`
-      // from system_config (already loaded above), and only fails back to "XAF"
-      // if the country has none configured.
-      const walletCurrency =
-        (typeof profile.currency === "string" && profile.currency) ||
-        country.defaultCurrencyCode ||
-        "XAF";
+      // Currency sprint — the wallet currency is derived SERVER-SIDE from
+      // the country, and from nothing else.
+      //
+      // Sprint 5 optimisation #3 had introduced the country lookup but kept
+      // `profile.currency` (a CLIENT value) ahead of it, with a final "XAF"
+      // fallback. Two problems: the client could impose the currency of its
+      // own wallet, and a country with no configured currency silently
+      // minted an XAF wallet. `profile.currency` is now ignored entirely —
+      // deliberately not read, not even as a hint.
+      //
+      // The currency must also be one the platform actually operates in: a
+      // country naming a code proves nothing if `currencies[code]` is
+      // absent or disabled. Same check as the money-moving endpoints, on
+      // the snapshot already loaded above.
+      const derivedCurrency = country.defaultCurrencyCode;
+      if (typeof derivedCurrency !== "string" || derivedCurrency.length === 0) {
+        logger.error("createPharmacyRegistration: country has no currency", {
+          countryCode,
+          uid: createdUid,
+        });
+        throw new HttpsError(
+          "failed-precondition",
+          `Country ${countryCode} has no operating currency configured.`,
+          { code: "COUNTRY_CURRENCY_UNCONFIGURED" }
+        );
+      }
+      const currencySupport = checkCurrencyConfigured(sysConfig, derivedCurrency);
+      if (!currencySupport.ok) {
+        logger.error("createPharmacyRegistration: currency unusable", {
+          countryCode,
+          currency: derivedCurrency,
+          reason: currencySupport.reason,
+          uid: createdUid,
+        });
+        throw new HttpsError(
+          "failed-precondition",
+          `Currency ${derivedCurrency} is not available on this platform.`,
+          { code: "CURRENCY_NOT_SUPPORTED", reason: currencySupport.reason }
+        );
+      }
+      const walletCurrency = derivedCurrency;
       const walletDoc = {
         available: 0,
         held: 0,

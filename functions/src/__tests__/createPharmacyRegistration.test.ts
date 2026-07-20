@@ -158,10 +158,39 @@ const BASE_INPUT = {
   },
 };
 
-function setSysConfig(countries: Record<string, unknown>) {
+/**
+ * Currency sprint: the wallet currency is now derived from
+ * `country.defaultCurrencyCode` and validated against `currencies`, with no
+ * XAF fallback. Test countries therefore need a real currency, and the
+ * config needs a matching enabled `currencies` entry. Callers that pass a
+ * country map without `defaultCurrencyCode` are exercising the
+ * "unconfigured currency → refuse" branch on purpose.
+ */
+const DEFAULT_CURRENCIES = {
+  XAF: { code: "XAF", enabled: true, decimals: 0 },
+  GHS: { code: "GHS", enabled: true, decimals: 2 },
+};
+
+/** Standard operating currency per test country, injected when a fixture
+ *  does not specify one, so existing tests keep a valid wallet currency
+ *  without each having to spell it out. */
+const COUNTRY_CURRENCY: Record<string, string> = { CM: "XAF", GH: "GHS" };
+
+function setSysConfig(
+  countries: Record<string, unknown>,
+  currencies: Record<string, unknown> = DEFAULT_CURRENCIES
+) {
+  const withCurrency: Record<string, unknown> = {};
+  for (const [code, cfg] of Object.entries(countries)) {
+    const c = (cfg ?? {}) as Record<string, unknown>;
+    withCurrency[code] =
+      "defaultCurrencyCode" in c || !(code in COUNTRY_CURRENCY)
+        ? c
+        : { ...c, defaultCurrencyCode: COUNTRY_CURRENCY[code] };
+  }
   mockGet.mockResolvedValueOnce({
     exists: true,
-    data: () => ({ countries }),
+    data: () => ({ countries: withCurrency, currencies }),
   });
 }
 
@@ -356,6 +385,91 @@ describe("Sprint 3 — trial subscription init at registration", () => {
     const input = { ...BASE_INPUT, password: "short" };
     await expect(wrapped({ data: input } as any)).rejects.toMatchObject({
       code: "invalid-argument",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Currency sprint — wallet currency is derived from the country ONLY.
+// ---------------------------------------------------------------------------
+
+function lastWalletDocWritten(): Record<string, unknown> {
+  // The wallet entry is the batch.set payload carrying `available`/`held`
+  // but no `pharmacyName`.
+  for (const call of mockBatchSet.mock.calls) {
+    const [, payload] = call as [unknown, Record<string, unknown>];
+    if (
+      payload &&
+      typeof payload === "object" &&
+      "available" in payload &&
+      "currency" in payload &&
+      !("pharmacyName" in payload)
+    ) {
+      return payload;
+    }
+  }
+  throw new Error("No wallet batch.set call captured.");
+}
+
+describe("Currency sprint — wallet currency derivation", () => {
+  test("Ghana pharmacy → wallet in GHS", async () => {
+    setSysConfig({ GH: { licenseRequired: false } });
+    mockCreateUser.mockResolvedValueOnce({ uid: "gh-uid" });
+    const input = {
+      ...BASE_INPUT,
+      profileData: { ...BASE_INPUT.profileData, countryCode: "GH" },
+    };
+    await wrapped({ data: input } as any);
+    expect(lastWalletDocWritten()).toMatchObject({ currency: "GHS" });
+  });
+
+  test("client-supplied profile.currency is IGNORED", async () => {
+    // A modified client sends currency:"XAF" for a Ghana pharmacy. The
+    // server must derive GHS from the country and ignore the client value.
+    setSysConfig({ GH: { licenseRequired: false } });
+    mockCreateUser.mockResolvedValueOnce({ uid: "gh-forged-uid" });
+    const input = {
+      ...BASE_INPUT,
+      profileData: {
+        ...BASE_INPUT.profileData,
+        countryCode: "GH",
+        currency: "XAF", // forged
+      },
+    };
+    await wrapped({ data: input } as any);
+    expect(lastWalletDocWritten()).toMatchObject({ currency: "GHS" });
+  });
+
+  test("country with no defaultCurrencyCode → refuses, no wallet", async () => {
+    // Pass an explicit country config WITHOUT a currency (the helper only
+    // injects one when the field is absent AND the code is known; here we
+    // force an unknown-currency country).
+    setSysConfig({ CM: { licenseRequired: false, defaultCurrencyCode: undefined } });
+    mockCreateUser.mockResolvedValueOnce({ uid: "no-currency-uid" });
+    await expect(wrapped({ data: BASE_INPUT } as any)).rejects.toMatchObject({
+      code: "failed-precondition",
+    });
+  });
+
+  test("country currency absent from currencies map → refuses", async () => {
+    setSysConfig(
+      { CM: { licenseRequired: false, defaultCurrencyCode: "XAF" } },
+      { GHS: { code: "GHS", enabled: true } } // XAF deliberately missing
+    );
+    mockCreateUser.mockResolvedValueOnce({ uid: "unconfigured-uid" });
+    await expect(wrapped({ data: BASE_INPUT } as any)).rejects.toMatchObject({
+      code: "failed-precondition",
+    });
+  });
+
+  test("country currency disabled → refuses", async () => {
+    setSysConfig(
+      { CM: { licenseRequired: false, defaultCurrencyCode: "XAF" } },
+      { XAF: { code: "XAF", enabled: false } }
+    );
+    mockCreateUser.mockResolvedValueOnce({ uid: "disabled-uid" });
+    await expect(wrapped({ data: BASE_INPUT } as any)).rejects.toMatchObject({
+      code: "failed-precondition",
     });
   });
 });
