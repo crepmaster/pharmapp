@@ -143,6 +143,9 @@ export const SYSTEM_CONFIG = {
       decimals: 0,
       minWithdrawalMinor: 1000,
       symbol: "FCFA",
+      // Sandbox credit guard rail (major). Demo cap, NOT an FX equivalence.
+      // Enforced by sandboxCredit; mandatory (no backend fallback).
+      sandboxMaxCreditMajor: 100000,
     },
     GHS: {
       code: "GHS",
@@ -152,6 +155,8 @@ export const SYSTEM_CONFIG = {
       decimals: 2,
       minWithdrawalMinor: 10000,
       symbol: "GH₵",
+      // Sandbox credit guard rail (major). Demo cap, NOT an FX equivalence.
+      sandboxMaxCreditMajor: 2000,
     },
   },
   mobileMoneyProviders: {
