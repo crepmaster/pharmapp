@@ -27,6 +27,7 @@ import {
   isSandboxEnabled,
 } from "./lib/sandboxGate.js";
 import { getCountryDefaultCurrency } from "./lib/currencyResolver.js";
+import { majorToWalletUnits } from "./lib/moneyUnits.js";
 
 // Defence in depth: fail-fast at module load if SANDBOX_ENABLED slipped
 // through to prod. Called BEFORE any handler runs — makes a bad deploy
@@ -289,10 +290,19 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
         // Seller receives: medicine price minus their courier fee share
         const sellerNetCredit = totalAmount - halfSeller;
 
+        // Buyer and seller are pharmacies: their wallets store legacy
+        // `major × 100`. Convert every buyer/seller amount at the wallet
+        // boundary. The courier is a courier: its fee credit below stays raw
+        // major and is NEVER routed through this conversion. Business docs
+        // and ledgers keep major values.
+        const totalAmountWU = majorToWalletUnits(totalAmount, "pharmacy");
+        const halfBuyerWU = majorToWalletUnits(halfBuyer, "pharmacy");
+        const sellerNetCreditWU = majorToWalletUnits(sellerNetCredit, "pharmacy");
+
         // Verify buyer has sufficient available balance for courier fee share
         if (halfBuyer > 0) {
           const buyerAvailable = buyerWalletSnap.data()?.available || 0;
-          if (buyerAvailable < halfBuyer) {
+          if (buyerAvailable < halfBuyerWU) {
             logger.warn(
               `completeExchangeDelivery: Buyer ${buyerId} has insufficient balance for courier fee share`,
               { required: halfBuyer, available: buyerAvailable }
@@ -306,7 +316,7 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
 
         // Move buyer's deducted balance → gone (payment captured)
         transaction.update(buyerWalletRef, {
-          deducted: FieldValue.increment(-totalAmount),
+          deducted: FieldValue.increment(-totalAmountWU),
           updatedAt: FieldValue.serverTimestamp(),
         });
 
@@ -316,7 +326,7 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
         // the trade "loses" the halfBuyer amount from the system.
         if (halfBuyer > 0 && !sandboxDemoActive) {
           transaction.update(buyerWalletRef, {
-            available: FieldValue.increment(-halfBuyer),
+            available: FieldValue.increment(-halfBuyerWU),
             updatedAt: FieldValue.serverTimestamp(),
           });
         }
@@ -327,7 +337,7 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
         // seller the FULL `totalAmount` — the trade balance still ties out.
         transaction.update(sellerWalletRef, {
           available: FieldValue.increment(
-            sandboxDemoActive ? totalAmount : sellerNetCredit
+            sandboxDemoActive ? totalAmountWU : sellerNetCreditWU
           ),
           updatedAt: FieldValue.serverTimestamp(),
         });

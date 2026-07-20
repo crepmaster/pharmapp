@@ -316,7 +316,7 @@ describe("completeExchangeDelivery — sandbox bypass 4-case matrix (round-4 spe
       await callAs(BUYER);
       const halfBuyerDebit = findWalletIncrement(
         `wallets/${BUYER}`,
-        -HALF_BUYER
+        -HALF_BUYER * 100
       );
       expect(halfBuyerDebit).toBeUndefined();
     });
@@ -335,7 +335,7 @@ describe("completeExchangeDelivery — sandbox bypass 4-case matrix (round-4 spe
       const sellerCredit = findAnyWalletIncrement(`wallets/${SELLER}`);
       expect(sellerCredit).toBeDefined();
       expect((sellerCredit?.payload.available as { n?: number })?.n).toBe(
-        TOTAL_AMOUNT
+        TOTAL_AMOUNT * 100
       );
     });
   });
@@ -357,7 +357,7 @@ describe("completeExchangeDelivery — sandbox bypass 4-case matrix (round-4 spe
       await callAs(SELLER);
       const sellerCredit = findAnyWalletIncrement(`wallets/${SELLER}`);
       expect((sellerCredit?.payload.available as { n?: number })?.n).toBe(
-        TOTAL_AMOUNT
+        TOTAL_AMOUNT * 100
       );
     });
 
@@ -404,7 +404,7 @@ describe("completeExchangeDelivery — sandbox bypass 4-case matrix (round-4 spe
       await callAs(BUYER);
       const sellerCredit = findAnyWalletIncrement(`wallets/${SELLER}`);
       expect((sellerCredit?.payload.available as { n?: number })?.n).toBe(
-        TOTAL_AMOUNT
+        TOTAL_AMOUNT * 100
       );
     });
   });
@@ -438,7 +438,7 @@ describe("completeExchangeDelivery — sandbox bypass 4-case matrix (round-4 spe
       await callAs(OUTSIDER_COURIER);
       const halfBuyerDebit = findWalletIncrement(
         `wallets/${BUYER}`,
-        -HALF_BUYER
+        -HALF_BUYER * 100
       );
       expect(halfBuyerDebit).toBeDefined();
     });
@@ -447,7 +447,7 @@ describe("completeExchangeDelivery — sandbox bypass 4-case matrix (round-4 spe
       await callAs(OUTSIDER_COURIER);
       const sellerCredit = findAnyWalletIncrement(`wallets/${SELLER}`);
       expect((sellerCredit?.payload.available as { n?: number })?.n).toBe(
-        SELLER_NET_CREDIT
+        SELLER_NET_CREDIT * 100
       );
     });
 
@@ -460,7 +460,7 @@ describe("completeExchangeDelivery — sandbox bypass 4-case matrix (round-4 spe
       await callAs(OUTSIDER_COURIER);
       const sellerCredit = findAnyWalletIncrement(`wallets/${SELLER}`);
       expect((sellerCredit?.payload.available as { n?: number })?.n).toBe(
-        SELLER_NET_CREDIT
+        SELLER_NET_CREDIT * 100
       );
     });
   });

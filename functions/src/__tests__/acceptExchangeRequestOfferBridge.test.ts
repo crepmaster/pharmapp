@@ -48,7 +48,10 @@ jest.mock("firebase-functions/logger", () => ({
   error: jest.fn(),
 }));
 
-import { acceptExchangeRequestOfferIntoCanonicalProposal } from "../lib/requestProposalBridge.js";
+import {
+  acceptExchangeRequestOfferIntoCanonicalProposal,
+  acceptRequestOfferIntoCanonicalProposal,
+} from "../lib/requestProposalBridge.js";
 
 // ---------------------------------------------------------------------------
 // Fake Firestore world
@@ -565,5 +568,86 @@ describe("acceptExchangeRequestOfferIntoCanonicalProposal — negative paths", (
     await expectThrow((w) => {
       w.medicineRequests[REQUEST_ID].data!.requestMode = "purchase";
     }, "failed-precondition");
+  });
+});
+
+// ===========================================================================
+// PURCHASE bridge — wallet-unit lock (currency sprint E1)
+// ===========================================================================
+//
+// acceptRequestOfferIntoCanonicalProposal debits the BUYER (a pharmacy)
+// wallet. Its wallet stores legacy `major × 100`, but totalPrice is major.
+// Both the sufficiency check and the debit must convert; the ledger `amount`
+// and the business docs stay major.
+
+const PURCHASE_TOTAL_MAJOR = 20;
+const PURCHASE_TOTAL_WU = PURCHASE_TOTAL_MAJOR * 100; // 2000
+
+function purchaseWorld(buyerAvailable: number): FakeWorld {
+  const w = defaultWorld();
+  // Flip the request + accepted offer to purchase.
+  w.medicineRequests[REQUEST_ID].data!.requestMode = "purchase";
+  w.medicineRequestOffers[OFFER_ID].data = {
+    requestId: REQUEST_ID,
+    status: "pending",
+    offerType: "purchase",
+    sellerPharmacyId: SELLER,
+    inventoryItemId: SELLER_INV_ID,
+    offeredQuantity: 10,
+    totalPrice: PURCHASE_TOTAL_MAJOR, // major, business value
+    currencyCode: "GHS",
+  };
+  // Drop the competing exchange offer to keep the purchase path clean.
+  delete w.medicineRequestOffers[OTHER_OFFER_ID];
+  w.offersByRequest[REQUEST_ID] = [{ id: OFFER_ID, data: { status: "pending" } }];
+  // Buyer pharmacy wallet, seeded in legacy units (× 100).
+  (w as unknown as Record<string, Record<string, FakeDoc>>).wallets = {
+    [REQUESTER]: {
+      exists: true,
+      data: { available: buyerAvailable, held: 0, deducted: 0, currency: "GHS" },
+    },
+  };
+  return w;
+}
+
+async function runPurchaseBridge(world: FakeWorld) {
+  const { fakeDb, tx, writes } = buildFakeFirestore(world);
+  for (const k of Object.keys(dbStub)) delete dbStub[k];
+  Object.assign(dbStub, fakeDb);
+  const result = await acceptRequestOfferIntoCanonicalProposal(tx as never, {
+    callerUid: REQUESTER,
+    requestId: REQUEST_ID,
+    offerId: OFFER_ID,
+  });
+  return { result, writes };
+}
+
+describe("acceptRequestOfferIntoCanonicalProposal — wallet-unit lock", () => {
+  test("insufficient: available 1999 < 2000 WU (20 major × 100) → throws, no debit", async () => {
+    await expect(runPurchaseBridge(purchaseWorld(PURCHASE_TOTAL_WU - 1))).rejects.toMatchObject({
+      code: "failed-precondition",
+    });
+  });
+
+  test("sufficient: available exactly 2000 WU → succeeds", async () => {
+    const { writes } = await runPurchaseBridge(purchaseWorld(PURCHASE_TOTAL_WU));
+    const walletWrite = writes.find((w) => w.collection === "wallets");
+    expect(walletWrite).toBeDefined();
+  });
+
+  test("debit converts to wallet units: available -2000, deducted +2000", async () => {
+    const { writes } = await runPurchaseBridge(purchaseWorld(PURCHASE_TOTAL_WU));
+    const walletWrite = writes.find((w) => w.collection === "wallets")!;
+    expect((walletWrite.data.available as { n?: number })?.n).toBe(-PURCHASE_TOTAL_WU);
+    expect((walletWrite.data.deducted as { n?: number })?.n).toBe(PURCHASE_TOTAL_WU);
+  });
+
+  test("ledger amount stays MAJOR (20), not wallet units", async () => {
+    const { writes } = await runPurchaseBridge(purchaseWorld(PURCHASE_TOTAL_WU));
+    const ledgerWrite = writes.find(
+      (w) => w.collection === "ledger" && w.data.type === "proposal_wallet_hold_created"
+    );
+    expect(ledgerWrite).toBeDefined();
+    expect(ledgerWrite!.data.amount).toBe(PURCHASE_TOTAL_MAJOR);
   });
 });

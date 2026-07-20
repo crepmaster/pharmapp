@@ -24,6 +24,7 @@ import * as logger from "firebase-functions/logger";
 import { citySlug } from "./cityUtils.js";
 import { assertLicenseAllowsMarketplace } from "./lib/licenseGate.js";
 import { resolveCourierFee } from "./lib/exchangePipeline.js";
+import { majorToWalletUnits } from "./lib/moneyUnits.js";
 
 const db = getFirestore();
 
@@ -297,10 +298,17 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
           .collection("wallets")
           .doc(proposal.fromPharmacyId);
 
-        // Move balance from held → deducted (ready for payment capture after delivery)
+        // Move balance from held → deducted (ready for payment capture after
+        // delivery). The buyer is a pharmacy: convert the major
+        // `walletReserved` to legacy `major × 100` wallet units. The doc
+        // keeps walletReserved in major; only the wallet write is converted.
+        const reservedWalletUnits = majorToWalletUnits(
+          proposal.reservations.walletReserved,
+          "pharmacy"
+        );
         transaction.update(walletRef, {
-          held: FieldValue.increment(-proposal.reservations.walletReserved),
-          deducted: FieldValue.increment(proposal.reservations.walletReserved),
+          held: FieldValue.increment(-reservedWalletUnits),
+          deducted: FieldValue.increment(reservedWalletUnits),
           updatedAt: FieldValue.serverTimestamp(),
         });
 

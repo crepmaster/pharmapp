@@ -19,6 +19,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
+import { majorToWalletUnits } from "./lib/moneyUnits.js";
 
 const db = getFirestore();
 
@@ -116,10 +117,17 @@ export const cancelExchangeProposal = onCall<CancelProposalData>(
           .collection("wallets")
           .doc(proposal.fromPharmacyId);
 
-        // Atomic: Move balance from held → available
+        // Atomic: Move balance from held → available. Buyer is a pharmacy →
+        // convert the major walletReserved to legacy `major × 100` units.
+        // Must mirror the acceptExchangeProposal / createExchangeProposal
+        // conversion exactly, or a release would not undo the reservation.
+        const reservedWalletUnits = majorToWalletUnits(
+          proposal.reservations.walletReserved,
+          "pharmacy"
+        );
         transaction.update(walletRef, {
-          available: FieldValue.increment(proposal.reservations.walletReserved),
-          held: FieldValue.increment(-proposal.reservations.walletReserved),
+          available: FieldValue.increment(reservedWalletUnits),
+          held: FieldValue.increment(-reservedWalletUnits),
           updatedAt: FieldValue.serverTimestamp(),
         });
 

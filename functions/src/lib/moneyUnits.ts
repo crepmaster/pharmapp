@@ -13,6 +13,54 @@
  */
 export const MONEY_SCHEMA_VERSION = 1;
 
+/** Wallet owner kinds, which determine the legacy storage convention. */
+export type WalletOwnerKind = "pharmacy" | "courier";
+
+/**
+ * Convert a MAJOR-unit business amount into the legacy wallet-storage units
+ * for a given owner, at the wallet WRITE boundary.
+ *
+ * Two conventions coexist in the `wallets` collection by architect mandate
+ * (see createWithdrawalRequest.ts and the pharmacy dashboard ÷100 vs the
+ * courier widget's raw display). This is the single place that encodes both,
+ * so no `* 100` is scattered across the pipeline:
+ *
+ *   - pharmacy: legacy `major × 100` (dashboard divides by 100, paystack and
+ *     withdrawal already use this convention);
+ *   - courier: raw major (widget shows as-is; the existing courier-fee credit
+ *     in completeExchangeDelivery is already correct and must NOT be routed
+ *     through the pharmacy branch).
+ *
+ * Business documents keep amounts in MAJOR (totalPrice, walletReserved,
+ * courierFee, ledger `amount`). Only the wallet write is converted.
+ *
+ * Rounding: pharmacy amounts are rounded to an integer number of legacy
+ * units (major×100), which is exact for ≤2-decimal currencies. Courier
+ * amounts are returned as-is and may be non-integer for 2-decimal
+ * currencies — matching the raw-major courier wallet contract.
+ *
+ * Fail-loud on non-finite or negative input: a bad amount must never be
+ * silently coerced into a wallet balance.
+ */
+export function majorToWalletUnits(
+  major: number,
+  ownerType: WalletOwnerKind
+): number {
+  if (typeof major !== "number" || !Number.isFinite(major)) {
+    throw new Error(`majorToWalletUnits: invalid major amount ${major}`);
+  }
+  if (major < 0) {
+    throw new Error(`majorToWalletUnits: negative major amount ${major}`);
+  }
+  if (ownerType === "pharmacy") {
+    return Math.round(major * 100);
+  }
+  if (ownerType === "courier") {
+    return major;
+  }
+  throw new Error(`majorToWalletUnits: unknown ownerType ${ownerType}`);
+}
+
 /**
  * Static fallback for currency decimals when system_config read fails.
  * Covers the markets currently configured in system_config/main.

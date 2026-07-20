@@ -22,6 +22,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { citySlug } from "./cityUtils.js";
 import { assertLicenseAllowsMarketplace } from "./lib/licenseGate.js";
+import { majorToWalletUnits } from "./lib/moneyUnits.js";
 import {
   buildCanonicalProposalDocument,
   reserveExchangeInventory,
@@ -271,7 +272,13 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
           const wallet = walletSnapshot.data();
           const availableBalance = wallet?.available || 0;
 
-          if (availableBalance < details.totalPrice!) {
+          // The buyer is a pharmacy; its wallet stores legacy `major × 100`
+          // units. `totalPrice` is major, so BOTH the balance check and the
+          // reservation must convert it — comparing/moving the same unit as
+          // the stored balance. The ledger `amount` below stays in major.
+          const reservedWalletUnits = majorToWalletUnits(details.totalPrice!, "pharmacy");
+
+          if (availableBalance < reservedWalletUnits) {
             logger.info(
               `createExchangeProposal: Insufficient balance for user ${userId}`,
               { required: details.totalPrice, available: availableBalance }
@@ -291,14 +298,14 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
           // 🔒 ATOMIC: Reserve balance (deduct from available, add to held)
           // This prevents race condition where multiple proposals deplete balance
           transaction.update(walletRef, {
-            available: FieldValue.increment(-details.totalPrice!),
-            held: FieldValue.increment(details.totalPrice!),
+            available: FieldValue.increment(-reservedWalletUnits),
+            held: FieldValue.increment(reservedWalletUnits),
             updatedAt: FieldValue.serverTimestamp(),
           });
 
           logger.info(
             `createExchangeProposal: Reserved ${details.totalPrice} ${details.currency} from wallet`,
-            { userId, availableBalance, newAvailable: availableBalance - details.totalPrice! }
+            { userId, availableBalance, reservedWalletUnits }
           );
 
         }

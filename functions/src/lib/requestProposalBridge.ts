@@ -26,6 +26,7 @@ import {
 import * as logger from "firebase-functions/logger";
 import { HttpsError } from "firebase-functions/v2/https";
 import { citySlug } from "../cityUtils.js";
+import { majorToWalletUnits } from "./moneyUnits.js";
 import {
   buildCanonicalDeliveryDocument,
   buildCanonicalProposalDocument,
@@ -143,7 +144,11 @@ export async function acceptRequestOfferIntoCanonicalProposal(
   const buyerWalletSnap = await transaction.get(buyerWalletRef);
   const buyerWallet = buyerWalletSnap.exists ? buyerWalletSnap.data()! : null;
   const buyerAvailable = (buyerWallet?.available as number) || 0;
-  if (buyerAvailable < totalPrice) {
+  // Buyer is a pharmacy: its wallet stores legacy `major × 100`. `totalPrice`
+  // is major, so the check and the debit below both convert it. The ledger
+  // `amount` stays in major.
+  const totalPriceWalletUnits = majorToWalletUnits(totalPrice, "pharmacy");
+  if (buyerAvailable < totalPriceWalletUnits) {
     throw new HttpsError(
       "failed-precondition",
       `Insufficient wallet balance. Available: ${buyerAvailable}, required: ${totalPrice}.`
@@ -194,10 +199,11 @@ export async function acceptRequestOfferIntoCanonicalProposal(
 
   const now = FieldValue.serverTimestamp();
 
-  // Wallet: available → deducted (skip held, immediate acceptance)
+  // Wallet: available → deducted (skip held, immediate acceptance).
+  // Converted to legacy pharmacy units; ledger below stays major.
   transaction.update(buyerWalletRef, {
-    available: FieldValue.increment(-totalPrice),
-    deducted: FieldValue.increment(totalPrice),
+    available: FieldValue.increment(-totalPriceWalletUnits),
+    deducted: FieldValue.increment(totalPriceWalletUnits),
     updatedAt: now,
   });
 
