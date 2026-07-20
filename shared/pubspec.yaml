@@ -29,6 +29,11 @@ dependencies:
   # HTTP
   http: ^1.2.0
 
+  # i18n / number formatting — used by MoneyFormatter (shared/lib/money/).
+  # Also pulled by pharmapp_unified and admin_panel individually — keeping
+  # the same major version here avoids resolver drift.
+  intl: ^0.18.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
