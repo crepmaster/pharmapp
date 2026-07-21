@@ -535,8 +535,12 @@ class _InventoryBrowserScreenState extends State<InventoryBrowserScreen>
             const SizedBox(height: 12),
             Row(
               children: [
+                // Marketplace card: show what the seller OFFERS, not what it
+                // holds. A pharmacy publishing 15 of 60 was advertised as
+                // having 60 available — the published limit was stored and
+                // never read. `offeredQuantity` is min(stock, published).
                 _buildInfoChip(
-                    '${item.availableQuantity} ${item.packaging} available',
+                    '${item.offeredQuantity} ${item.packaging} available',
                     Colors.green),
                 const SizedBox(width: 8),
                 Container(

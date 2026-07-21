@@ -291,8 +291,11 @@ class InventoryService {
           .where((item) {
             // Filter out expired items
             if (item.isExpired) return false;
-            // Filter out items with no available quantity
-            if (item.availableQuantity <= 0) return false;
+            // Filter out items offering nothing. Uses the OFFERED quantity
+            // (min of stock and published limit) so an item whose published
+            // allowance is exhausted drops out of the marketplace even while
+            // stock remains.
+            if (item.offeredQuantity <= 0) return false;
             return true;
           })
           .toList();
