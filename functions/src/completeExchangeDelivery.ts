@@ -79,8 +79,43 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
       { photoProofUrl, deliveryNotes }
     );
 
-    // 🔒 ATOMIC TRANSACTION: Complete delivery + finalize payment + update inventory
-    const result = await db.runTransaction(async (transaction) => {
+    // Delegates to the shared settlement core so the staging cockpit
+    // (sandboxDeliveryAdvance) can drive the EXACT same path with no
+    // duplication of financial logic.
+    return completeDeliveryCore({
+      deliveryId,
+      userId,
+      photoProofUrl,
+      deliveryNotes,
+      latitude,
+      longitude,
+    });
+  }
+);
+
+/**
+ * Shared settlement core — single source of truth for delivery completion:
+ * wallet settlement + ledger + inventory + status→delivered. Extracted
+ * verbatim (behavior-preserving) from the callable so the staging cockpit
+ * reuses the SAME transaction instead of duplicating financial writes.
+ *
+ * Exactly-once is enforced by the delivery-status guard inside the
+ * transaction (validStartStatuses excludes 'delivered'): a second call
+ * re-reads status='delivered' and throws failed-precondition. Callers run
+ * this inside their own single runTransaction; it is never nested.
+ */
+export async function completeDeliveryCore(args: {
+  deliveryId: string;
+  userId: string;
+  photoProofUrl?: string | null;
+  deliveryNotes?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+}) {
+  const { deliveryId, userId, photoProofUrl, deliveryNotes, latitude, longitude } = args;
+
+  // 🔒 ATOMIC TRANSACTION: Complete delivery + finalize payment + update inventory
+  const result = await db.runTransaction(async (transaction) => {
       // ===== PHASE 1: READ DELIVERY AND PROPOSAL =====
 
       const deliveryRef = db.collection("deliveries").doc(deliveryId);
@@ -658,8 +693,7 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
         paymentProcessed: proposal?.details?.type === "purchase",
         inventoryUpdated: true,
       };
-    });
+  });
 
-    return result;
-  }
-);
+  return result;
+}
