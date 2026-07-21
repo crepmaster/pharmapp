@@ -54,8 +54,8 @@ class ExchangeStatusScreen extends StatelessWidget {
           // authorization on acceptExchangeProposal / rejectExchangeProposal
           // (both throw permission-denied for a non-receiver caller).
           final currentUid = FirebaseAuth.instance.currentUser?.uid;
-          final isReceiver = currentUid != null &&
-              currentUid == proposal.toPharmacyId;
+          final isReceiver =
+              currentUid != null && currentUid == proposal.toPharmacyId;
           final isExchange =
               proposal.details.proposalType == ProposalType.exchange;
 
@@ -126,7 +126,8 @@ class ExchangeStatusScreen extends StatelessWidget {
                               children: [
                                 Expanded(
                                   child: ElevatedButton(
-                                    onPressed: () => _acceptProposal(context, proposal),
+                                    onPressed: () =>
+                                        _acceptProposal(context, proposal),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: Colors.green,
                                       foregroundColor: Colors.white,
@@ -137,7 +138,8 @@ class ExchangeStatusScreen extends StatelessWidget {
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: ElevatedButton(
-                                    onPressed: () => _rejectProposal(context, proposal),
+                                    onPressed: () =>
+                                        _rejectProposal(context, proposal),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: Colors.red,
                                       foregroundColor: Colors.white,
@@ -196,8 +198,12 @@ class ExchangeStatusScreen extends StatelessWidget {
                         const SizedBox(height: 12),
                         _buildPharmacyNameRow('From', proposal.fromPharmacyId),
                         _buildPharmacyNameRow('To', proposal.toPharmacyId),
-                        _buildDetailRow('Type',
-                            proposal.details.proposalType.toString().split('.').last),
+                        _buildDetailRow(
+                            'Type',
+                            proposal.details.proposalType
+                                .toString()
+                                .split('.')
+                                .last),
                         _buildDetailRow('Requested quantity',
                             '${proposal.details.requestedQuantity}'),
                         // Purchase-only rows — hidden for exchange, where
@@ -238,13 +244,13 @@ class ExchangeStatusScreen extends StatelessWidget {
                             _buildDetailRow(
                               'Medicine',
                               '${proposal.details.exchangeInventorySnapshot!.medicineName}'
-                              '${proposal.details.exchangeInventorySnapshot!.dosage.isNotEmpty ? " ${proposal.details.exchangeInventorySnapshot!.dosage}" : ""}'
-                              '${proposal.details.exchangeInventorySnapshot!.form.isNotEmpty ? " • ${proposal.details.exchangeInventorySnapshot!.form}" : ""}',
+                                  '${proposal.details.exchangeInventorySnapshot!.dosage.isNotEmpty ? " ${proposal.details.exchangeInventorySnapshot!.dosage}" : ""}'
+                                  '${proposal.details.exchangeInventorySnapshot!.form.isNotEmpty ? " • ${proposal.details.exchangeInventorySnapshot!.form}" : ""}',
                             ),
                             _buildDetailRow(
                               'Barter quantity',
                               '${proposal.details.exchangeQuantity ?? 0}'
-                              '${(proposal.details.exchangeInventorySnapshot!.packaging ?? "").isNotEmpty ? " ${proposal.details.exchangeInventorySnapshot!.packaging}" : ""}',
+                                  '${(proposal.details.exchangeInventorySnapshot!.packaging ?? "").isNotEmpty ? " ${proposal.details.exchangeInventorySnapshot!.packaging}" : ""}',
                             ),
                             if ((proposal.details.exchangeInventorySnapshot!
                                         .lotNumber ??
@@ -276,7 +282,7 @@ class ExchangeStatusScreen extends StatelessWidget {
 
                 if (proposal.deliveryInfo != null) ...[
                   const SizedBox(height: 16),
-                  
+
                   // Delivery Information
                   Card(
                     child: Padding(
@@ -293,17 +299,28 @@ class ExchangeStatusScreen extends StatelessWidget {
                           ),
                           const SizedBox(height: 12),
                           if (proposal.deliveryInfo!.courierId != null)
-                            _buildDetailRow('Courier', proposal.deliveryInfo!.courierId!),
-                          _buildDetailRow('Delivery Type', 
-                              proposal.deliveryInfo!.deliveryType.toString().split('.').last),
-                          _buildDetailRow('Status', 
-                              proposal.deliveryInfo!.deliveryStatus.toString().split('.').last),
+                            _buildDetailRow(
+                                'Courier', proposal.deliveryInfo!.courierId!),
+                          _buildDetailRow(
+                              'Delivery Type',
+                              proposal.deliveryInfo!.deliveryType
+                                  .toString()
+                                  .split('.')
+                                  .last),
+                          _buildDetailRow(
+                              'Status',
+                              proposal.deliveryInfo!.deliveryStatus
+                                  .toString()
+                                  .split('.')
+                                  .last),
                           if (proposal.deliveryInfo!.deliveryFee != null)
-                            _buildDetailRow('Delivery Fee', 
+                            _buildDetailRow('Delivery Fee',
                                 '${proposal.deliveryInfo!.deliveryFee} XAF'),
                           if (proposal.deliveryInfo!.estimatedDelivery != null)
-                            _buildDetailRow('Estimated Delivery', 
-                                proposal.deliveryInfo!.estimatedDelivery!.toString()),
+                            _buildDetailRow(
+                                'Estimated Delivery',
+                                proposal.deliveryInfo!.estimatedDelivery!
+                                    .toString()),
                         ],
                       ),
                     ),
@@ -313,7 +330,6 @@ class ExchangeStatusScreen extends StatelessWidget {
                 // Delivery status from backend (if linked)
                 if (linkedDeliveryId != null) ...[
                   const SizedBox(height: 16),
-
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
@@ -339,22 +355,26 @@ class ExchangeStatusScreen extends StatelessWidget {
                                 .doc(linkedDeliveryId)
                                 .snapshots(),
                             builder: (context, snapshot) {
-                              if (snapshot.connectionState == ConnectionState.waiting) {
+                              if (snapshot.connectionState ==
+                                  ConnectionState.waiting) {
                                 return const CircularProgressIndicator();
                               }
 
                               if (snapshot.hasError || !snapshot.hasData) {
-                                return Text('Error loading delivery status: ${snapshot.error}');
+                                return Text(
+                                    'Error loading delivery status: ${snapshot.error}');
                               }
 
                               if (!snapshot.data!.exists) {
-                                return Text('Delivery $linkedDeliveryId not found yet.');
+                                return Text(
+                                    'Delivery $linkedDeliveryId not found yet.');
                               }
 
                               final deliveryData =
                                   snapshot.data!.data() as Map<String, dynamic>;
                               final status =
-                                  (deliveryData['status'] ?? 'pending').toString();
+                                  (deliveryData['status'] ?? 'pending')
+                                      .toString();
                               final courierId =
                                   deliveryData['courierId']?.toString();
                               final paymentStatus =
@@ -366,14 +386,17 @@ class ExchangeStatusScreen extends StatelessWidget {
                                   _buildDetailRow('Status', status),
                                   if (courierId != null && courierId.isNotEmpty)
                                     _buildDetailRow('Courier', courierId),
-                                  if (paymentStatus != null && paymentStatus.isNotEmpty)
+                                  if (paymentStatus != null &&
+                                      paymentStatus.isNotEmpty)
                                     _buildDetailRow('Payment', paymentStatus),
                                   if (kUseStaging) ...[
                                     const SizedBox(height: 12),
                                     const Divider(),
-                                    _DemoDeliveryActions(
+                                    DemoDeliveryActions(
                                       deliveryId: linkedDeliveryId,
                                       currentStatus: status,
+                                      journey: deliveryData['sandboxJourney']
+                                          as Map<String, dynamic>?,
                                     ),
                                   ],
                                 ],
@@ -403,7 +426,7 @@ class ExchangeStatusScreen extends StatelessWidget {
                         Expanded(
                           child: Text(
                             kUseStaging
-                                ? 'Demo mode — use the "Pickup" / "Delivered" buttons above to walk the delivery through its states. The status refreshes in real time.'
+                                ? 'Demo mode — use the delivery controls above to walk the delivery through its steps. The status refreshes in real time.'
                                 : 'Delivery is in progress. Assigned courier updates completion from the courier app.',
                             style: TextStyle(color: Colors.blue.shade700),
                           ),
@@ -421,7 +444,10 @@ class ExchangeStatusScreen extends StatelessWidget {
 
   Widget _buildPharmacyNameRow(String label, String pharmacyId) {
     return FutureBuilder<DocumentSnapshot>(
-      future: FirebaseFirestore.instance.collection('pharmacies').doc(pharmacyId).get(),
+      future: FirebaseFirestore.instance
+          .collection('pharmacies')
+          .doc(pharmacyId)
+          .get(),
       builder: (context, snapshot) {
         String name = pharmacyId;
         if (snapshot.hasData && snapshot.data!.exists) {
@@ -477,7 +503,8 @@ class ExchangeStatusScreen extends StatelessWidget {
     }
   }
 
-  Future<void> _acceptProposal(BuildContext context, ExchangeProposal proposal) async {
+  Future<void> _acceptProposal(
+      BuildContext context, ExchangeProposal proposal) async {
     try {
       final deliveryId = await proposal.acceptProposal();
 
@@ -499,9 +526,10 @@ class ExchangeStatusScreen extends StatelessWidget {
     }
   }
 
-  Future<void> _rejectProposal(BuildContext context, ExchangeProposal proposal) async {
+  Future<void> _rejectProposal(
+      BuildContext context, ExchangeProposal proposal) async {
     final reasonController = TextEditingController();
-    
+
     final reason = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
@@ -529,7 +557,8 @@ class ExchangeStatusScreen extends StatelessWidget {
 
     if (reason != null) {
       try {
-        await proposal.rejectProposal(reason.isEmpty ? 'No reason provided' : reason);
+        await proposal
+            .rejectProposal(reason.isEmpty ? 'No reason provided' : reason);
 
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -551,52 +580,143 @@ class ExchangeStatusScreen extends StatelessWidget {
   }
 }
 
-/// Two-button demo panel embedded in the Delivery Status card. Only ever
-/// rendered when the app was built with `--dart-define=USE_STAGING=true`
-/// (the outer `if (kUseStaging)` guard means the entire subtree tree-shakes
-/// out on prod builds — this widget's body is unreachable in production).
+/// Human labels for a journey action (also drives the button text).
+const Map<String, String> _kJourneyActionLabels = {
+  'start_pickup': 'Start pickup',
+  'confirm_pickup': 'Confirm pickup',
+  'start_delivery': 'Start delivery',
+  'confirm_delivered': 'Confirm delivered',
+  'start_return_pickup': 'Start return pickup',
+  'confirm_return_pickup': 'Confirm return pickup',
+  'start_return_delivery': 'Start return delivery',
+  'confirm_return_delivered': 'Confirm return delivered',
+};
+
+/// Human labels for the current journey phase (display only).
+const Map<String, String> _kPhaseLabels = {
+  'assigned': 'Assigned',
+  'en_route_to_pickup': 'On the way to pickup',
+  'picked_up': 'Picked up',
+  'en_route_to_dropoff': 'On the way to drop-off',
+  'delivered': 'Delivered',
+  'not_required': 'No return',
+  'awaiting_return': 'Awaiting return',
+  'en_route_to_return_pickup': 'On the way to return pickup',
+  'return_picked_up': 'Return picked up',
+  'en_route_to_return_dropoff': 'On the way to return drop-off',
+  'return_delivered': 'Return delivered',
+};
+
+/// Pure derivation of the SINGLE next allowed journey action from the
+/// current phases. Returns null when nothing remains (delivered with no
+/// return, or return_delivered). Return actions are only offered when
+/// [returnRequired] is true. Exported (library-private) + pure so it is
+/// unit-testable without a widget.
+String? nextJourneyAction({
+  required String outboundPhase,
+  required bool returnRequired,
+  required String returnPhase,
+}) {
+  switch (outboundPhase) {
+    case 'assigned':
+      return 'start_pickup';
+    case 'en_route_to_pickup':
+      return 'confirm_pickup';
+    case 'picked_up':
+      return 'start_delivery';
+    case 'en_route_to_dropoff':
+      return 'confirm_delivered';
+    case 'delivered':
+      if (!returnRequired) return null;
+      switch (returnPhase) {
+        case 'not_required':
+        case 'awaiting_return':
+          return 'start_return_pickup';
+        case 'en_route_to_return_pickup':
+          return 'confirm_return_pickup';
+        case 'return_picked_up':
+          return 'start_return_delivery';
+        case 'en_route_to_return_dropoff':
+          return 'confirm_return_delivered';
+        default:
+          return null; // return_delivered
+      }
+    default:
+      return null;
+  }
+}
+
+/// Derive the outbound phase from the journey (preferred) or synthesize it
+/// from the canonical delivery status when no journey exists yet.
+String outboundPhaseFor(Map<String, dynamic>? journey, String status) {
+  final p = journey?['outboundPhase'];
+  if (p is String && p.isNotEmpty) return p;
+  if (status == 'picked_up' || status == 'in_transit') return 'picked_up';
+  if (status == 'delivered' || status == 'completed') return 'delivered';
+  return 'assigned';
+}
+
+/// "Demo delivery controls" — staging-only manual progression embedded in the
+/// Delivery Status card. Rendered only under `if (kUseStaging)` (the subtree
+/// tree-shakes out of prod builds). GPS-free: every step is a button that
+/// calls `sandboxDeliveryAdvance` with the next journey action; the backend
+/// is authoritative (`confirm_delivered` runs the canonical settlement).
 ///
-/// Buttons drive the delivery lifecycle without a real courier:
-///   - "Pickup"   (visible when status == 'pending')
-///                calls the `sandboxDeliveryAdvance` callable
-///                → writes status='picked_up' + courierId=<caller uid>.
-///   - "Delivered" (visible when status ∈ {'picked_up','in_transit'})
-///                calls `completeExchangeDelivery` — the same callable prod
-///                couriers use — which now carries a symmetrical sandbox
-///                bypass letting buyer/seller play the courier and running
-///                the full settlement transaction (wallet swap + inventory
-///                transfer). No courier fee is applied in this mode.
-///
-/// The parent StreamBuilder on the delivery doc means the on-screen status
-/// updates in real time as the buttons write to Firestore.
-class _DemoDeliveryActions extends StatefulWidget {
+/// Shows the current phase and ONLY the next allowed action. Return controls
+/// appear only when the journey's `returnRequired` is true. The parent
+/// StreamBuilder refreshes the phase in real time after each write.
+class DemoDeliveryActions extends StatefulWidget {
   final String deliveryId;
   final String currentStatus;
+  final Map<String, dynamic>? journey;
 
-  const _DemoDeliveryActions({
+  /// Test seam: when provided, actions call this instead of the real
+  /// `sandboxDeliveryAdvance` callable. Lets widget tests exercise the
+  /// spinner / disabled / error paths without Firebase. Never set in prod.
+  final Future<void> Function(String action)? actionRunner;
+
+  const DemoDeliveryActions({
+    super.key,
     required this.deliveryId,
     required this.currentStatus,
+    this.journey,
+    this.actionRunner,
   });
 
   @override
-  State<_DemoDeliveryActions> createState() => _DemoDeliveryActionsState();
+  State<DemoDeliveryActions> createState() => DemoDeliveryActionsState();
 }
 
-class _DemoDeliveryActionsState extends State<_DemoDeliveryActions> {
+class DemoDeliveryActionsState extends State<DemoDeliveryActions> {
   bool _busy = false;
 
-  Future<void> _run({
-    required String callable,
-    required Map<String, dynamic> data,
+  bool get _returnRequired => widget.journey?['returnRequired'] == true;
+  String get _returnPhase =>
+      (widget.journey?['returnPhase'] as String?) ?? 'not_required';
+  String get _outboundPhase =>
+      outboundPhaseFor(widget.journey, widget.currentStatus);
+
+  Future<void> _defaultRun(String action) => FirebaseFunctions.instanceFor(
+        region: 'europe-west1',
+      ).httpsCallable('sandboxDeliveryAdvance').call<Map<String, dynamic>>(
+        {'deliveryId': widget.deliveryId, 'action': action},
+      ).then((_) {});
+
+  Future<void> _runAction(String action, {required String successMessage}) =>
+      _run(
+        () => (widget.actionRunner ?? _defaultRun)(action),
+        successMessage: successMessage,
+      );
+
+  Future<void> _run(
+    Future<void> Function() op, {
     required String successMessage,
   }) async {
     if (_busy) return;
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
-      await FirebaseFunctions.instanceFor(region: 'europe-west1')
-          .httpsCallable(callable)
-          .call<Map<String, dynamic>>(data);
+      await op();
       messenger.showSnackBar(
         SnackBar(
           content: Text(successMessage),
@@ -623,15 +743,17 @@ class _DemoDeliveryActionsState extends State<_DemoDeliveryActions> {
     }
   }
 
-  /// Standard demo button: swaps the icon for an inline spinner while
-  /// `_busy` so the loading feedback stays inside the tap target.
+  /// Standard button: swaps the icon for an inline spinner while `_busy` so
+  /// the loading feedback stays inside the tap target, and disables while busy.
   Widget _actionButton({
     required IconData icon,
     required String label,
     required Color color,
     required VoidCallback? onPressed,
+    Key? key,
   }) {
     return ElevatedButton.icon(
+      key: key,
       icon: _busy
           ? const SizedBox(
               width: 16,
@@ -654,6 +776,22 @@ class _DemoDeliveryActionsState extends State<_DemoDeliveryActions> {
   @override
   Widget build(BuildContext context) {
     final status = widget.currentStatus;
+
+    // Failed / cancelled → offer reset (legacy contract), regardless of journey.
+    final bool resettable = status == 'failed' || status == 'cancelled';
+
+    final String? next = resettable
+        ? null
+        : nextJourneyAction(
+            outboundPhase: _outboundPhase,
+            returnRequired: _returnRequired,
+            returnPhase: _returnPhase,
+          );
+
+    final String phaseLabel = _outboundPhase == 'delivered' && _returnRequired
+        ? (_kPhaseLabels[_returnPhase] ?? _returnPhase)
+        : (_kPhaseLabels[_outboundPhase] ?? _outboundPhase);
+
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
@@ -670,7 +808,7 @@ class _DemoDeliveryActionsState extends State<_DemoDeliveryActions> {
                   size: 16, color: Colors.deepPurple.shade700),
               const SizedBox(width: 6),
               Text(
-                'Demo actions (staging only)',
+                'Demo delivery controls',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -679,78 +817,61 @@ class _DemoDeliveryActionsState extends State<_DemoDeliveryActions> {
               ),
             ],
           ),
+          const SizedBox(height: 6),
+          if (!resettable)
+            Text(
+              'Step: $phaseLabel',
+              key: const Key('demo-phase-label'),
+              style: TextStyle(fontSize: 12, color: Colors.deepPurple.shade500),
+            ),
           const SizedBox(height: 8),
-          if (status == 'pending')
-            _actionButton(
-              icon: Icons.local_shipping_outlined,
-              label: 'Pickup',
-              color: Colors.deepPurple.shade600,
-              onPressed: () => _run(
-                callable: 'sandboxDeliveryAdvance',
-                data: {
-                  'deliveryId': widget.deliveryId,
-                  'action': 'pickup',
-                },
-                successMessage: 'Pickup done — the courier is on the way.',
-              ),
-            )
-          else if (status == 'picked_up' || status == 'in_transit')
-            _actionButton(
-              icon: Icons.check_circle_outline,
-              label: 'Delivered',
-              color: Colors.green.shade700,
-              onPressed: () => _run(
-                callable: 'completeExchangeDelivery',
-                data: {'deliveryId': widget.deliveryId},
-                successMessage:
-                    'Delivered — wallet credited and inventory transferred.',
-              ),
-            )
-          else if (status == 'delivered')
-            Row(
-              children: [
-                Icon(Icons.done_all, size: 18, color: Colors.green.shade700),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    'Delivered — nothing left to do for the demo.',
-                    style: TextStyle(color: Colors.green.shade700),
-                  ),
-                ),
-              ],
-            )
-          else if (status == 'failed' || status == 'cancelled')
-            // Failed / cancelled: give the demoer a way to replay the flow
-            // without recreating the whole proposal. Reset writes status
-            // back to `pending` and clears the courier assignment.
+          if (resettable)
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   'Delivery is "$status" — reset to replay the demo.',
-                  style: TextStyle(
-                      color: Colors.orange.shade800, fontSize: 12),
+                  style: TextStyle(color: Colors.orange.shade800, fontSize: 12),
                 ),
                 const SizedBox(height: 6),
                 _actionButton(
                   icon: Icons.replay,
                   label: 'Reset delivery',
                   color: Colors.orange.shade700,
-                  onPressed: () => _run(
-                    callable: 'sandboxDeliveryAdvance',
-                    data: {
-                      'deliveryId': widget.deliveryId,
-                      'action': 'reset',
-                    },
+                  onPressed: () => _runAction(
+                    'reset',
                     successMessage: 'Delivery reset — you can walk it again.',
                   ),
                 ),
               ],
             )
+          else if (next != null)
+            _actionButton(
+              key: const Key('demo-next-action'),
+              icon: next.startsWith('confirm')
+                  ? Icons.check_circle_outline
+                  : Icons.local_shipping_outlined,
+              label: _kJourneyActionLabels[next] ?? next,
+              color: next.startsWith('confirm')
+                  ? Colors.green.shade700
+                  : Colors.deepPurple.shade600,
+              onPressed: () => _runAction(
+                next,
+                successMessage: '${_kJourneyActionLabels[next]} done.',
+              ),
+            )
           else
-            Text(
-              'No demo action available for status "$status".',
-              style: TextStyle(color: Colors.deepPurple.shade400, fontSize: 12),
+            Row(
+              children: [
+                Icon(Icons.done_all, size: 18, color: Colors.green.shade700),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'All steps done — nothing left for the demo.',
+                    style: TextStyle(color: Colors.green.shade700),
+                  ),
+                ),
+              ],
             ),
         ],
       ),
