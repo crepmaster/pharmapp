@@ -259,11 +259,39 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
           );
         }
 
-        // Validate target inventory has sufficient quantity
-        if ((inventoryData?.availableQuantity || 0) < details.quantity) {
+        // Validate target inventory has sufficient quantity.
+        //
+        // Two distinct limits, and only the first was enforced:
+        //   - availableQuantity   — what the seller physically holds;
+        //   - maxExchangeQuantity — what the seller chose to OFFER on the
+        //     marketplace when publishing (it may be a fraction of the stock).
+        //
+        // Ignoring the second meant a pharmacy publishing 15 of its 60 boxes
+        // could still be asked for 60: the published quantity was collected,
+        // stored, and then never read by anyone. The offer is the smaller of
+        // the two, and it is checked HERE, inside the transaction, so two
+        // concurrent proposals cannot both pass on the same units.
+        const physicallyAvailable = (inventoryData?.availableQuantity as number) || 0;
+        const publishedLimitRaw =
+          inventoryData?.availabilitySettings?.maxExchangeQuantity;
+        // A published item without a usable limit falls back to its stock:
+        // legacy documents predate the field, and refusing them would break
+        // items that are legitimately offered in full.
+        const publishedLimit =
+          typeof publishedLimitRaw === "number" && publishedLimitRaw > 0
+            ? publishedLimitRaw
+            : physicallyAvailable;
+        const offerable = Math.min(physicallyAvailable, publishedLimit);
+
+        if (offerable < details.quantity) {
           throw new HttpsError(
             "failed-precondition",
-            `Insufficient quantity available. Available: ${inventoryData?.availableQuantity || 0}, Requested: ${details.quantity}`
+            `Insufficient quantity available. Offered: ${offerable}, Requested: ${details.quantity}`,
+            {
+              code: "QUANTITY_EXCEEDS_OFFER",
+              offered: offerable,
+              requested: details.quantity,
+            }
           );
         }
 

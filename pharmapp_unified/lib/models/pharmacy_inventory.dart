@@ -12,6 +12,22 @@ class PharmacyInventoryItem extends Equatable {
   final String medicineId;
   final String pharmacyId;
   final int availableQuantity; // How many available for sale/exchange
+
+  /// Quantity actually OFFERED on the marketplace.
+  ///
+  /// A pharmacy publishing 15 of its 60 boxes stores that choice in
+  /// `availabilitySettings.maxExchangeQuantity`. The value was collected and
+  /// persisted but never read: every screen showed `availableQuantity`, so
+  /// the whole stock appeared for sale. The offer is the smaller of what is
+  /// physically held and what was published.
+  ///
+  /// Falls back to `availableQuantity` when the published limit is missing or
+  /// non-positive — legacy items predate the field and are offered in full.
+  int get offeredQuantity {
+    final max = availabilitySettings.maxExchangeQuantity;
+    if (max <= 0) return availableQuantity;
+    return max < availableQuantity ? max : availableQuantity;
+  }
   final String packaging; // NEW: Packaging unit (tablets, ml, boxes, etc.)
   final StockInfo? stock; // Optional - for detailed inventory management
   final PricingInfo? pricing; // Optional - no fixed price, wait for proposals

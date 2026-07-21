@@ -319,7 +319,7 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
                                       const Icon(Icons.inventory, color: Colors.blue),
                                       const SizedBox(width: 8),
                                       Text(
-                                        '${widget.inventoryItem.availableQuantity} ${widget.inventoryItem.packaging} available',
+                                        '${widget.inventoryItem.offeredQuantity} ${widget.inventoryItem.packaging} available',
                                         style: const TextStyle(
                                           fontWeight: FontWeight.w600,
                                           fontSize: 16,
@@ -585,7 +585,7 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
                                 labelText: proposalType == ProposalType.exchange
                                     ? 'Quantity Requested *'
                                     : 'Quantity to Purchase *',
-                                hintText: 'Max: ${widget.inventoryItem.availableQuantity}',
+                                hintText: 'Max: ${widget.inventoryItem.offeredQuantity}',
                                 border: const OutlineInputBorder(),
                                 suffixText: widget.inventoryItem.packaging,
                                 prefixIcon: Icon(
@@ -603,8 +603,8 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
                                 if (quantity == null || quantity <= 0) {
                                   return 'Enter a valid quantity';
                                 }
-                                if (quantity > widget.inventoryItem.availableQuantity) {
-                                  return 'Cannot exceed ${widget.inventoryItem.availableQuantity} units';
+                                if (quantity > widget.inventoryItem.offeredQuantity) {
+                                  return 'Cannot exceed ${widget.inventoryItem.offeredQuantity} units';
                                 }
                                 return null;
                               },
