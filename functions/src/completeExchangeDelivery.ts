@@ -39,9 +39,68 @@ const db = getFirestore();
 interface CompleteDeliveryData {
   deliveryId: string;
   photoProofUrl?: string; // Optional photo proof of delivery
+  /**
+   * Optional full set of proof images. The client used to write this array
+   * to the delivery document itself; that second write is gone (it produced
+   * false "delivery failed" errors after a successful settlement), so the
+   * array now travels through the callable and is persisted by the same
+   * transaction. `photoProofUrl` is kept as the first image for legacy
+   * readers.
+   */
+  proofImages?: unknown;
   deliveryNotes?: string; // Optional completion notes
   latitude?: number; // Optional delivery location verification
   longitude?: number;
+}
+
+/** Upper bound on stored proof images — a courier uploads a handful, not a roll. */
+const MAX_PROOF_IMAGES = 10;
+
+/**
+ * Upper bound per entry. Not a URL-shape check — these references are not
+ * guaranteed to be HTTPS URLs — just a size guard so ten arbitrarily long
+ * strings cannot push the delivery document past Firestore's 1 MiB limit and
+ * make the whole settlement transaction fail.
+ */
+const MAX_PROOF_IMAGE_LENGTH = 2048;
+
+/**
+ * Validates a client-supplied `proofImages` payload.
+ *
+ * Returns `null` when nothing usable was sent (field absent, empty array),
+ * so the caller can leave the stored value untouched rather than writing an
+ * empty array. Throws on a malformed payload instead of silently dropping
+ * it: losing a delivery proof without saying so is how disputes become
+ * unresolvable.
+ */
+export function validateProofImages(raw: unknown): string[] | null {
+  if (raw === undefined || raw === null) return null;
+  if (!Array.isArray(raw)) {
+    throw new HttpsError("invalid-argument", "proofImages must be an array.");
+  }
+  if (raw.length > MAX_PROOF_IMAGES) {
+    throw new HttpsError(
+      "invalid-argument",
+      `proofImages accepts at most ${MAX_PROOF_IMAGES} entries.`
+    );
+  }
+  const cleaned = raw.map((entry, i) => {
+    if (typeof entry !== "string" || entry.trim().length === 0) {
+      throw new HttpsError(
+        "invalid-argument",
+        `proofImages[${i}] must be a non-empty string.`
+      );
+    }
+    const trimmed = entry.trim();
+    if (trimmed.length > MAX_PROOF_IMAGE_LENGTH) {
+      throw new HttpsError(
+        "invalid-argument",
+        `proofImages[${i}] exceeds ${MAX_PROOF_IMAGE_LENGTH} characters.`
+      );
+    }
+    return trimmed;
+  });
+  return cleaned.length > 0 ? cleaned : null;
 }
 
 /**
@@ -73,10 +132,11 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
     }
 
     const { deliveryId, photoProofUrl, deliveryNotes, latitude, longitude } = data;
+    const proofImages = validateProofImages(data.proofImages);
 
     logger.info(
       `completeExchangeDelivery: Courier ${userId} completing delivery ${deliveryId}`,
-      { photoProofUrl, deliveryNotes }
+      { photoProofUrl, deliveryNotes, proofImageCount: proofImages?.length ?? 0 }
     );
 
     // Delegates to the shared settlement core so the staging cockpit
@@ -85,7 +145,10 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
     return completeDeliveryCore({
       deliveryId,
       userId,
-      photoProofUrl,
+      // Fall back to the first proof image so a client that sends only the
+      // array still populates the legacy single-URL field.
+      photoProofUrl: photoProofUrl ?? proofImages?.[0] ?? null,
+      proofImages,
       deliveryNotes,
       latitude,
       longitude,
@@ -99,20 +162,30 @@ export const completeExchangeDelivery = onCall<CompleteDeliveryData>(
  * verbatim (behavior-preserving) from the callable so the staging cockpit
  * reuses the SAME transaction instead of duplicating financial writes.
  *
- * Exactly-once is enforced by the delivery-status guard inside the
- * transaction (validStartStatuses excludes 'delivered'): a second call
- * re-reads status='delivered' and throws failed-precondition. Callers run
- * this inside their own single runTransaction; it is never nested.
+ * Exactly-once is enforced inside the transaction: a second call re-reads
+ * status='delivered' and returns `{success:true, idempotent:true}` WITHOUT
+ * performing a single write — it does not throw. It used to throw
+ * `failed-precondition`, which made an interrupted client (settlement done,
+ * confirmation lost) permanently unable to retry: the UI reported a payment
+ * failure for money that had already moved. The financial guarantee is
+ * unchanged — the settlement writes still run at most once — only the
+ * outcome reported to a replay differs.
+ *
+ * Callers run this inside their own single runTransaction; it is never
+ * nested.
  */
 export async function completeDeliveryCore(args: {
   deliveryId: string;
   userId: string;
   photoProofUrl?: string | null;
+  /** Already-validated proof images; `null`/absent leaves the stored value alone. */
+  proofImages?: string[] | null;
   deliveryNotes?: string | null;
   latitude?: number | null;
   longitude?: number | null;
 }) {
-  const { deliveryId, userId, photoProofUrl, deliveryNotes, latitude, longitude } = args;
+  const { deliveryId, userId, photoProofUrl, proofImages, deliveryNotes, latitude, longitude } =
+    args;
 
   // 🔒 ATOMIC TRANSACTION: Complete delivery + finalize payment + update inventory
   const result = await db.runTransaction(async (transaction) => {
@@ -190,6 +263,120 @@ export async function completeDeliveryCore(args: {
           "permission-denied",
           "Only the assigned courier can complete this delivery"
         );
+      }
+
+      // ===== IDEMPOTENT REPLAY =====
+      // A delivery already marked `delivered` has been settled by a previous
+      // call. Returning success here (instead of `failed-precondition`) is
+      // what makes a retry safe: the client used to surface "Failed to
+      // finalize delivery payment" for a trade whose money had in fact
+      // already moved, and every subsequent retry failed the same way —
+      // permanently, since the status can never leave `delivered`.
+      //
+      // This branch sits AFTER the courier/actor check above, so a replay
+      // cannot be used by an unrelated caller to probe deliveries, and it
+      // re-verifies the proposal linkage below for the same reason.
+      // It performs NO write of any kind: no wallet, no ledger, no
+      // inventory, no status. The delivery is left exactly as it is.
+      if (delivery?.status === "delivered") {
+        if (!delivery?.proposalId) {
+          throw new HttpsError(
+            "failed-precondition",
+            "Delivery is not linked to a proposal"
+          );
+        }
+        const settledProposalSnap = await transaction.get(
+          db.collection("exchange_proposals").doc(delivery.proposalId)
+        );
+        if (!settledProposalSnap.exists) {
+          throw new HttpsError("not-found", "Linked proposal not found");
+        }
+        const settledProposal = settledProposalSnap.data();
+        const settledType = settledProposal?.details?.type;
+
+        // `status === "delivered"` alone does NOT prove a settlement ran.
+        // firestore.rules let the assigned courier write `status` directly,
+        // so a delivery can read `delivered` while the proposal is still
+        // `accepted`, the funds still sit in `deducted`, the inventory was
+        // never transferred and no ledger exists. Answering "already
+        // settled" there would launder a broken state into a success.
+        //
+        // We therefore require the full fingerprint that PHASE 4/5 below
+        // writes, and only that combination. Every field checked here is
+        // written by this same transaction, so they can only all be present
+        // together if the canonical settlement actually ran:
+        //   delivery : status=delivered + completedAt + paymentStatus
+        //   proposal : status=completed + deliveryId pointing back to us
+        // An absent or unrecognised type must NOT be treated as an exchange
+        // by omission: that would pick `paymentStatus === "n/a"` as the
+        // expected value and let a purchase whose payment never completed
+        // pass the fingerprint. The type drives a financial expectation, so
+        // it has to be one we actually understand.
+        if (settledType !== "purchase" && settledType !== "exchange") {
+          logger.error(
+            "completeExchangeDelivery: replay on a proposal with an unknown type — refusing",
+            {
+              deliveryId,
+              proposalId: delivery.proposalId,
+              callerUid: userId,
+              proposalType: settledType ?? null,
+            }
+          );
+          throw new HttpsError(
+            "failed-precondition",
+            "Delivery state is inconsistent with settlement."
+          );
+        }
+
+        const expectedPaymentStatus =
+          settledType === "purchase" ? "paid" : "n/a";
+        const settlementProven =
+          delivery?.completedAt != null &&
+          delivery?.paymentStatus === expectedPaymentStatus &&
+          settledProposal?.status === "completed" &&
+          settledProposal?.deliveryId === deliveryId;
+
+        if (!settlementProven) {
+          logger.error(
+            "completeExchangeDelivery: delivery is 'delivered' but carries no settlement fingerprint — refusing",
+            {
+              deliveryId,
+              proposalId: delivery.proposalId,
+              callerUid: userId,
+              hasCompletedAt: delivery?.completedAt != null,
+              paymentStatus: delivery?.paymentStatus ?? null,
+              expectedPaymentStatus,
+              proposalStatus: settledProposal?.status ?? null,
+              proposalDeliveryId: settledProposal?.deliveryId ?? null,
+            }
+          );
+          // Deliberately NOT re-running the settlement: the state is
+          // ambiguous, and replaying money movements from an unknown
+          // starting point is worse than refusing. Needs manual triage.
+          throw new HttpsError(
+            "failed-precondition",
+            "Delivery state is inconsistent with settlement."
+          );
+        }
+
+        logger.info(
+          "completeExchangeDelivery: replay on a proven-settled delivery — no write performed",
+          { deliveryId, proposalId: delivery.proposalId, callerUid: userId }
+        );
+
+        return {
+          success: true,
+          // Tells the caller THIS invocation did no work. The flags below
+          // describe the delivery's state (it IS settled), not this call,
+          // and mirror exactly what the settlement itself returns — notably
+          // `paymentProcessed` is false for a barter exchange.
+          idempotent: true,
+          deliveryId,
+          proposalId: delivery.proposalId,
+          status: "completed",
+          paymentProcessed: settledType === "purchase",
+          inventoryUpdated: true,
+        };
       }
 
       // Verify delivery is in valid status. In sandbox demo mode we also
@@ -649,6 +836,9 @@ export async function completeDeliveryCore(args: {
         deliveredAt: FieldValue.serverTimestamp(),
         completedAt: FieldValue.serverTimestamp(),
         photoProofUrl: photoProofUrl || null,
+        // Only written when the caller actually sent images, so a completion
+        // without proof does not erase images stored earlier in the journey.
+        ...(proofImages ? { proofImages } : {}),
         deliveryNotes: deliveryNotes || "",
         deliveryLocation: latitude && longitude ? {
           latitude,

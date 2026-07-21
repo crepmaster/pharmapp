@@ -132,7 +132,10 @@ process.env.FUNCTIONS_EMULATOR = "true";
 
 import functionsTest from "firebase-functions-test";
 const testFns = functionsTest();
-import { completeExchangeDelivery } from "../completeExchangeDelivery.js";
+import {
+  completeExchangeDelivery,
+  validateProofImages,
+} from "../completeExchangeDelivery.js";
 const wrapped = testFns.wrap(completeExchangeDelivery);
 
 afterAll(() => testFns.cleanup());
@@ -507,5 +510,236 @@ describe("completeExchangeDelivery — sandbox bypass 4-case matrix (round-4 spe
         code: "permission-denied",
       });
     });
+  });
+});
+
+
+/**
+ * Idempotent replay (Lot 1 — "faux échec après settlement").
+ *
+ * The client used to call this callable and then write `status: delivered`
+ * itself. When that second write failed, the UI reported a payment failure
+ * for a trade that had already settled — and no retry could recover, because
+ * the callable refused a delivery already `delivered`. The client write is
+ * gone; these tests lock the other half.
+ *
+ * CRITICAL: `status === "delivered"` is NOT proof that a settlement ran.
+ * firestore.rules let the assigned courier write `status` directly, so the
+ * replay branch demands the full fingerprint that PHASE 4/5 writes. The
+ * refusal tests below are the substance of this suite — an earlier version
+ * of these tests passed while only checking the status, which would have
+ * let a hand-marked delivery be reported as settled.
+ */
+describe("completeExchangeDelivery — idempotent replay on a settled delivery", () => {
+  beforeEach(() => {
+    delete process.env.SANDBOX_ENABLED;
+  });
+
+  /** A delivery carrying the COMPLETE settlement fingerprint. */
+  function settledWorld(type: "purchase" | "exchange" = "purchase") {
+    const w = buildFakeWorld({
+      deliveryStatus: "delivered",
+      courierId: OUTSIDER_COURIER,
+      buyerEmail: "real@gmail.com",
+      proposalType: type,
+    });
+    const d = w.docs.get(`deliveries/${DELIVERY_ID}`)!.data!;
+    d.completedAt = { __ts: "settled" };
+    d.paymentStatus = type === "purchase" ? "paid" : "n/a";
+    const p = w.docs.get(`exchange_proposals/${PROPOSAL_ID}`)!.data!;
+    p.status = "completed";
+    p.deliveryId = DELIVERY_ID;
+    return w;
+  }
+
+  // ---- accepted replays -------------------------------------------------
+
+  test("purchase: replay returns idempotent success, paymentProcessed true", async () => {
+    world = settledWorld("purchase");
+    await expect(callAs(OUTSIDER_COURIER)).resolves.toMatchObject({
+      success: true,
+      idempotent: true,
+      status: "completed",
+      paymentProcessed: true,
+    });
+  });
+
+  test("exchange: replay reports paymentProcessed FALSE, mirroring settlement", async () => {
+    // A barter moves no money; claiming paymentProcessed:true on replay
+    // would contradict what the settlement itself returned.
+    world = settledWorld("exchange");
+    await expect(callAs(OUTSIDER_COURIER)).resolves.toMatchObject({
+      idempotent: true,
+      paymentProcessed: false,
+    });
+  });
+
+  test("replay performs ZERO writes — no wallet, no ledger, no inventory, no status", async () => {
+    world = settledWorld("purchase");
+    await callAs(OUTSIDER_COURIER);
+    expect(world.txWrites).toEqual([]);
+  });
+
+  test("control: a first settlement still writes and is not flagged idempotent", async () => {
+    world = buildFakeWorld({
+      deliveryStatus: "picked_up",
+      courierId: OUTSIDER_COURIER,
+      buyerEmail: "real@gmail.com",
+    });
+    const first = (await callAs(OUTSIDER_COURIER)) as { idempotent?: boolean };
+    expect(first.idempotent).toBeUndefined();
+    expect(world.txWrites.length).toBeGreaterThan(0);
+  });
+
+  // ---- refusals: 'delivered' without a real settlement ------------------
+
+  test("delivered but proposal still 'accepted' → refused, nothing written", async () => {
+    // The exact shape of a courier-marked delivery: status flipped by hand,
+    // funds still in `deducted`, no settlement anywhere.
+    world = settledWorld("purchase");
+    world.docs.get(`exchange_proposals/${PROPOSAL_ID}`)!.data!.status =
+      "accepted";
+    await expect(callAs(OUTSIDER_COURIER)).rejects.toMatchObject({
+      code: "failed-precondition",
+    });
+    expect(world.txWrites).toEqual([]);
+  });
+
+  test("delivered without completedAt → refused", async () => {
+    world = settledWorld("purchase");
+    delete world.docs.get(`deliveries/${DELIVERY_ID}`)!.data!.completedAt;
+    await expect(callAs(OUTSIDER_COURIER)).rejects.toMatchObject({
+      code: "failed-precondition",
+    });
+    expect(world.txWrites).toEqual([]);
+  });
+
+  test("proposal 'completed' but linked to a DIFFERENT delivery → refused", async () => {
+    world = settledWorld("purchase");
+    world.docs.get(`exchange_proposals/${PROPOSAL_ID}`)!.data!.deliveryId =
+      "some-other-delivery";
+    await expect(callAs(OUTSIDER_COURIER)).rejects.toMatchObject({
+      code: "failed-precondition",
+    });
+    expect(world.txWrites).toEqual([]);
+  });
+
+  test("purchase without paymentStatus 'paid' → refused", async () => {
+    world = settledWorld("purchase");
+    world.docs.get(`deliveries/${DELIVERY_ID}`)!.data!.paymentStatus = "n/a";
+    await expect(callAs(OUTSIDER_COURIER)).rejects.toMatchObject({
+      code: "failed-precondition",
+    });
+    expect(world.txWrites).toEqual([]);
+  });
+
+  test("proposal with an absent or unknown type → refused", async () => {
+    // Falling back to "exchange" by omission would expect paymentStatus
+    // "n/a" and could green-light a purchase whose payment never completed.
+    world = settledWorld("purchase");
+    delete (
+      world.docs.get(`exchange_proposals/${PROPOSAL_ID}`)!.data!
+        .details as Record<string, unknown>
+    ).type;
+    await expect(callAs(OUTSIDER_COURIER)).rejects.toMatchObject({
+      code: "failed-precondition",
+    });
+    expect(world.txWrites).toEqual([]);
+
+    world = settledWorld("purchase");
+    (
+      world.docs.get(`exchange_proposals/${PROPOSAL_ID}`)!.data!
+        .details as Record<string, unknown>
+    ).type = "barter";
+    await expect(callAs(OUTSIDER_COURIER)).rejects.toMatchObject({
+      code: "failed-precondition",
+    });
+    expect(world.txWrites).toEqual([]);
+  });
+
+  test("delivery with no linked proposal at all → refused", async () => {
+    world = settledWorld("purchase");
+    delete world.docs.get(`deliveries/${DELIVERY_ID}`)!.data!.proposalId;
+    await expect(callAs(OUTSIDER_COURIER)).rejects.toMatchObject({
+      code: "failed-precondition",
+    });
+    expect(world.txWrites).toEqual([]);
+  });
+
+  test("replay refused for a caller who is not the assigned courier", async () => {
+    // Idempotence must not become a probing hole: the actor check runs
+    // BEFORE the replay branch.
+    world = settledWorld("purchase");
+    await expect(callAs("someone-else-uid")).rejects.toMatchObject({
+      code: "permission-denied",
+    });
+    expect(world.txWrites).toEqual([]);
+  });
+});
+
+/**
+ * Proof images. Removing the client write must not silently drop the
+ * multi-image proof a courier uploaded — that is evidence in a dispute.
+ */
+describe("completeExchangeDelivery — proof image validation", () => {
+  test("rejects a non-array payload", () => {
+    expect(() => validateProofImages("http://a")).toThrow();
+  });
+
+  test("rejects empty or non-string entries rather than dropping them", () => {
+    expect(() => validateProofImages(["ok", ""])).toThrow();
+    expect(() => validateProofImages(["ok", 42])).toThrow();
+  });
+
+  test("rejects more than the documented maximum", () => {
+    expect(() =>
+      validateProofImages(Array.from({ length: 11 }, (_, i) => `img-${i}`))
+    ).toThrow();
+  });
+
+  test("absent or empty means 'leave the stored value alone', not 'erase it'", () => {
+    expect(validateProofImages(undefined)).toBeNull();
+    expect(validateProofImages(null)).toBeNull();
+    expect(validateProofImages([])).toBeNull();
+  });
+
+  test("accepts and trims a valid set", () => {
+    expect(validateProofImages([" a ", "b"])).toEqual(["a", "b"]);
+  });
+
+  test("rejects an entry longer than the documented maximum", () => {
+    expect(() => validateProofImages(["x".repeat(2049)])).toThrow();
+    expect(validateProofImages(["x".repeat(2048)])).toHaveLength(1);
+  });
+
+  test("a real settlement WRITES the cleaned array and the first image", async () => {
+    // The validator alone proves nothing about persistence: this asserts the
+    // transaction actually stores what the courier uploaded.
+    delete process.env.SANDBOX_ENABLED;
+    world = buildFakeWorld({
+      deliveryStatus: "picked_up",
+      courierId: OUTSIDER_COURIER,
+      buyerEmail: "real@gmail.com",
+    });
+    await wrapped({
+      data: {
+        deliveryId: DELIVERY_ID,
+        proofImages: [" https://a/1.jpg ", "https://a/2.jpg"],
+      },
+      auth: {
+        uid: OUTSIDER_COURIER,
+        token: { firebase: { sign_in_provider: "password" } },
+      },
+    } as never);
+
+    const deliveryUpdate = world.txWrites.find(
+      (w) => w.path === `deliveries/${DELIVERY_ID}` && w.op === "update"
+    )!;
+    expect(deliveryUpdate.payload.proofImages).toEqual([
+      "https://a/1.jpg",
+      "https://a/2.jpg",
+    ]);
+    // photoProofUrl falls back to the first image for legacy readers.
+    expect(deliveryUpdate.payload.photoProofUrl).toBe("https://a/1.jpg");
   });
 });

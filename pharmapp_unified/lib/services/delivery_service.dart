@@ -144,8 +144,28 @@ class DeliveryService {
           break;
 
         case DeliveryStatus.delivered:
-          // Call completeExchangeDelivery first.
-          // If this fails, do not mark delivery as delivered in Firestore.
+          // `completeExchangeDelivery` is the SINGLE authority for this
+          // transition. It settles the wallets, writes the ledger, moves the
+          // inventory and sets `status`/`deliveredAt`/`completedAt`/
+          // `photoProofUrl`/`deliveryNotes` on the delivery — all in one
+          // transaction.
+          //
+          // We deliberately return here instead of falling through to the
+          // shared `.update()` below. The previous code called the callable
+          // and THEN wrote `status: delivered` again from the client: when
+          // that second write failed, the UI reported "Failed to update
+          // delivery status" for a trade whose money had already moved, and
+          // no retry could ever fix it (the callable then refused a delivery
+          // already `delivered`). Both halves of that trap are now gone —
+          // this write no longer happens, and a replay of the callable
+          // returns an idempotent success.
+          //
+          // The full `proofImages` array travels through the callable rather
+          // than a client write, so multi-image proof is preserved without
+          // reintroducing the second write. `photoProofUrl` stays as the
+          // first image for legacy readers. `notes` becomes `deliveryNotes`
+          // (the canonical field) — readers still bound to `notes` for a
+          // delivered delivery need migrating separately.
           try {
             await _functions
                 .httpsCallable('completeExchangeDelivery')
@@ -154,13 +174,15 @@ class DeliveryService {
               'photoProofUrl': proofImages?.isNotEmpty == true
                   ? proofImages!.first
                   : null,
+              'proofImages': proofImages,
               'deliveryNotes': notes,
             });
           } catch (e) {
             throw 'Failed to finalize delivery payment: $e';
           }
-          updateData['deliveredAt'] = FieldValue.serverTimestamp();
-          break;
+          // The StreamBuilder on the delivery document picks up the
+          // backend's write; nothing left to do client-side.
+          return;
 
         case DeliveryStatus.failed:
           updateData['failureReason'] = failureReason;
