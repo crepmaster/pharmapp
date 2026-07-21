@@ -8,7 +8,7 @@
  * NOTE: keep the GH/CM matrix in sync with the recette assertions
  *  (docs/release/SPRINT_5_E2E_CLOSURE_PLAN.md). The Accra entry intentionally
  * omits `exchangeFee` so the fallback `deliveryFee × 1.2` path is exercised by
- * lock #6 (courierFee 2400 in S5).
+ * lock #6 (courierFee 24 in S5).
  */
 
 export const SYSTEM_CONFIG = {
@@ -86,13 +86,13 @@ export const SYSTEM_CONFIG = {
     GH: {
       // Accra keeps `exchangeFee` absent on purpose so lock #6 exercises
       // the `deliveryFee × 1.2` fallback via `resolveCourierFee` (proven
-      // in the Sprint 5 recette: courierFee=2400). Other cities get
+      // in the Sprint 5 recette: courierFee=24). Other cities get
       // explicit exchangeFee so their runtime cost is deterministic.
       accra: {
         code: "accra",
         name: "Accra",
         enabled: true,
-        deliveryFee: 2000,
+        deliveryFee: 20,
         currencyCode: "GHS",
         sortOrder: 0,
       },
@@ -100,8 +100,8 @@ export const SYSTEM_CONFIG = {
         code: "kumasi",
         name: "Kumasi",
         enabled: true,
-        deliveryFee: 2000,
-        exchangeFee: 2400,
+        deliveryFee: 20,
+        exchangeFee: 24,
         currencyCode: "GHS",
         sortOrder: 1,
       },
@@ -109,8 +109,8 @@ export const SYSTEM_CONFIG = {
         code: "tamale",
         name: "Tamale",
         enabled: true,
-        deliveryFee: 2500,
-        exchangeFee: 3000,
+        deliveryFee: 25,
+        exchangeFee: 30,
         currencyCode: "GHS",
         sortOrder: 2,
       },
@@ -118,8 +118,8 @@ export const SYSTEM_CONFIG = {
         code: "cape-coast",
         name: "Cape Coast",
         enabled: true,
-        deliveryFee: 2200,
-        exchangeFee: 2600,
+        deliveryFee: 22,
+        exchangeFee: 26,
         currencyCode: "GHS",
         sortOrder: 3,
       },
@@ -127,8 +127,8 @@ export const SYSTEM_CONFIG = {
         code: "takoradi",
         name: "Takoradi",
         enabled: true,
-        deliveryFee: 2200,
-        exchangeFee: 2600,
+        deliveryFee: 22,
+        exchangeFee: 26,
         currencyCode: "GHS",
         sortOrder: 4,
       },
