@@ -217,6 +217,14 @@ class ProposalDetails extends Equatable {
   final String currency;
   final ProposalType proposalType;
 
+  /// Total as written by the backend (`totalPrice`), when present.
+  ///
+  /// The backend is the source of truth for the amount actually reserved and
+  /// settled, so we display ITS total rather than recomputing one. Null on
+  /// legacy documents (and on exchange proposals, where no money moves), in
+  /// which case [totalOfferAmount] falls back to unit × quantity.
+  final double? totalPrice;
+
   // EXCHANGE-SPECIFIC FIELDS
   final String? exchangeMedicineId; // Medicine ID being offered in exchange
   final String? exchangeInventoryItemId; // Inventory item ID being offered
@@ -230,6 +238,7 @@ class ProposalDetails extends Equatable {
   const ProposalDetails({
     required this.offeredPrice,
     required this.requestedQuantity,
+    this.totalPrice,
     // Round-4 currency sprint phase 3a — mandatory at boundary. Callers
     // must resolve currency from the pharmacy country (MoneyContext) or
     // pass it explicitly. The previous `= 'USD'` default was the root of
@@ -246,6 +255,7 @@ class ProposalDetails extends Equatable {
   List<Object?> get props => [
         offeredPrice,
         requestedQuantity,
+        totalPrice,
         currency,
         proposalType,
         exchangeMedicineId,
@@ -259,7 +269,16 @@ class ProposalDetails extends Equatable {
     final snapshotRaw = map['exchangeInventorySnapshot'];
 
     return ProposalDetails(
-      offeredPrice: (map['pricePerUnit'] ?? map['offeredPrice'] ?? 0).toDouble(),
+      // `unitPrice` FIRST — that is the canonical field the backend writes
+      // (createExchangeProposal builds CanonicalPurchaseDetails with
+      // `unitPrice`/`totalPrice`). Reading only `pricePerUnit`/`offeredPrice`
+      // meant every receiver saw "0" for a purchase they were asked to
+      // accept: the price was in Firestore, just under another name.
+      // The two legacy names stay as fallbacks for older documents.
+      offeredPrice:
+          (map['unitPrice'] ?? map['pricePerUnit'] ?? map['offeredPrice'] ?? 0)
+              .toDouble(),
+      totalPrice: (map['totalPrice'] as num?)?.toDouble(),
       requestedQuantity: map['quantity']?.toInt() ?? map['requestedQuantity']?.toInt() ?? 0,
       // Legacy fallback with telemetry — new writers pass currency
       // explicitly (constructor is `required`) ; only legacy Firestore
@@ -309,7 +328,10 @@ class ProposalDetails extends Equatable {
   }
 
   // Helper getter
-  double get totalOfferAmount => offeredPrice * requestedQuantity;
+  /// Prefer the backend-written `totalPrice` (the amount actually reserved
+  /// and settled) over a client-side recomputation, so the receiver never
+  /// sees a total that disagrees with what will be debited.
+  double get totalOfferAmount => totalPrice ?? (offeredPrice * requestedQuantity);
 }
 
 /// Rich metadata about the medicine being offered in barter, captured by
