@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import '../../../models/delivery_journey.dart';
+// Re-exported so existing importers (and their tests) keep resolving
+// `nextJourneyAction` / `outboundPhaseFor` from this screen after the state
+// machine moved to the shared module.
+export '../../../models/delivery_journey.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -580,82 +585,6 @@ class ExchangeStatusScreen extends StatelessWidget {
   }
 }
 
-/// Human labels for a journey action (also drives the button text).
-const Map<String, String> _kJourneyActionLabels = {
-  'start_pickup': 'Start pickup',
-  'confirm_pickup': 'Confirm pickup',
-  'start_delivery': 'Start delivery',
-  'confirm_delivered': 'Confirm delivered',
-  'start_return_pickup': 'Start return pickup',
-  'confirm_return_pickup': 'Confirm return pickup',
-  'start_return_delivery': 'Start return delivery',
-  'confirm_return_delivered': 'Confirm return delivered',
-};
-
-/// Human labels for the current journey phase (display only).
-const Map<String, String> _kPhaseLabels = {
-  'assigned': 'Assigned',
-  'en_route_to_pickup': 'On the way to pickup',
-  'picked_up': 'Picked up',
-  'en_route_to_dropoff': 'On the way to drop-off',
-  'delivered': 'Delivered',
-  'not_required': 'No return',
-  'awaiting_return': 'Awaiting return',
-  'en_route_to_return_pickup': 'On the way to return pickup',
-  'return_picked_up': 'Return picked up',
-  'en_route_to_return_dropoff': 'On the way to return drop-off',
-  'return_delivered': 'Return delivered',
-};
-
-/// Pure derivation of the SINGLE next allowed journey action from the
-/// current phases. Returns null when nothing remains (delivered with no
-/// return, or return_delivered). Return actions are only offered when
-/// [returnRequired] is true. Exported (library-private) + pure so it is
-/// unit-testable without a widget.
-String? nextJourneyAction({
-  required String outboundPhase,
-  required bool returnRequired,
-  required String returnPhase,
-}) {
-  switch (outboundPhase) {
-    case 'assigned':
-      return 'start_pickup';
-    case 'en_route_to_pickup':
-      return 'confirm_pickup';
-    case 'picked_up':
-      return 'start_delivery';
-    case 'en_route_to_dropoff':
-      return 'confirm_delivered';
-    case 'delivered':
-      if (!returnRequired) return null;
-      switch (returnPhase) {
-        case 'not_required':
-        case 'awaiting_return':
-          return 'start_return_pickup';
-        case 'en_route_to_return_pickup':
-          return 'confirm_return_pickup';
-        case 'return_picked_up':
-          return 'start_return_delivery';
-        case 'en_route_to_return_dropoff':
-          return 'confirm_return_delivered';
-        default:
-          return null; // return_delivered
-      }
-    default:
-      return null;
-  }
-}
-
-/// Derive the outbound phase from the journey (preferred) or synthesize it
-/// from the canonical delivery status when no journey exists yet.
-String outboundPhaseFor(Map<String, dynamic>? journey, String status) {
-  final p = journey?['outboundPhase'];
-  if (p is String && p.isNotEmpty) return p;
-  if (status == 'picked_up' || status == 'in_transit') return 'picked_up';
-  if (status == 'delivered' || status == 'completed') return 'delivered';
-  return 'assigned';
-}
-
 /// "Demo delivery controls" — staging-only manual progression embedded in the
 /// Delivery Status card. Rendered only under `if (kUseStaging)` (the subtree
 /// tree-shakes out of prod builds). GPS-free: every step is a button that
@@ -789,8 +718,8 @@ class DemoDeliveryActionsState extends State<DemoDeliveryActions> {
           );
 
     final String phaseLabel = _outboundPhase == 'delivered' && _returnRequired
-        ? (_kPhaseLabels[_returnPhase] ?? _returnPhase)
-        : (_kPhaseLabels[_outboundPhase] ?? _outboundPhase);
+        ? (kJourneyPhaseLabels[_returnPhase] ?? _returnPhase)
+        : (kJourneyPhaseLabels[_outboundPhase] ?? _outboundPhase);
 
     return Container(
       padding: const EdgeInsets.all(10),
@@ -851,13 +780,13 @@ class DemoDeliveryActionsState extends State<DemoDeliveryActions> {
               icon: next.startsWith('confirm')
                   ? Icons.check_circle_outline
                   : Icons.local_shipping_outlined,
-              label: _kJourneyActionLabels[next] ?? next,
+              label: kJourneyActionLabels[next] ?? next,
               color: next.startsWith('confirm')
                   ? Colors.green.shade700
                   : Colors.deepPurple.shade600,
               onPressed: () => _runAction(
                 next,
-                successMessage: '${_kJourneyActionLabels[next]} done.',
+                successMessage: '${kJourneyActionLabels[next]} done.',
               ),
             )
           else

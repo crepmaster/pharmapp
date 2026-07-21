@@ -15,10 +15,10 @@
  *      authority.
  *
  * NOTE: this is a staging manual delivery controller, NOT the definitive
- * courier cockpit. The caller is a pharmacy (buyer/seller/assigned) acting
- * as courier; real `couriers/{uid}` accounts are refused by the pharmacy-
- * only email gate below. A true courier cockpit (courier authentication +
- * a controlled gate evolution) is a separate, post-demo effort.
+ * courier cockpit, but the assigned courier CAN now drive it from its own
+ * screen: identity accepts `pharmacies/{uid}` or `couriers/{uid}`, and the
+ * account-domain requirement is not applied here (see the gate comment) so
+ * the payment and settlement bypasses are unaffected.
  *
  * Journey schema (version 1):
  *   {
@@ -48,8 +48,8 @@
  * settlement, never a wallet write, never a `delivery.status` regression.
  *
  * 🔒 Gated (all required): SANDBOX_ENABLED env, assertSandboxAllowedForProject
- * at module load, authenticated caller, @promoshake.net pharmacy email, and
- * caller ∈ {buyer, seller, assigned courier} (see assertCockpitCaller for the
+ * at module load, authenticated caller, an existing pharmacy OR courier
+ * account carrying an email, and caller ∈ {buyer, seller, assigned courier} (see assertCockpitCaller for the
  * two distinct modes). Client-sent courierId/status/currency/amounts are
  * never trusted.
  */
@@ -59,7 +59,6 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import {
   assertSandboxAllowedForProject,
-  isSandboxAccountEmail,
   isSandboxEnabled,
 } from "./lib/sandboxGate.js";
 import { completeDeliveryCore } from "./completeExchangeDelivery.js";
@@ -203,21 +202,38 @@ export const sandboxDeliveryAdvance = onCall<AdvanceInput>(
       );
     }
 
-    // Caller must be a recognised sandbox pharmacy. Read outside the tx: the
-    // identity/email cannot change during a call and a stale read cannot
-    // escalate (it must still match the sandbox pattern).
-    const pharmacySnap = await db.collection("pharmacies").doc(userId).get();
-    if (!pharmacySnap.exists) {
+    // Caller must own a recognised sandbox account — pharmacy OR courier.
+    //
+    // Consulting `pharmacies/{uid}` alone refused every courier before
+    // `assertCockpitCaller` could even run, even though that check accepts
+    // the assigned courier. Since the delivery timeline is driven from the
+    // COURIER's own screen, that lookup was the thing preventing it.
+    //
+    // The account-domain requirement is deliberately NOT applied here. This
+    // gate is scoped to this callable so it cannot widen the payment or
+    // settlement bypasses that share `isSandboxAccountEmail`: relaxing that
+    // shared helper would also have let any account skip MTN/Paystack and
+    // take the sandbox settlement path. What still restricts this callable:
+    //   - `assertSandboxAllowedForProject()` at module load (staging only);
+    //   - `SANDBOX_ENABLED`, present only on the staging env file;
+    //   - an existing pharmacy/courier document with a non-empty email;
+    //   - `assertCockpitCaller` — the caller must be a party to THIS delivery.
+    //
+    // Read outside the tx: identity cannot change during a call, and a stale
+    // read cannot escalate — the delivery-party check runs inside.
+    const callerEmail = await resolveSandboxCallerEmail(userId);
+    if (callerEmail === null) {
       throw new HttpsError(
         "permission-denied",
-        "Sandbox delivery advance requires a pharmacy account."
+        "Sandbox delivery advance requires a pharmacy or courier account."
       );
     }
-    const callerEmail = (pharmacySnap.data()?.email as string | undefined) ?? "";
-    if (!isSandboxAccountEmail(callerEmail)) {
+    if (callerEmail.length === 0) {
+      // An account row with no email is a half-provisioned record, not a
+      // usable test identity.
       throw new HttpsError(
         "permission-denied",
-        "Sandbox delivery advance requires a recognised test account (see SANDBOX_ACCOUNT_PATTERNS)."
+        "Sandbox delivery advance requires an account with an email."
       );
     }
 
@@ -478,6 +494,30 @@ export const sandboxDeliveryAdvance = onCall<AdvanceInput>(
  * genuine courier cockpit with courier authentication is a separate,
  * post-demo effort; this lot does NOT relax the gate.
  */
+/**
+ * Resolves the caller's account email, accepting a pharmacy OR a courier.
+ *
+ * Returns `null` when the uid owns neither document, and `""` when the
+ * document exists without an email — the caller distinguishes the two so the
+ * refusal message says which problem it is. Pharmacies are probed first:
+ * they are the historical caller, so the courier read is only paid when the
+ * uid is not a pharmacy.
+ *
+ * IDENTITY only. Whether that identity may drive THIS delivery is decided
+ * separately by `assertCockpitCaller`, inside the transaction.
+ */
+async function resolveSandboxCallerEmail(userId: string): Promise<string | null> {
+  const pharmacySnap = await db.collection("pharmacies").doc(userId).get();
+  if (pharmacySnap.exists) {
+    return (pharmacySnap.data()?.email as string | undefined) ?? "";
+  }
+  const courierSnap = await db.collection("couriers").doc(userId).get();
+  if (courierSnap.exists) {
+    return (courierSnap.data()?.email as string | undefined) ?? "";
+  }
+  return null;
+}
+
 function assertCockpitCaller(userId: string, delivery: DeliveryData): void {
   const isTradeParty =
     userId === delivery.fromPharmacyId || userId === delivery.toPharmacyId;

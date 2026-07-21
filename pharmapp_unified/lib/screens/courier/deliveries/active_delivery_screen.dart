@@ -1,3 +1,5 @@
+import 'package:pharmapp_shared/config/build_flags.dart';
+import 'courier_journey_controls.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -139,6 +141,12 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
             
             // Progress indicators
             _buildProgressCard(),
+            // Staging only: tappable steps so a demo can advance the delivery
+            // without GPS or QR. Tree-shaken out of prod builds.
+            if (kUseStaging) ...[
+              const SizedBox(height: 16),
+              CourierJourneyControls(deliveryId: widget.delivery.id),
+            ],
             
             const SizedBox(height: 16),
             

@@ -258,9 +258,21 @@ test("unauthenticated caller refused", async () => {
   ).rejects.toMatchObject({ code: "unauthenticated" });
 });
 
-// 8. Email outside gate refused
-test("email outside sandbox gate refused", async () => {
+// 8. Account gate — scoped to this callable.
+//
+// CONTRACT CHANGE: the @promoshake.net requirement is no longer applied
+// here. It was what prevented the courier from driving the timeline from its
+// own screen, and the callable is already restricted by the staging project
+// allowlist plus SANDBOX_ENABLED. The shared `isSandboxAccountEmail`, used by
+// the MTN/Paystack and settlement bypasses, is deliberately untouched.
+test("a business email is accepted (domain no longer gates this callable)", async () => {
   docs.get(`pharmacies/${BUYER}`)!.data = { email: "real@gmail.com" };
+  const r = await call("start_pickup");
+  expect(r.outboundPhase).toBe("en_route_to_pickup");
+});
+
+test("an account carrying no email is still refused", async () => {
+  docs.get(`pharmacies/${BUYER}`)!.data = {};
   await expect(call("start_pickup")).rejects.toMatchObject({ code: "permission-denied" });
 });
 

@@ -21,6 +21,10 @@ import { jest } from "@jest/globals";
 // ---------------------------------------------------------------------------
 
 const mockPharmacyGet = jest.fn() as jest.MockedFunction<() => Promise<unknown>>;
+// Identity now resolves against pharmacies OR couriers, so the harness must
+// stub both. Defaulted to `{exists:false}`: a test that says nothing about
+// couriers means "this uid is not a courier".
+const mockCourierGet = jest.fn() as jest.MockedFunction<() => Promise<unknown>>;
 const mockTxGet = jest.fn() as jest.MockedFunction<(ref: unknown) => Promise<unknown>>;
 const mockTxUpdate = jest.fn() as jest.MockedFunction<
   (ref: unknown, data: Record<string, unknown>) => void
@@ -53,6 +57,9 @@ const mockRunTransaction = jest.fn(async (cb: (tx: any) => Promise<any>) => {
 const mockCollection = jest.fn((name: string) => {
   if (name === "pharmacies") {
     return { doc: () => ({ get: mockPharmacyGet }) };
+  }
+  if (name === "couriers") {
+    return { doc: () => ({ get: mockCourierGet }) };
   }
   if (name === "deliveries") {
     return { doc: () => ({ /* ref only — reads go through tx.get */ }) };
@@ -100,6 +107,10 @@ import { sandboxDeliveryAdvance } from "../sandboxDeliveryAdvance.js";
 const wrapped = testFns.wrap(sandboxDeliveryAdvance);
 
 afterAll(() => testFns.cleanup());
+
+beforeEach(() => {
+  mockCourierGet.mockResolvedValue({ exists: false });
+});
 
 const ORIGINAL_ENV = process.env.SANDBOX_ENABLED;
 afterEach(() => {
@@ -162,20 +173,84 @@ describe("sandboxDeliveryAdvance — identity gate (env on)", () => {
     process.env.SANDBOX_ENABLED = "true";
   });
 
-  test("rejects when the caller is not a registered pharmacy", async () => {
+  test("rejects a caller who is neither a pharmacy nor a courier", async () => {
     mockPharmacyGet.mockResolvedValue({ exists: false });
+    mockCourierGet.mockResolvedValue({ exists: false });
     await expect(
       callAs("u1", { deliveryId: "d1", action: "pickup" })
     ).rejects.toMatchObject({ code: "permission-denied" });
   });
 
-  test("rejects a pharmacy caller whose email is not @promoshake.net", async () => {
+  // The account-domain requirement is deliberately NOT applied by this
+  // callable: the staging project allowlist and SANDBOX_ENABLED already
+  // restrict it, and requiring @promoshake.net here is what stopped the
+  // courier UI from working. The shared `isSandboxAccountEmail` used by the
+  // payment and settlement bypasses is untouched.
+  test("accepts a pharmacy caller with a business email", async () => {
     mockPharmacyGet.mockResolvedValue({
       exists: true,
-      data: () => ({ email: "real@gmail.com" }),
+      data: () => ({ email: "accra1@gmail.com" }),
+    });
+    mockTxGet.mockResolvedValue({
+      exists: true,
+      data: () => ({
+        fromPharmacyId: "u1",
+        toPharmacyId: "seller-uid",
+        status: "pending",
+      }),
     });
     await expect(
       callAs("u1", { deliveryId: "d1", action: "pickup" })
+    ).resolves.toMatchObject({ ok: true, newStatus: "picked_up" });
+  });
+
+  test("still rejects an account carrying no email", async () => {
+    mockPharmacyGet.mockResolvedValue({ exists: true, data: () => ({}) });
+    await expect(
+      callAs("u1", { deliveryId: "d1", action: "pickup" })
+    ).rejects.toMatchObject({ code: "permission-denied" });
+  });
+
+  // The reason this lot exists: the courier drives the timeline from its own
+  // screen, so a genuine `couriers/{uid}` account must authenticate.
+  test("accepts a genuine courier account assigned to the delivery", async () => {
+    mockPharmacyGet.mockResolvedValue({ exists: false });
+    mockCourierGet.mockResolvedValue({
+      exists: true,
+      data: () => ({ email: "kwame.courier@gmail.com" }),
+    });
+    mockTxGet.mockResolvedValue({
+      exists: true,
+      data: () => ({
+        fromPharmacyId: "buyer-uid",
+        toPharmacyId: "seller-uid",
+        courierId: "courier-uid",
+        status: "pending",
+      }),
+    });
+    await expect(
+      callAs("courier-uid", { deliveryId: "d1", action: "pickup" })
+    ).resolves.toMatchObject({ ok: true, newStatus: "picked_up" });
+  });
+
+  // Being a courier is identity, not authorization.
+  test("rejects a courier account not assigned to this delivery", async () => {
+    mockPharmacyGet.mockResolvedValue({ exists: false });
+    mockCourierGet.mockResolvedValue({
+      exists: true,
+      data: () => ({ email: "other.courier@gmail.com" }),
+    });
+    mockTxGet.mockResolvedValue({
+      exists: true,
+      data: () => ({
+        fromPharmacyId: "buyer-uid",
+        toPharmacyId: "seller-uid",
+        courierId: "courier-uid",
+        status: "pending",
+      }),
+    });
+    await expect(
+      callAs("someone-else-uid", { deliveryId: "d1", action: "pickup" })
     ).rejects.toMatchObject({ code: "permission-denied" });
   });
 
