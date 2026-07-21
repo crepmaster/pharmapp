@@ -390,13 +390,24 @@ describe("Sprint 3 — trial_pending_license is NOT an active subscription", () 
    */
   const FUTURE_DATE_ISO = new Date(Date.now() + 86400000).toISOString();
 
-  test("REQ-3-001: pharmacy with subscriptionStatus='trial_pending_license' CANNOT create exchange_proposals", async () => {
+  test("REQ-3-001: even a FULLY ACTIVE subscription cannot create exchange_proposals from the client", async () => {
+    // Rewritten in Lot 2. This slot used to assert that a
+    // `trial_pending_license` pharmacy was refused — an assertion that
+    // became vacuous once `exchange_proposals` writes were denied to every
+    // client: it would have passed no matter what the subscription said,
+    // silently stopping to test the trial gate. (That gate is still proven,
+    // via `pharmacy_inventory`, by REQ-3-002 and REQ-3-003.)
+    //
+    // The assertion now states the contract that actually holds: proposal
+    // creation is backend-only, and an active subscription does NOT buy a
+    // way around it. The seed below is the most favourable case possible.
     await testEnv.withSecurityRulesDisabled(async (ctx) => {
       await setDoc(doc(ctx.firestore(), `pharmacies/${ALICE_UID}`), {
         ...VALID_PHARMACY_BASE,
-        hasActiveSubscription: false,
-        subscriptionStatus: "trial_pending_license",
-        subscriptionPlan: null,
+        hasActiveSubscription: true,
+        subscriptionStatus: "active",
+        subscriptionPlan: "enterprise",
+        subscriptionEndDate: new Date(FUTURE_DATE_ISO),
       });
     });
     const alice = testEnv.authenticatedContext(ALICE_UID);
@@ -412,9 +423,16 @@ describe("Sprint 3 — trial_pending_license is NOT an active subscription", () 
     );
   });
 
-  test("REQ-3-002: pharmacy with subscriptionStatus='trial' AND future endDate CAN create exchange_proposals", async () => {
+  test("REQ-3-002: pharmacy with subscriptionStatus='trial' AND future endDate CAN create pharmacy_inventory", async () => {
     // Sanity check / regression guard : the existing trial gate still
     // works the way Sprint 3 expects.
+    //
+    // Vehicle changed in Lot 2: this used to create an `exchange_proposals`
+    // document, but that collection became backend-only (client writes are
+    // now denied outright), which would make the assertion pass for the
+    // wrong reason. `pharmacy_inventory` is still gated by
+    // `hasActiveSubscription` AND still legitimately client-written, so it
+    // proves the same thing — and mirrors REQ-3-003, which already used it.
     await testEnv.withSecurityRulesDisabled(async (ctx) => {
       await setDoc(doc(ctx.firestore(), `pharmacies/${ALICE_UID}`), {
         ...VALID_PHARMACY_BASE,
@@ -426,14 +444,12 @@ describe("Sprint 3 — trial_pending_license is NOT an active subscription", () 
     });
     const alice = testEnv.authenticatedContext(ALICE_UID);
     await assertSucceeds(
-      setDoc(
-        doc(alice.firestore(), `exchange_proposals/draft-2`),
-        {
-          fromPharmacyId: ALICE_UID,
-          toPharmacyId: "bob",
-          createdAt: new Date(),
-        }
-      )
+      setDoc(doc(alice.firestore(), `pharmacy_inventory/inv-trial-2`), {
+        pharmacyId: ALICE_UID,
+        medicineId: "amox",
+        availableQuantity: 10,
+        createdAt: new Date(),
+      })
     );
   });
 

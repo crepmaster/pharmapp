@@ -25,6 +25,7 @@ export { expireExchangeHolds } from "./scheduled.js";
 export { createExchangeProposal } from "./createExchangeProposal.js";
 export { acceptExchangeProposal } from "./acceptExchangeProposal.js";
 export { completeExchangeDelivery } from "./completeExchangeDelivery.js";
+export { terminateExchangeDelivery } from "./terminateExchangeDelivery.js";
 export { cancelExchangeProposal } from "./cancelExchangeProposal.js";
 
 // ======================= Subscription / Treasury (Lot 3 — Sprint 3A) =======================

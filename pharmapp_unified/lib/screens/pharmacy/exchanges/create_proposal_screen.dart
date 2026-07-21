@@ -870,7 +870,16 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
 
         case AccessErrorCategory.transportError:
         case AccessErrorCategory.serverError:
-          // Fallback OK: Firestore rules enforce hasActiveSubscription on exchange_proposals
+          // Fallback OK: the subscription is enforced SERVER-SIDE by the
+          // `createExchangeProposal` callable, which is the only way a
+          // proposal can be created. Continuing past a failed pre-check
+          // therefore cannot bypass anything — the server refuses.
+          //
+          // This used to say "Firestore rules enforce hasActiveSubscription
+          // on exchange_proposals". That stopped being true in Lot 2: client
+          // writes to that collection are now denied outright
+          // (`allow create, update, delete: if false`), so the rules no
+          // longer gate on the subscription there at all.
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Subscription check unavailable. Continuing...'),
@@ -878,7 +887,7 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
               duration: Duration(seconds: 2),
             ),
           );
-          break; // Continue — Firestore rules are the final gate
+          break; // Continue — the backend callable is the final gate
 
         default:
           break;

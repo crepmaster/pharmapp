@@ -184,20 +184,27 @@ class DeliveryService {
           // backend's write; nothing left to do client-side.
           return;
 
+        // Failure and cancellation are financial transitions: they must give
+        // the buyer's money back (purchase) or release the reserved stock
+        // (exchange). `terminateExchangeDelivery` is the single authority —
+        // it compensates, cancels the proposal and writes the delivery status
+        // in ONE transaction. We return instead of falling through to the
+        // shared `.update()`, exactly as for `delivered`.
         case DeliveryStatus.failed:
-          updateData['failureReason'] = failureReason;
-          await _cancelProposalForDelivery(
+          await _terminateDelivery(
             deliveryId,
-            failureReason ?? 'Delivery failed',
+            'failed',
+            failureReason ?? notes ?? 'Delivery failed',
           );
-          break;
+          return;
 
         case DeliveryStatus.cancelled:
-          await _cancelProposalForDelivery(
+          await _terminateDelivery(
             deliveryId,
+            'cancelled',
             notes ?? 'Delivery cancelled',
           );
-          break;
+          return;
 
         default:
           break;
@@ -215,38 +222,33 @@ class DeliveryService {
     }
   }
 
-  /// Cancels the linked proposal when a delivery fails or is cancelled.
-  static Future<void> _cancelProposalForDelivery(
+  /// Terminates a delivery and restores every commitment it holds.
+  ///
+  /// Replaces `_cancelProposalForDelivery`, which was structurally unable to
+  /// do its job: it called `cancelExchangeProposal` (which only ever accepted
+  /// `pending` proposals, so after acceptance the call ALWAYS failed), then
+  /// fell back to writing the proposal directly — a write the rules deny to a
+  /// courier — and swallowed that failure in an outer `catch (_)`. The
+  /// delivery ended up `failed` while the proposal stayed `accepted`, the
+  /// money stayed in `deducted` and the stock stayed reserved, silently.
+  ///
+  /// There is deliberately NO fallback and NO swallowed error here: if the
+  /// compensation cannot be applied, the caller must see it and the documents
+  /// must stay untouched. A visible failure is recoverable; an invisible one
+  /// is not.
+  static Future<void> _terminateDelivery(
     String deliveryId,
+    String outcome,
     String reason,
   ) async {
     try {
-      final deliveryDoc =
-          await _firestore.collection('deliveries').doc(deliveryId).get();
-      final proposalId = deliveryDoc.data()?['proposalId'] as String?;
-
-      if (proposalId != null && proposalId.isNotEmpty) {
-        // Try the cancelExchangeProposal callable first (handles refunds)
-        try {
-          await _functions.httpsCallable('cancelExchangeProposal').call({
-            'proposalId': proposalId,
-            'reason': reason,
-            'action': 'cancel',
-          });
-        } catch (_) {
-          // Fallback: update proposal status directly in Firestore
-          await _firestore
-              .collection('exchange_proposals')
-              .doc(proposalId)
-              .update({
-            'status': 'cancelled',
-            'cancelledAt': FieldValue.serverTimestamp(),
-            'cancelReason': reason,
-          });
-        }
-      }
-    } catch (_) {
-      // Non-blocking – admin can reconcile manually
+      await _functions.httpsCallable('terminateExchangeDelivery').call({
+        'deliveryId': deliveryId,
+        'outcome': outcome,
+        'reason': reason,
+      });
+    } catch (e) {
+      throw 'Failed to terminate delivery and restore funds: $e';
     }
   }
 

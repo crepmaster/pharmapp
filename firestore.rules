@@ -34,10 +34,6 @@ service cloud.firestore {
         plan == 'enterprise'       // Unlimited
       );
     }
-    
-    function canCreateProposal(userId) {
-      return hasActiveSubscription(userId);
-    }
 
     // Sprint 2D: canonical-first city match for delivery access rules.
     // Compares delivery city against the courier's city using cityCode when both
@@ -408,17 +404,34 @@ service cloud.firestore {
 
     match /exchange_proposals/{id} {
       allow read: if isAuthenticated(); // All authenticated users can read proposals
-      // 🔒 CRITICAL: Creating proposals requires active subscription
-      allow create: if isAuthenticated() && hasActiveSubscription(request.auth.uid);
-      // 🔒 CRITICAL: Updating proposals requires active subscription for both parties
-      allow update: if isAuthenticated() && (
-        (resource.data.fromPharmacyId == request.auth.uid && hasActiveSubscription(request.auth.uid)) || 
-        (resource.data.toPharmacyId == request.auth.uid && hasActiveSubscription(request.auth.uid))
-      );
-      // 🔒 CRITICAL: Deleting proposals requires active subscription
-      allow delete: if isAuthenticated() && 
-                   resource.data.fromPharmacyId == request.auth.uid &&
-                   hasActiveSubscription(request.auth.uid);
+
+      // 🔒 Lot 2 — BACKEND-ONLY WRITES.
+      //
+      // The previous rules let either trade party update the document with
+      // NO field whitelist, as long as they had an active subscription. That
+      // made the "callable is the single authority" contract unenforceable:
+      // a party could write `status: cancelled` and `reservations: null`
+      // WITHOUT any compensation — releasing the proposal on paper while the
+      // buyer's money stayed in `deducted` and the stock stayed reserved.
+      // The same hole exposed `deliveryId`, `details.currency`, the amounts
+      // and the compensation markers this lot introduces.
+      //
+      // Audit before locking: no Dart consumer anywhere (pharmapp_unified,
+      // shared, admin_panel) writes this collection directly — creation,
+      // acceptance, rejection, cancellation and completion all go through
+      // callables already. The Admin SDK bypasses these rules, so every
+      // legitimate path keeps working. A future external tool needing a
+      // direct write must get its own audited admin callable instead.
+      allow create, update, delete: if false;
+    }
+
+    // Lot 2 — terminal delivery statuses are backend-only.
+    // `delivered`, `failed` and `cancelled` each move money or stock, so they
+    // may only be produced by the settlement / compensation callables running
+    // through the Admin SDK (which bypasses these rules). A client write that
+    // sets any of them is denied, whoever the caller is.
+    function deliveryStatusNotTerminal(after) {
+      return !(after.status in ['delivered', 'failed', 'cancelled']);
     }
 
     match /deliveries/{id} {
@@ -452,13 +465,32 @@ service cloud.firestore {
          )) ||
         // Assigned courier can update their own delivery (field-restricted)
         // Prevents modification of financial fields (courierFee, totalPrice, currency, etc.)
+        //
+        // Lot 2: the field whitelist is not enough — it let the courier write
+        // `status` to ANY value, including the three TERMINAL ones. Each of
+        // those carries money: `delivered` settles the trade,
+        // `failed`/`cancelled` must refund the buyer or release reserved
+        // stock. Writing them directly bypassed the compensation entirely and
+        // left the proposal and wallets out of sync with the delivery.
+        // They now go exclusively through `completeExchangeDelivery` and
+        // `terminateExchangeDelivery` (Admin SDK, unaffected by these rules).
+        // Non-terminal steps stay client-writable so the courier UI keeps
+        // working; that transition matrix is hardened in the next lot.
         (resource.data.courierId == request.auth.uid &&
+         deliveryStatusNotTerminal(request.resource.data) &&
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(
            ['status', 'updatedAt', 'pickedUpAt', 'deliveredAt', 'failureReason',
             'notes', 'proofImages', 'hasIssue', 'lastIssueReportedAt']
          )) ||
-        // Admin override
-        isSuperAdmin(request.auth.uid)
+        // Admin override — still barred from TERMINAL statuses.
+        // Without this second predicate the whole `deliveryStatusNotTerminal`
+        // guard above was bypassable: a super_admin signed in through the
+        // client app could write `delivered` / `failed` / `cancelled` and the
+        // compensation markers by hand, producing exactly the divergence this
+        // lot removes. Terminal repairs belong to a callable or an audited
+        // Admin SDK script, which are not subject to these rules at all.
+        (isSuperAdmin(request.auth.uid) &&
+         deliveryStatusNotTerminal(request.resource.data))
       );
     }
 
