@@ -280,12 +280,15 @@ cd functions && npm run serve      # emulator (functions only)
 
 ### Deploy
 
+**Le déploiement direct est interdit.** Seul le preflight local est disponible :
+
 ```bash
-firebase deploy --only firestore:indexes      # indexes
-firebase deploy --only firestore:rules        # rules
-firebase deploy --only functions              # all functions
-firebase deploy --only functions:NAME         # one function
+npm run deploy:staging -- preflight --project=mediexchange-staging
 ```
+
+Les phases `expand`, `contract` et `verify` ne sont pas implémentées. Aucune
+commande de déploiement Firebase ou GCloud ne doit être exécutée directement
+(voir [docs/adr/ADR-002-consolidated-deployment-surface.md](docs/adr/ADR-002-consolidated-deployment-surface.md)).
 
 ### Audit drift remote vs local
 
@@ -306,7 +309,22 @@ Read-only. Rapporte `remote_only` / `local_only` / `intersection`. Au 2026-04-22
 3. Tester
 4. **AVANT TOUT COMMIT** : restaurer les placeholders (`'AIzaSyC-PLACEHOLDER-...'`)
 
-Validation pré-commit : git hook `.husky/pre-commit` scanne les patterns sensibles.
+> ⚠️ **Correction 2026-07-22 — il n'y a AUCUN scan de secrets.** `.husky/pre-commit`
+> exécute uniquement `cd functions && npm run validate:fast` (typecheck + lint +
+> `jest --onlyChanged --bail`). Il ne détecte aucun pattern sensible. L'affirmation
+> inverse figurait ici et était fausse : elle a laissé croire à un filet qui
+> n'existe pas. Deux dettes ouvertes en conséquence :
+>
+> - **`TD-SEC-KEY-EXPOSURE`** — deux clés Web Firebase réelles étaient committées
+>   dans 8 fichiers (10 occurrences), rédigées dans le tip le 2026-07-22 en
+>   `[REDACTED_FIREBASE_WEB_API_KEY]`. **L'historique Git n'est PAS réécrit** et les
+>   contient toujours. Une clé Web Firebase peut légitimement être publique (elle
+>   part dans tout bundle web ; sa sécurité repose sur les Rules et App Check) —
+>   **ne pas tourner à l'aveugle** : vérifier d'abord les restrictions de la clé
+>   dans Google Cloud / Firebase (référents HTTP, APIs autorisées), puis décider
+>   rotation ou conservation. Une rotation non maîtrisée casserait les clients.
+> - **`TD-SEC-NO-SCANNING`** — aucun scan de secrets au commit. À instrumenter dans
+>   un lot dédié ; ne pas improviser un scanner ici.
 
 ---
 

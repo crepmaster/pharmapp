@@ -1,3 +1,23 @@
+> # ⛔ AGENT ARCHIVÉ — NE PAS EXÉCUTER, N'EST PLUS UN AGENT ACTIF
+>
+> Archivé le 2026-07-22 par [ADR-002](../adr/ADR-002-consolidated-deployment-surface.md).
+> Retiré de `.claude/agents/` : ce fichier **n'est plus chargé comme agent**
+> (le bloc `name:`/`tools:` ci-dessous n'est plus en tête, donc inerte).
+> Conservé pour la seule traçabilité historique.
+>
+> Ce document prescrivait des déploiements Firebase directs — dont
+> `firebase deploy --only functions --force` et des projets `pharmapp-prod` /
+> `pharmapp-staging` **qui n'existent dans aucun `.firebaserc`**. Ne suivez
+> aucune de ces commandes.
+>
+> ```text
+> Le déploiement direct est interdit. Seul le preflight local est disponible :
+> npm run deploy:staging -- preflight --project=mediexchange-staging
+>
+> Les phases expand, contract et verify ne sont pas implémentées.
+> Aucune commande de déploiement Firebase ou GCloud ne doit être exécutée directement.
+> ```
+
 ---
 name: pharmapp-deployer
 description: Deployment specialist for pharmapp Firebase functions with pre-deploy validation and rollback capabilities

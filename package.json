@@ -2,6 +2,8 @@
   "name": "pharmapp",
   "private": true,
   "scripts": {
+    "deploy:staging": "node scripts/deploy-staging.mjs",
+    "test:deploy": "node --test scripts/deployChecks.test.mjs scripts/deployRunner.test.mjs scripts/deployIsolation.test.mjs scripts/deployArtifact.test.mjs scripts/deploySurface.test.mjs",
     "prepare": "husky"
   },
   "devDependencies": {

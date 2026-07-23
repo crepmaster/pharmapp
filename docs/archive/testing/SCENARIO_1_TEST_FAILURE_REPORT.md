@@ -135,14 +135,14 @@ Despite failures, some things WORKED:
 ```dart
 // Add flutter run with --dart-define
 flutter run -d emulator-5554 \
-  --dart-define=FIREBASE_ANDROID_API_KEY=AIzaSyDrM96tzLwGkVaCvqEP9cWAXZYqvOEGyAs \
+  --dart-define=FIREBASE_ANDROID_API_KEY=[REDACTED_FIREBASE_WEB_API_KEY] \
   --dart-define=FIREBASE_ANDROID_APP_ID=1:850077575356:android:67c7130629f17dd57708b9
 ```
 
 **Option B - Temporary Hardcode** (for testing only):
 ```dart
 // pharmacy_app/lib/firebase_options.dart line 59
-apiKey: 'AIzaSyDrM96tzLwGkVaCvqEP9cWAXZYqvOEGyAs', // TESTING ONLY
+apiKey: '[REDACTED_FIREBASE_WEB_API_KEY]', // TESTING ONLY
 ```
 
 **Option C - google-services.json** (standard Android approach):

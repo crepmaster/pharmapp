@@ -449,7 +449,7 @@ grep "defaultValue.*AIza" pharmacy_app/lib/firebase_options.dart
 
 # If you see "PLACEHOLDER", need to update with real keys
 # Real keys (for testing ONLY):
-# API Key: AIzaSyDrM96tzLwGkVaCvqEP9cWAXZYqvOEGyAs
+# API Key: [REDACTED_FIREBASE_WEB_API_KEY]
 # App ID: 1:850077575356:web:67c7130629f17dd57708b9
 ```
 

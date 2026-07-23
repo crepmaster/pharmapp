@@ -1,4 +1,21 @@
 ═══════════════════════════════════════════════════════════════════════════════
+  ⛔ ARCHIVE NON EXÉCUTABLE — NE PAS EXÉCUTER NI COPIER LES COMMANDES CI-DESSOUS
+═══════════════════════════════════════════════════════════════════════════════
+
+  Ce fichier est un instantané historique de restauration, PAS une procédure
+  à suivre. Les commandes de déploiement Firebase/GCloud qu'il contient sont
+  interdites depuis ADR-002 (docs/adr/ADR-002-consolidated-deployment-surface.md).
+
+  Le déploiement direct est interdit. Seul le preflight local est disponible :
+  npm run deploy:staging -- preflight --project=mediexchange-staging
+
+  Les phases expand, contract et verify ne sont pas implémentées.
+  Aucune commande de déploiement Firebase ou GCloud ne doit être exécutée
+  directement.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════════════════════
 FLUTTER BACKUP SUMMARY - PharmApp Mobile Development Environment
 ═══════════════════════════════════════════════════════════════════════════════
 Generated: 2025-10-20

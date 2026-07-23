@@ -106,7 +106,7 @@ grep -i "placeholder" pharmacy_app/lib/firebase_options.dart && echo "❌ FAIL: 
 ```
 
 **Critères de Succès:**
-- [ ] apiKey contient "AIzaSyDrM96tzLwGkVaCvqEP9cWAXZYqvOEGyAs"
+- [ ] apiKey contient "[REDACTED_FIREBASE_WEB_API_KEY]"
 - [ ] appId contient "1:850077575356:web:67c7130629f17dd57708b9"
 - [ ] Aucun "PLACEHOLDER" présent
 

@@ -66,7 +66,7 @@ This file lists operational, up-to-date documentation. For deprecated or histori
 ### Guides (`docs/guides/`)
 
 - [guides/installation.md](guides/installation.md) — Project installation.
-- [guides/DEPLOYMENT_GUIDE.md](guides/DEPLOYMENT_GUIDE.md) — Deployment instructions.
+- [guides/DEPLOYMENT_GUIDE.md](guides/DEPLOYMENT_GUIDE.md) — Page de statut de déploiement (sécurisée 2026-07-22 : aucune procédure directe copiable ; seul le preflight local existe).
 - [guides/agents-readme-fr.md](guides/agents-readme-fr.md) — Agents README (FR).
 - [guides/download-guide-fr.md](guides/download-guide-fr.md) — Download guide (FR).
 

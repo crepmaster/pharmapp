@@ -35,38 +35,30 @@ isolé pour collecter les preuves PASS finales avant deploy prod.
 
 ### 1.2 CLI association
 
-```bash
-# Lister les projets
-firebase projects:list
-
-# Associer le projet staging au dépôt local sans toucher prod
-firebase use --add mediexchange-staging --alias staging
-
-# Vérifier
-firebase use
-# attendu : Active Project: staging (mediexchange-staging)
-```
+L'alias `staging` → `mediexchange-staging` est **déjà présent** dans `.firebaserc`
+(committé). Aucune commande CLI d'association à exécuter. Les alias réels :
+`dev=nowastemed`, `staging=mediexchange-staging`, `prod=mediexchange`.
 
 ---
 
 ## 2. Deploy initial backend
 
-### 2.1 Build + deploy en séquence sécurisée
+> ⛔ **Le déploiement direct est interdit.** Seul le preflight local est disponible :
+> `npm run deploy:staging -- preflight --project=mediexchange-staging`
+>
+> Les phases `expand`, `contract` et `verify` **ne sont pas implémentées**. Aucune
+> commande de déploiement Firebase ou GCloud ne doit être exécutée directement.
+> L'ordre-cible ci-dessous est **descriptif et non exécutable**.
 
-```bash
-# Build TS frais
-cd functions && npm run build && npm run lint && npm test
-cd ..
+### 2.1 Ordre-cible du déploiement backend (NON EXÉCUTABLE)
 
-# Indexes EN PREMIER (sinon les fonctions échouent à l'init)
-firebase deploy --only firestore:indexes --project=staging
+Pré-requis : `cd functions && npm run build && npm run lint && npm test` verts,
+puis preflight PASS. L'ordre que les phases mutantes appliqueront, une fois
+livrées :
 
-# Rules
-firebase deploy --only firestore:rules --project=staging
-
-# Functions
-firebase deploy --only functions --project=staging
-```
+1. **Indexes Firestore en premier** (sinon les fonctions échouent à l'init) → `mediexchange-staging`
+2. **Functions** → `mediexchange-staging`
+3. **Rules** (après `npm run test:rules` PASS) → `mediexchange-staging`
 
 ### 2.2 Vérifier le drift
 
@@ -79,8 +71,8 @@ node functions/scripts/audit-remote-drift.mjs --project=mediexchange-staging
 
 ## 3. Seed `system_config/main`
 
-`system_config/main` n'est pas déployé par `firebase deploy`. Il faut le
-créer manuellement.
+`system_config/main` n'est pas inclus dans le déploiement du code
+(functions / rules / indexes). Il faut le créer manuellement.
 
 ### 3.1 Via Console Firebase
 
@@ -259,8 +251,9 @@ docs(release): sprint 5 — staging recette completed, transition to PASS
 
 ## 10. Pré-deploy prod (gate suivant)
 
-PASS Sprint 5 est nécessaire mais **pas suffisant** pour deploy prod.
-Avant `firebase deploy --project=mediexchange` :
+PASS Sprint 5 est nécessaire mais **pas suffisant** pour une promotion prod.
+La promotion prod n'a **aucun chemin implémenté** (phases mutantes fermées ;
+déploiement direct interdit). Pré-requis lorsqu'elle sera livrée :
 
 1. Re-lancer les 3 audits sur prod en read-only :
    - `auditUnknownCountryPharmacies.mjs --project=mediexchange`

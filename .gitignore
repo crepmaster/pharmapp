@@ -116,3 +116,10 @@ auth_export_temp.json
 emulator-data/
 # Auto-named exports from `--export-on-exit` without an explicit path.
 firebase-export-*/
+
+# Local deployment state (manifests, lock) — never shared
+/.deploy/
+
+# Deployment tooling install (REQ-DEP-ISO-02). Ignored, never tracked:
+# committing it would put the delivery tool's whole tree in every review diff.
+/tools/deploy/node_modules/

@@ -1,7 +1,7 @@
 ---
 name: pharmapp-reviewer
 description: Expert code review specialist for pharmapp Firebase pharmacy platform focusing on mobile money payments and peer-to-peer pharmaceutical exchanges
-tools: git, firebase, typescript
+tools: git, typescript
 ---
 
 # PharmApp Code Review Agent

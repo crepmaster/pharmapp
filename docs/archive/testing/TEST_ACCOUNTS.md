@@ -231,7 +231,7 @@ iOS: 1:850077575356:ios:c6dac3a4bebb51317708b9
 
 ### **API Key (Web/Android)**
 ```
-API Key: AIzaSyDrM96tzLwGkVaCvqEP9cWAXZYqvOEGyAs
+API Key: [REDACTED_FIREBASE_WEB_API_KEY]
 Auth Domain: mediexchange-76872.firebaseapp.com
 ```
 
