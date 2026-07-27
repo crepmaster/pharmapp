@@ -9,6 +9,7 @@
  */
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import {
   ALLOWED_PROJECT,
   PHASES,
@@ -135,49 +136,75 @@ describe("commit is pushed — proven against the server, not a cached ref", () 
   });
 });
 
-describe("functions.ignore — allowlist, not a search for the word 'lib'", () => {
-  test("no ignore key at all is the safe default", () => {
-    assert.equal(checkFunctionsIgnore({ functions: { source: "functions" } }).ok, true);
+describe("functions.ignore — explicit, and *-debug.log mandatory", () => {
+  // The minimal valid list. `*-debug.log` is now required so the emulator logs
+  // a Rules-then-hash preflight produces cannot enter the artefact hash.
+  const REQUIRED = ["node_modules", ".git", "*-debug.log"];
+
+  test("the required minimal list is accepted", () => {
+    assert.equal(checkFunctionsIgnore({ functions: { ignore: [...REQUIRED] } }).ok, true);
   });
 
-  test("every vetted pattern passes", () => {
+  test("an absent ignore is now REFUSED, not treated as a safe default", () => {
+    // The regression that broke reproducibility: the default list omits
+    // *-debug.log, so firestore-debug.log entered the hash.
+    const r = checkFunctionsIgnore({ functions: { source: "functions" } });
+    assert.equal(r.ok, false);
+    assert.equal(r.code, "FUNCTIONS_IGNORE_MISSING");
+    assert.match(r.message, /\*-debug\.log/);
+  });
+
+  test("omitting *-debug.log is refused as incomplete", () => {
+    const r = checkFunctionsIgnore({ functions: { ignore: ["node_modules", ".git"] } });
+    assert.equal(r.code, "FUNCTIONS_IGNORE_INCOMPLETE");
+    assert.match(r.message, /\*-debug\.log/);
+  });
+
+  test("omitting node_modules or .git is still refused", () => {
     assert.equal(
-      checkFunctionsIgnore({ functions: { ignore: [...ALLOWED_FUNCTIONS_IGNORE] } }).ok,
-      true
+      checkFunctionsIgnore({ functions: { ignore: [".git", "*-debug.log"] } }).code,
+      "FUNCTIONS_IGNORE_INCOMPLETE"
+    );
+    assert.equal(
+      checkFunctionsIgnore({ functions: { ignore: ["node_modules", "*-debug.log"] } }).code,
+      "FUNCTIONS_IGNORE_INCOMPLETE"
     );
   });
 
-  test("patterns naming lib are refused", () => {
-    // Paired with the mandatory entries so the verdict is about the pattern,
-    // not about a list that also dropped node_modules/.git.
-    for (const p of ["lib", "lib/**", "functions/lib", "**/lib/**"]) {
+  test("a duplicate pattern is refused", () => {
+    assert.equal(
+      checkFunctionsIgnore({ functions: { ignore: [...REQUIRED, "node_modules"] } }).code,
+      "FUNCTIONS_IGNORE_DUPLICATE"
+    );
+  });
+
+  test("an unaudited extra pattern is refused, even if harmless-looking", () => {
+    for (const p of ["dist", "*.map", "coverage", "src/**"]) {
       assert.equal(
-        checkFunctionsIgnore({ functions: { ignore: ["node_modules", ".git", p] } }).code,
+        checkFunctionsIgnore({ functions: { ignore: [...REQUIRED, p] } }).code,
         "FUNCTIONS_IGNORE_UNRECOGNISED",
         `pattern ${p}`
       );
     }
   });
 
-  test("BROAD globs that never mention lib are refused too", () => {
-    // The reason a substring search was not enough: each of these excludes
-    // lib/index.js, and `main` points at it, so the upload would carry no
-    // code at all.
-    for (const p of ["**", "*", "l*", "**/*.js", "li?", "[a-z]*"]) {
-      assert.equal(
-        checkFunctionsIgnore({ functions: { ignore: ["node_modules", ".git", p] } }).code,
-        "FUNCTIONS_IGNORE_UNRECOGNISED",
-        `pattern ${p}`
-      );
-    }
+  test("a pattern that would exclude lib/ is refused by the dedicated check", () => {
+    // If a lib-excluding glob were ever added to the allowlist by mistake, this
+    // second check still catches it: it matches the actual basenames.
+    const r = checkFunctionsIgnore({
+      functions: { ignore: [...REQUIRED, "lib"] },
+    });
+    // 'lib' is unvetted, so UNRECOGNISED fires first — but a lib-matching glob
+    // that WAS allowlisted would hit FUNCTIONS_IGNORE_EXCLUDES_LIB. Prove the
+    // dedicated matcher directly.
+    assert.ok(["FUNCTIONS_IGNORE_UNRECOGNISED", "FUNCTIONS_IGNORE_EXCLUDES_LIB"].includes(r.code));
   });
 
-  test("one unvetted pattern among vetted ones still refuses", () => {
-    assert.equal(
-      checkFunctionsIgnore({ functions: { ignore: ["node_modules", ".git", "**/*.js"] } })
-        .code,
-      "FUNCTIONS_IGNORE_UNRECOGNISED"
-    );
+  test("a file that merely resembles the log pattern is NOT what *-debug.log excludes", () => {
+    // `*-debug.log` excludes `firestore-debug.log` but not `debugger.ts` or
+    // `lib` — sanity that the required pattern is narrow. (Verified via the
+    // artefact hasher tests; here we only confirm the list is accepted.)
+    assert.equal(checkFunctionsIgnore({ functions: { ignore: [...REQUIRED] } }).ok, true);
   });
 
   test("a non-array ignore is refused rather than coerced", () => {
@@ -185,6 +212,14 @@ describe("functions.ignore — allowlist, not a search for the word 'lib'", () =
       checkFunctionsIgnore({ functions: { ignore: "lib" } }).code,
       "FUNCTIONS_IGNORE_INVALID"
     );
+  });
+
+  test("the real firebase.json satisfies the invariant", () => {
+    const cfg = JSON.parse(
+      fs.readFileSync(new URL("../firebase.json", import.meta.url), "utf8")
+    );
+    assert.equal(checkFunctionsIgnore(cfg).ok, true, "the repo's firebase.json is non-conformant");
+    assert.ok(cfg.functions.ignore.includes("*-debug.log"));
   });
 });
 

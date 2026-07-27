@@ -125,13 +125,19 @@ describe("REQ-CLI-LOCAL-01 — the wrapper exposes capabilities, not a passthrou
 
     const rules = planInvocation(["test-rules"]);
     assert.equal(rules.ok, true);
-    assert.deepEqual(rules.args, [
-      "emulators:exec",
-      "--only",
-      "firestore",
-      "--project=demo-pharmapp-rules",
-      "jest --config jest.rules.config.cjs",
-    ]);
+    // The Rules gate now runs from an isolated sandbox (so its debug log does
+    // not land in functions/), which requires an absolute --config and a
+    // cwd-independent nested Jest command.
+    assert.equal(rules.args[0], "emulators:exec");
+    assert.deepEqual(rules.args.slice(1, 4), ["--only", "firestore"].concat("--project=demo-pharmapp-rules"));
+    assert.ok(rules.args.includes("--config"), "no absolute --config passed");
+    const config = rules.args[rules.args.indexOf("--config") + 1];
+    assert.ok(path.isAbsolute(config) && config.endsWith("firebase.json"), config);
+    const nested = rules.args[rules.args.length - 1];
+    assert.match(nested, /jest\.rules\.config\.cjs/);
+    assert.match(nested, /jest[\\/]bin[\\/]jest\.js/); // absolute jest binary, cwd-independent
+    assert.equal(rules.cwdInSandbox, true, "test-rules must run in the sandbox");
+    assert.equal(rules.cwd, null, "sandbox cwd is resolved at run time, not at plan time");
   });
 
   test("deploy and other mutating commands are refused as modes", () => {

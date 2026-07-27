@@ -42,10 +42,22 @@ export const REQUIRED_PREDEPLOY = Object.freeze([
 export const ALLOWED_FUNCTIONS_IGNORE = Object.freeze([
   "node_modules",
   ".git",
+  // `*-debug.log` covers firestore-debug.log, firebase-debug.log,
+  // functions-debug.log … — the emulator logs that a preflight Rules run
+  // writes into the tree BEFORE the artefact is hashed. Not excluding them
+  // made the hash capture a per-run log and stop being reproducible.
+  "*-debug.log",
   "firebase-debug.log",
   "firebase-debug.*.log",
   ".runtimeconfig.json",
 ]);
+
+/**
+ * Patterns `functions.ignore` MUST contain. `node_modules`/`.git` keep the
+ * upload from carrying hundreds of MB and the git history; `*-debug.log` keeps
+ * the artefact hash deterministic across runs.
+ */
+export const REQUIRED_FUNCTIONS_IGNORE = Object.freeze(["node_modules", ".git", "*-debug.log"]);
 
 function refuse(code, message) {
   return { ok: false, code, message };
@@ -227,25 +239,58 @@ export function checkCommitPushed({ localSha, remoteSha, branch, source }) {
  * if a pattern excluding the compiled output were added, since `main` points
  * at `lib/index.js` and the upload would carry no code.
  */
+/**
+ * Reproduces Firebase's basename glob match for one pattern (minimatch
+ * matchBase over the bounded allowlist), so the gate can assert that no
+ * configured pattern would drop the compiled output.
+ */
+function ignoreMatchesBasename(glob, basename) {
+  const rx =
+    "^" +
+    String(glob)
+      .split("")
+      .map((ch) =>
+        ch === "*" ? "[^/]*" : ch === "?" ? "[^/]" : /[.+^${}()|[\]\\]/.test(ch) ? "\\" + ch : ch
+      )
+      .join("") +
+    "$";
+  return new RegExp(rx).test(basename);
+}
+
 export function checkFunctionsIgnore(firebaseConfig) {
   const ignore = firebaseConfig?.functions?.ignore;
-  if (ignore === undefined) return accept({ ignore: "default" });
+  // An explicit list is now MANDATORY: the default (node_modules, .git only)
+  // does not exclude emulator debug logs, so a Rules-then-hash preflight
+  // captured a non-deterministic firestore-debug.log and the hash stopped
+  // being reproducible. The configuration must state the exclusion.
+  if (ignore === undefined) {
+    return refuse(
+      "FUNCTIONS_IGNORE_MISSING",
+      `firebase.json functions.ignore is absent. It must be explicit and include ` +
+        `${REQUIRED_FUNCTIONS_IGNORE.join(", ")} — the default list omits *-debug.log, ` +
+        `which makes the artefact hash non-reproducible.`
+    );
+  }
   if (!Array.isArray(ignore)) {
     return refuse("FUNCTIONS_IGNORE_INVALID", "firebase.json functions.ignore must be an array.");
   }
   const patterns = ignore.map((p) => String(p));
 
-  // A custom list REPLACES the default one, so omitting these puts
-  // node_modules and .git back into the upload: hundreds of megabytes, and
-  // the repository history, shipped to Cloud Functions.
-  const mandatory = ["node_modules", ".git"];
-  const absent = mandatory.filter((m) => !patterns.includes(m));
+  const dupes = patterns.filter((p, i) => patterns.indexOf(p) !== i);
+  if (dupes.length) {
+    return refuse(
+      "FUNCTIONS_IGNORE_DUPLICATE",
+      `functions.ignore contains duplicate pattern(s): ${[...new Set(dupes)].join(", ")}.`
+    );
+  }
+
+  const absent = REQUIRED_FUNCTIONS_IGNORE.filter((m) => !patterns.includes(m));
   if (absent.length) {
     return refuse(
       "FUNCTIONS_IGNORE_INCOMPLETE",
       `A custom functions.ignore replaces the default list, so it must still ` +
-        `exclude ${absent.join(" and ")}. Otherwise they are packaged and ` +
-        `uploaded — including the git history.`
+        `exclude ${absent.join(" and ")}. Missing node_modules/.git ships the git ` +
+        `history; missing *-debug.log makes the artefact hash non-reproducible.`
     );
   }
 
@@ -258,6 +303,19 @@ export function checkFunctionsIgnore(firebaseConfig) {
         `Firebase matches these as globs, so a broad pattern excludes ` +
         `lib/index.js without mentioning it. Allowed: ` +
         `${ALLOWED_FUNCTIONS_IGNORE.join(", ")}.`
+    );
+  }
+
+  // Defence in depth: even an allowlisted pattern must not, in fact, match the
+  // compiled output that `main` points at.
+  const excludesLib = patterns.filter(
+    (p) => ignoreMatchesBasename(p, "lib") || ignoreMatchesBasename(p, "index.js")
+  );
+  if (excludesLib.length) {
+    return refuse(
+      "FUNCTIONS_IGNORE_EXCLUDES_LIB",
+      `functions.ignore pattern(s) ${excludesLib.join(", ")} would exclude the ` +
+        `compiled output (lib/), leaving the upload with no code.`
     );
   }
   return accept({ ignore });

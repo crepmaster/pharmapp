@@ -135,6 +135,27 @@ export function isolatedEnv(baseEnv = process.env, configDir) {
  * config named below is resolved relative to it too. Leaving either to the
  * caller's shell would make the same command mean different things.
  */
+const FUNCTIONS_DIR = path.join(REPO_ROOT, "functions");
+
+/**
+ * The nested command run by `emulators:exec` through a shell — the audited
+ * boundary: a constant, versioned string with no caller input, only paths
+ * derived from this file's location.
+ *
+ * Every path is absolute so the command is independent of the working
+ * directory. That independence is what lets `test-rules` run from an isolated
+ * sandbox instead of `functions/`: the Firestore emulator writes its
+ * `firestore-debug.log` into the CWD, and running from `functions/` dropped a
+ * non-deterministic log into the very tree the artefact hash covers.
+ */
+// Forward-slash paths, double-quoted: `node` accepts `/` on Windows, and this
+// avoids the doubled-backslash that JSON.stringify would produce for a shell.
+// No user input enters these — only paths derived from this file's location.
+const shellPath = (p) => `"${p.split(path.sep).join("/")}"`;
+const RULES_NESTED_COMMAND =
+  `node ${shellPath(path.join(FUNCTIONS_DIR, "node_modules", "jest", "bin", "jest.js"))}` +
+  ` --config ${shellPath(path.join(FUNCTIONS_DIR, "jest.rules.config.cjs"))}`;
+
 const MODES = Object.freeze({
   "serve-functions": {
     // The project is stated, never inferred. `.firebaserc` declares no
@@ -143,7 +164,7 @@ const MODES = Object.freeze({
     // or, worse, resolve to whatever the machine last selected. `demo-` is
     // what makes the emulator refuse to touch a real project.
     args: ["emulators:start", "--only", "functions", "--project=demo-pharmapp"],
-    cwd: () => path.join(REPO_ROOT, "functions"),
+    cwd: () => FUNCTIONS_DIR,
   },
   "test-rules": {
     args: [
@@ -151,11 +172,16 @@ const MODES = Object.freeze({
       "--only",
       "firestore",
       "--project=demo-pharmapp-rules",
-      // Run by the Firebase CLI through a shell. That is the audited
-      // boundary: a constant, versioned string with no caller input in it.
-      "jest --config jest.rules.config.cjs",
+      // Absolute config so the CLI finds firebase.json (and its firestore.rules)
+      // from any CWD — required because we run from the sandbox, not functions/.
+      "--config",
+      path.join(REPO_ROOT, "firebase.json"),
+      RULES_NESTED_COMMAND,
     ],
-    cwd: () => path.join(REPO_ROOT, "functions"),
+    // Run from the per-run sandbox so the emulator's debug log lands there and
+    // is removed with it — never in functions/. `runIsolatedFirebase` supplies
+    // the sandbox path because it is created per run.
+    cwdInSandbox: true,
   },
 });
 
@@ -220,7 +246,16 @@ export function planInvocation(argv) {
         `wrapper back into a general-purpose CLI.`,
     };
   }
-  return { ok: true, mode, args: MODES[mode].args, cwd: MODES[mode].cwd() };
+  const spec = MODES[mode];
+  // `cwd` is either a fixed directory (serve-functions) or the per-run sandbox
+  // (test-rules), resolved by runIsolatedFirebase once the sandbox exists.
+  return {
+    ok: true,
+    mode,
+    args: spec.args,
+    cwd: spec.cwdInSandbox ? null : spec.cwd(),
+    cwdInSandbox: spec.cwdInSandbox === true,
+  };
 }
 
 
@@ -381,9 +416,14 @@ export function runIsolatedFirebase({
       resolve({ ok: true, code: null, message: null, exitCode: 0, signal: null, configDir, cleanup });
     };
 
+    // A mode that runs in the sandbox (test-rules) gets the just-created
+    // configDir as its CWD, so the emulator writes firestore-debug.log inside
+    // the sandbox and it is removed with it — never left in functions/.
+    const cwd = plan.cwdInSandbox ? configDir : plan.cwd;
+
     try {
       const child = spawnFn(process.execPath, [cliPath, ...plan.args], {
-        cwd: plan.cwd,
+        cwd,
         stdio: "inherit",
         shell: false,
         env: isolatedEnv(env, configDir),

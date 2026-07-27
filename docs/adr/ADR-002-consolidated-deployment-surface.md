@@ -133,7 +133,7 @@ verify      lecture    (hors périmètre de ce lot)
 | `REQ-C-FB-01` | Après `npm ci`, preflight exige le CLI local et refuse son absence. | **SATISFAIT ET VÉRIFIÉ le 2026-07-22** — voir §4ter |
 | `REQ-PREFLIGHT-INSTALL-01` | Installation déterministe depuis les lockfiles : `npm ci --prefix functions` **et** `npm ci --prefix tools/deploy`. | **SATISFAIT ET VÉRIFIÉ le 2026-07-22** — voir §4ter |
 | `REQ-PREFLIGHT-RULES-01` | `test:rules` exécuté dans le preflight, via le wrapper fermé et la CLI verrouillée. | **SATISFAIT ET VÉRIFIÉ le 2026-07-22** — voir §4ter |
-| `REQ-PREFLIGHT-HASH-01` | Hash déterministe de l'artefact réellement packagé. | **SATISFAIT ET VÉRIFIÉ le 2026-07-22** — voir §4quinquies |
+| `REQ-PREFLIGHT-HASH-01` | Hash déterministe **et reproductible** de l'artefact réellement packagé. | **RÉFUTÉ le 2026-07-27 puis CORRIGÉ** (§4septies) — le hash capturait `firestore-debug.log`, non reproductible entre runs ; corrigé sur les deux frontières (packaging + cwd Rules isolé). **Nouvelle preuve inter-clones due** avant de le déclarer re-satisfait. |
 | `REQ-PREFLIGHT-DRIFT-01` | Second contrôle git après build/tests : une modification concurrente postérieure au premier contrôle passe aujourd'hui. | **SATISFAIT ET VÉRIFIÉ le 2026-07-22** — voir §4quinquies |
 | `REQ-CONFIG-ROOT-01` | Le déployeur lit `ROOT/firebase.json`. | **PARTIEL** — ancrage `ROOT` sur `import.meta.url` testé (« the root config is the one the deployer actually reads ») ; une configuration structurellement hostile est refusée par les vérificateurs (`checkFunctionsSource`/`checkPredeployHook`). **Reste manquant** : un test bout-en-bout qui lance le déployeur depuis un autre `cwd` avec un second `firebase.json` hostile physiquement présent. |
 
@@ -268,7 +268,7 @@ rend le matcher de basename fidèle et suffisant.
 | Preuve | Résultat |
 |---|---|
 | Ensemble de fichiers vs `readdirRecursive` de firebase-tools (cross-check autoritatif) | **228 = 228, 0 divergence** — inclusion identique à Firebase |
-| Même contenu, répertoire absolu différent (vrai arbre) | **même hash** |
+| Même contenu, répertoire absolu différent (vrai arbre) | même hash *(dans un même clone ; la reproductibilité **entre runs** a été réfutée puis corrigée — voir §4septies)* |
 | mtime modifié, ordre d'énumération inversé | hash inchangé |
 | Édition / ajout / suppression / **renommage** d'un fichier packagé | hash différent (le chemin fait partie de chaque enregistrement) |
 | Fichier exclu (`node_modules` racine **et nesté**, `.git`, logs debug, `.runtimeconfig.json`) | hash inchangé |
@@ -427,6 +427,56 @@ détecter toute réintroduction.
 **Hors périmètre, explicitement** : phases mutantes, commit/push, staging, preuve
 depuis checkout propre, et la règle documentaire globale `REQ-DOC-STATE-01` (le
 troisième état ni-indexé-ni-archivé reste une dette distincte).
+
+---
+
+### 4septies. Reproductibilité du hash — défaut trouvé et corrigé (2026-07-27)
+
+**Contradiction découverte lors de la synchronisation de preuve.** Le jalon
+affirmait le hash « recalculé à l'identique » ; c'était vrai **dans un même
+clone** (recalcul après écriture), **pas entre deux exécutions indépendantes**.
+Une re-vérification depuis un second clone l'a réfuté :
+
+| Preuve | Hash | Fichiers | Statut |
+|---|---|---|---|
+| Jalon (clone `0779b440`) | `sha256:446d3a5d…` | 228 | **contaminé** par un log transitoire |
+| Seconde exécution (clone `aaa42573`) | `sha256:4840800f…` | 228 | confirme la **non-reproductibilité** |
+| Les deux clones, log exclu | `sha256:0ef19980…` | 227 | **identiques** → le payload métier n'avait pas changé |
+
+**Cause racine, prouvée par exécution** : le gate Rules tourne avec
+`cwd = functions/` et l'émulateur Firestore y écrit `firestore-debug.log`
+(timestamps, ports, chemins absolus — non déterministe), **avant** l'étape de
+hash. La liste d'ignore par défaut de Firebase couvre `firebase-debug.log` et
+`firebase-debug.*.log` mais **pas** `firestore-debug.log` ; le hasher, fidèle à
+cette liste, l'incluait donc. `REQ-PREFLIGHT-HASH-01` (« reproductible ») était
+**réfutée** jusqu'à cette correction.
+
+**Correctif — sur les DEUX frontières, jamais une exclusion parallèle dans le
+seul hasher** (qui ferait diverger le hash de ce que Firebase empaquette) :
+
+1. **Packaging réel** — `firebase.json` déclare désormais
+   `functions.ignore = ["node_modules", ".git", "*-debug.log"]` (Firebase y
+   ajoute ses trois internes). Le hasher continue de lire la config réelle.
+   `checkFunctionsIgnore` **exige** désormais une liste explicite contenant
+   `*-debug.log` (nouveaux refus : `FUNCTIONS_IGNORE_MISSING`, `…_INCOMPLETE`
+   sur `*-debug.log`, `…_DUPLICATE`, `…_EXCLUDES_LIB`), transformant la
+   correction en invariant contrôlé.
+2. **Isolation du gate Rules** — `test-rules` tourne désormais depuis la
+   **sandbox** (cwd), avec `--config <firebase.json absolu>` et une commande
+   Jest entièrement absolue (`jest.rules.config.cjs` ancré sur `__dirname` :
+   `rootDir` + `tsconfig`). L'émulateur écrit son log **dans la sandbox**, qui
+   est supprimée à la fin — **plus jamais dans `functions/`**. Cache émulateur
+   préservé à côté.
+
+**Vérifié cette session** : Rules réelles **104/104** via le nouveau chemin,
+**0** `*-debug.log` dans `functions/` après run, suite `261/261` (hostile
+incluse), tests d'hasher prouvant que deux `firestore-debug.log` de contenus
+différents donnent le même hash, cross-check de parité avec `readdirRecursive`
+de firebase-tools inchangé.
+
+**`0ef19980…` n'est PAS encore gravé comme hash canonique** : c'est un candidat
+mesuré. Il ne devient la référence qu'après un nouveau preflight depuis un clone
+neuf (preuve inter-clones, publiée dans la PR #1).
 
 ---
 
@@ -623,7 +673,9 @@ REQ-BRANCH-SURFACE-01                    SATISFAIT ET VÉRIFIÉ
 REQ-C-FB-01 / INSTALL-01 / RULES-01      SATISFAITS ET VÉRIFIÉS
 Isolation env + nettoyage fail-closed    ACCEPTÉ — suite 187→253/253
 REQ-PROJECT-EXPLICIT-01                  SATISFAIT (§4sexies)
-Hash artefact + contrôle Git final       SATISFAITS ET VÉRIFIÉS
+Contrôle Git final                       SATISFAIT ET VÉRIFIÉ
+Hash artefact — reproductibilité         RÉFUTÉE (log) puis CORRIGÉE (§4septies)
+                                         preuve inter-clones due avant merge
 Preflight reproductible                  PROUVÉ bout-en-bout depuis clone
                                          propre poussé (2026-07-27)
 concludeRelease exercé en sous-process   RÉSOLU par le preflight complet

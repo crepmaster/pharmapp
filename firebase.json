@@ -1,6 +1,7 @@
 {
   "functions": {
     "source": "functions",
+    "ignore": ["node_modules", ".git", "*-debug.log"],
     "predeploy": [
       "npm --prefix functions run build",
       "npm --prefix functions run verify:exports"

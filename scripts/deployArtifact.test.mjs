@@ -148,6 +148,49 @@ describe("REQ-HASH — every packaged-file mutation is detected", () => {
   });
 });
 
+describe("REQ-HASH — emulator debug logs never affect the hash (reproducibility)", () => {
+  // The defect that made the hash non-reproducible across runs: a Rules gate
+  // running before the hash left a per-run `firestore-debug.log` in the tree,
+  // and the default ignore list did not exclude it. `firebase.json` now carries
+  // `*-debug.log`, and the hasher reads that real config.
+  const GLOBS_WITH_LOG = functionsIgnoreGlobs({
+    functions: { ignore: ["node_modules", ".git", "*-debug.log"] },
+  });
+
+  test("two trees differing ONLY in firestore-debug.log content hash the same", () => {
+    seed(a);
+    seed(b);
+    put(a, "firestore-debug.log", "run 1 :: port 8080 :: /c/tmp/clone-a :: 12:00:01");
+    put(b, "firestore-debug.log", "run 2 :: port 8080 :: /c/tmp/clone-b :: 23:59:59");
+    assert.equal(
+      hashFunctionsArtifact(a, GLOBS_WITH_LOG).hash,
+      hashFunctionsArtifact(b, GLOBS_WITH_LOG).hash
+    );
+  });
+
+  test("every *-debug.log variant is excluded from the file list", () => {
+    seed(a);
+    for (const name of ["firestore-debug.log", "firebase-debug.log", "functions-debug.log", "ui-debug.log"]) {
+      put(a, name, "noise");
+    }
+    const paths = collectPackagedFiles(a, GLOBS_WITH_LOG).map((f) => f.path);
+    assert.equal(
+      paths.some((p) => p.endsWith("-debug.log")),
+      false,
+      `a debug log leaked into the hashed set: ${paths.filter((p) => p.endsWith("-debug.log"))}`
+    );
+  });
+
+  test("a file that merely resembles a log without matching is still hashed", () => {
+    // `debug.log` (no `-`) and `debugger.ts` are real files, not emulator logs.
+    seed(a);
+    const before = hashFunctionsArtifact(a, GLOBS_WITH_LOG).hash;
+    put(a, "src/debugger.ts", "export const x = 1;");
+    put(a, "lib/debug.log.js", "module.exports = {};");
+    assert.notEqual(hashFunctionsArtifact(a, GLOBS_WITH_LOG).hash, before);
+  });
+});
+
 describe("REQ-HASH — excluded files never affect the hash", () => {
   test("node_modules at the root is ignored", () => {
     seed(a);
@@ -312,6 +355,38 @@ describe("REQ-HASH — cycle detection is provable without symlink privileges", 
   test("hashFunctionsArtifact propagates the cycle rather than returning a partial hash", () => {
     const { io } = buildCyclicIo();
     assert.throws(() => hashFunctionsArtifact("/fn", [], io), (e) => e.code === SYMLINK_CYCLE_CODE);
+  });
+});
+
+describe("REQ-HASH — inclusion still matches Firebase's own, with the new config", () => {
+  const require = createRequire(import.meta.url);
+  const readdirRecursive = (() => {
+    try {
+      return require("../tools/deploy/node_modules/firebase-tools/lib/fsAsync.js").readdirRecursive;
+    } catch {
+      return null;
+    }
+  })();
+
+  test("the hasher and Firebase's readdirRecursive enumerate the same set", { skip: !readdirRecursive }, async () => {
+    // Firebase's own default+config match, so parity must hold WITH the new
+    // `*-debug.log` in the effective ignore — otherwise the hash would diverge
+    // from what Firebase actually packages.
+    const cfg = { functions: { ignore: ["node_modules", ".git", "*-debug.log"] } };
+    const globs = functionsIgnoreGlobs(cfg);
+    put(a, "package.json", "{}");
+    put(a, "lib/index.js", "1");
+    put(a, "src/x.ts", "1");
+    put(a, "firestore-debug.log", "noise"); // must be excluded by both
+    put(a, "node_modules/dep/i.js", "1"); // must be excluded by both
+    put(a, "firebase-debug.log", "noise");
+
+    const fb = (await readdirRecursive({ path: a, ignoreStrings: globs }))
+      .map((f) => path.relative(a, f.name).split(path.sep).join("/"))
+      .sort();
+    const mine = collectPackagedFiles(a, globs).map((f) => f.path).sort();
+    assert.deepEqual(mine, fb, "hasher inclusion diverged from firebase-tools");
+    assert.equal(fb.some((p) => p.endsWith("-debug.log")), false);
   });
 });
 
