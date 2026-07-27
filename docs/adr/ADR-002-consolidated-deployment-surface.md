@@ -3,7 +3,8 @@
 - **Statut** : ACCEPTÉ. Décision `ADR-DEC-002-01` (§6) prise et implémentée le 2026-07-21.
 - **Date** : 2026-07-21
 - **Remplace** : les consignes successives données en conversation entre le 2026-07-21 et ce jour. **Ce document est désormais la seule référence** ; aucune modification ne doit être entreprise sur la base d'un message de conversation.
-- **Contexte git** : branche `chore/deploy-integrity`, HEAD `859af425`, deux commits au-dessus de `origin/main` (`17197d9e`), **non poussés**. Travaux A+B et isolation outillage **non committés**.
+- **Contexte git initial** *(au moment de la rédaction, historique)* : branche `chore/deploy-integrity`, HEAD `859af425`, deux commits au-dessus de `origin/main` (`17197d9e`), non poussés ; travaux A+B et isolation outillage non committés.
+- **État courant** *(2026-07-27)* : tout le travail est committé et poussé. HEAD `0779b4407b4097e9bc14c2669f3c94341d1a7688`, trois commits au-dessus de `origin/main` (`17197d9e`, inchangé). Prouvé depuis un clone indépendant (`C:\tmp\pharmapp-preflight-proof`) : installations déterministes, **preflight intégral PASS**, suite déployeur **253/253**, Firestore Rules **104/104**, CLI Firebase locale **15.24.0**, hash Functions `sha256:446d3a5dd04d6b0bd659d2d2d3a38cb262ce30db1e13978ef68297b7b6e20bdf` (recalculé à l'identique). **PR #1 ouverte, non fusionnée** (base `main`, head `chore/deploy-integrity`, MERGEABLE/CLEAN).
 
 > ⛔ **NE PAS EXÉCUTER les commandes citées dans ce document.** Cet ADR consigne
 > l'historique de ce qui a été retiré ; les commandes de déploiement Firebase /
@@ -120,7 +121,7 @@ verify      lecture    (hors périmètre de ce lot)
 
 ---
 
-## 4. Exigences décidées, NON implémentées — bloquantes
+## 4. Exigences décidées et état d'implémentation
 
 | ID | Exigence | État |
 |---|---|---|
@@ -134,7 +135,7 @@ verify      lecture    (hors périmètre de ce lot)
 | `REQ-PREFLIGHT-RULES-01` | `test:rules` exécuté dans le preflight, via le wrapper fermé et la CLI verrouillée. | **SATISFAIT ET VÉRIFIÉ le 2026-07-22** — voir §4ter |
 | `REQ-PREFLIGHT-HASH-01` | Hash déterministe de l'artefact réellement packagé. | **SATISFAIT ET VÉRIFIÉ le 2026-07-22** — voir §4quinquies |
 | `REQ-PREFLIGHT-DRIFT-01` | Second contrôle git après build/tests : une modification concurrente postérieure au premier contrôle passe aujourd'hui. | **SATISFAIT ET VÉRIFIÉ le 2026-07-22** — voir §4quinquies |
-| `REQ-CONFIG-ROOT-01` | Le déployeur lit `ROOT/firebase.json`. Vérifié par inspection, mais **aucun test avec un second `firebase.json` hostile**. | TEST MANQUANT |
+| `REQ-CONFIG-ROOT-01` | Le déployeur lit `ROOT/firebase.json`. | **PARTIEL** — ancrage `ROOT` sur `import.meta.url` testé (« the root config is the one the deployer actually reads ») ; une configuration structurellement hostile est refusée par les vérificateurs (`checkFunctionsSource`/`checkPredeployHook`). **Reste manquant** : un test bout-en-bout qui lance le déployeur depuis un autre `cwd` avec un second `firebase.json` hostile physiquement présent. |
 
 
 ### 4bis. `REQ-BRANCH-SURFACE-01` — fermeture de la surface de branches (2026-07-22)
@@ -436,7 +437,7 @@ troisième état ni-indexé-ni-archivé reste une dette distincte).
 | ~~Le preflight annonce « Firebase CLI … resolved from **functions'** lockfile » alors qu'il résout depuis `tools/deploy`.~~ **RÉSOLU le 2026-07-22** → « resolved from **tools/deploy's** lockfile ». | `scripts/deploy-staging.mjs` | ~~Message trompeur dans une barrière~~ |
 | ~~**Seconde occurrence, trouvée le 2026-07-22** : le refus de `checkFirebaseRuntime` dit « must come from **functions'** locked dependencies ». Même oubli que ci-dessus, commis au même moment lors du passage à `tools/deploy`.~~ **RÉSOLU le 2026-07-22** → « must come from **tools/deploy's** locked dependencies ». Code `FIREBASE_CLI_NOT_LOCAL` inchangé. | `scripts/deployChecks.mjs` | ~~Message trompeur dans un refus~~ |
 | **Garde anti-régression (2026-07-22, durci)** : un test **découvre récursivement** les `.js`/`.cjs`/`.mjs` sous `scripts/` et `tools/deploy/bin/` (tests exclus) et scanne leur **texte brut** — la tournure est interdite même en commentaire d'un script exécutable, car un commentaire périmé trompe le lecteur autant qu'un `console.log`. Un test mutant plante un nouveau script et prouve que la découverte dynamique le détecte (là où l'ancienne liste fixe de six fichiers l'aurait manqué). L'ADR conserve l'historique et n'est pas sous ces racines. | `scripts/deployIsolation.test.mjs` | — |
-| Le câblage de `concludeRelease` dans le CLI est couvert par lecture, pas par exécution en sous-processus : le bloc final n'est atteignable qu'avec un worktree propre et poussé. | `scripts/deploy-staging.mjs` | Couverture |
+| ~~Le câblage de `concludeRelease` dans le CLI est couvert par lecture, pas par exécution en sous-processus : le bloc final n'est atteignable qu'avec un worktree propre et poussé.~~ **RÉSOLU (2026-07-27)** : le preflight intégral, exécuté depuis un clone propre et poussé, a traversé le bloc final — `concludeRelease` libère le verrou, écrit le manifeste et affiche « preflight passed ». Le chemin est désormais exercé de bout en bout, pas seulement lu. | `scripts/deploy-staging.mjs` | ~~Couverture~~ résolu |
 | Le chemin POSIX de `killTree` n'est pas exécuté sur cette plateforme. | `scripts/deployRunner.mjs` | Couverture |
 | Tests de terminaison d'arbre anormalement longs (~60 s). | `scripts/deployRunner.test.mjs` | Hygiène |
 
@@ -596,13 +597,13 @@ Aucun feu vert de commit ou de déploiement ne doit être donné avant cette dé
 1. ~~Trancher §6~~ — **FAIT** : `ADR-DEC-002-01`, duplicatas retirés, gardes en place (§6.0).
 1bis. ~~Lot 1B — retirer `origin/master`~~ — **FAIT** le 2026-07-22 sur autorisation
    explicite, preuves en §4bis. `REQ-BRANCH-SURFACE-01` satisfait.
-2. `REQ-C-FB-01`, `REQ-PREFLIGHT-INSTALL-01`, `REQ-PREFLIGHT-RULES-01`, `REQ-PREFLIGHT-HASH-01`, `REQ-PREFLIGHT-DRIFT-01`.
-3. Corriger les défauts du §5.
-4. Rendre la suite verte via l'invocation npm officielle et un environnement Firebase local maîtrisé, **dans les deux environnements**.
-5. Tests manquants : `firebase.json` hostile, hash, dérive concurrente.
-6. Preflight complet depuis un check-out propre.
-7. Aligner ensuite la documentation active et les permissions.
-8. Examiner le diff consolidé avant toute décision de commit/push.
+2. ~~`REQ-C-FB-01`, `REQ-PREFLIGHT-INSTALL-01`, `REQ-PREFLIGHT-RULES-01`, `REQ-PREFLIGHT-HASH-01`, `REQ-PREFLIGHT-DRIFT-01`.~~ **FAIT** (§4ter, §4quinquies).
+3. ~~Corriger les défauts du §5.~~ **FAIT** — messages `functions' lockfile` corrigés ; couverture `concludeRelease` résolue par le preflight complet.
+4. ~~Rendre la suite verte via l'invocation npm officielle et un environnement Firebase local maîtrisé, dans les deux environnements.~~ **FAIT** — 253/253, convergente local **et** sandbox hostile (§4quater).
+5. ~~Tests manquants : `firebase.json` hostile, hash, dérive concurrente.~~ **FAIT** pour le hash et la dérive ; `firebase.json` hostile refusé au niveau vérificateur, test bout-en-bout cwd résiduel (voir `REQ-CONFIG-ROOT-01`, §4).
+6. ~~Preflight complet depuis un check-out propre.~~ **FAIT** (2026-07-27) — clone indépendant, preflight intégral PASS, hash recalculé identique.
+7. ~~Aligner ensuite la documentation active et les permissions.~~ **FAIT** (§4sexies) — documentation active alignée ; permissions opérateur `.claude/settings.local.json` restent une dette hors périmètre.
+8. ~~Examiner le diff consolidé avant toute décision de commit/push.~~ **FAIT** — revue consolidée des 51 chemins, commit atomique `0779b440`, push, **PR #1 ouverte**.
 
 ---
 
@@ -610,21 +611,24 @@ Aucun feu vert de commit ou de déploiement ne doit être donné avant cette dé
 
 ```
 Lot A (verdicts purs)                    VÉRIFIÉ
-Lot B (runner, verrou)                   VÉRIFIÉ localement
-Isolation outillage/runtime              VÉRIFIÉ localement
+Lot B (runner, verrou)                   VÉRIFIÉ
+Isolation outillage/runtime              VÉRIFIÉ
 REQ-DEP-SURFACE-01                       SATISFAIT — agent archivé, docs
                                          neutralisés, garde dynamique (§4sexies)
 Duplicata pharmapp_unified               CLOS — retiré, gardes mutation-testés
 REQ-CONFIG-SINGLE-01                     IMPLÉMENTÉ ET VÉRIFIÉ
-REQ-BRANCH-SURFACE-01                    SATISFAIT ET VÉRIFIÉ (2026-07-22)
-REQ-C-FB-01 / INSTALL-01 / RULES-01      SATISFAITS ET VÉRIFIÉS (2026-07-22)
-Isolation env + nettoyage fail-closed    ACCEPTÉ 2026-07-22 — suite 187/187
-                                         convergente local ET sandbox (§4quater)
-REQ-PROJECT-EXPLICIT-01                  SATISFAIT (2026-07-22, §4sexies)
-Hash artefact + contrôle Git final       SATISFAITS ET VÉRIFIÉS (2026-07-22)
-Preflight reproductible                  ATTEINT au preflight — reste à prouver
-                                         bout-en-bout depuis checkout poussé
-Commit A+B                               BLOQUÉ (avant revue du diff consolidé)
+REQ-CONFIG-ROOT-01                       PARTIEL — ancrage testé, test cwd
+                                         bout-en-bout résiduel (§4)
+REQ-BRANCH-SURFACE-01                    SATISFAIT ET VÉRIFIÉ
+REQ-C-FB-01 / INSTALL-01 / RULES-01      SATISFAITS ET VÉRIFIÉS
+Isolation env + nettoyage fail-closed    ACCEPTÉ — suite 187→253/253
+REQ-PROJECT-EXPLICIT-01                  SATISFAIT (§4sexies)
+Hash artefact + contrôle Git final       SATISFAITS ET VÉRIFIÉS
+Preflight reproductible                  PROUVÉ bout-en-bout depuis clone
+                                         propre poussé (2026-07-27)
+concludeRelease exercé en sous-process   RÉSOLU par le preflight complet
+Commit + push                            FAIT — HEAD 0779b440 poussé
+PR #1 (base main ← chore/deploy-integ.)  OUVERTE, non fusionnée, MERGEABLE
 Lot C                                    FERMÉ
 ```
 
@@ -634,4 +638,4 @@ Lot C                                    FERMÉ
 et de l'agent autonome~~ **FAIT (§4sexies)** ; (4) preuve finale depuis un
 checkout propre après commit poussé.
 
-Aucun commit, push, stash, déploiement ni accès staging n'a été effectué.
+Commit et push effectués ; PR #1 ouverte. Aucun merge, déploiement ou contact staging.
