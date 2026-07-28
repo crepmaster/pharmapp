@@ -66,8 +66,8 @@ sont **dead-code legacy** dans `index.ts` — aucune UI ne les appelle plus.
 - Project Firebase staging (ex : `mediexchange-staging` ou flag équivalent).
 - Functions deployées depuis HEAD courant (`git rev-parse HEAD` = sprint 4
   commit `3ffd67f` ou descendant).
-- Indexes Firestore sync (`firebase deploy --only firestore:indexes --project=<staging>`).
-- Rules deployées (`firebase deploy --only firestore:rules --project=<staging>`).
+- Indexes Firestore synchronisés sur `<staging>` (déploiement indexes).
+- Rules déployées sur `<staging>` (déploiement rules, après `npm run test:rules`).
 - `system_config/main` peuplé :
   - `countries.CM = { licenseRequired: false, defaultCurrencyCode: 'XAF' }`
   - `countries.GH = { licenseRequired: true, licenseFormatRegex: '...', licenseGracePeriodDays: 30, defaultCurrencyCode: 'GHS' }`
@@ -355,14 +355,19 @@ Pour chaque scénario PASS exécuté, archiver dans `docs/release/evidence/SPRIN
 
 ## 6. Commandes utiles (cheat sheet)
 
-```bash
-# Build & deploy staging
-cd functions && npm run build
-firebase deploy --only firestore:indexes --project <staging>
-firebase deploy --only firestore:rules     --project <staging>
-firebase deploy --only functions           --project <staging>
+> ⛔ Sprint 5 est **clos**. Le déploiement direct est interdit ; seul
+> `npm run deploy:staging -- preflight --project=mediexchange-staging` existe.
+> Les phases `expand`/`contract`/`verify` ne sont pas implémentées. Le bloc
+> ci-dessous documente l'ordre-cible **non exécutable**.
 
-# Audits read-only
+```text
+# Build (exécutable), puis ordre-cible de déploiement (NON EXÉCUTABLE)
+cd functions && npm run build
+[expand — non implémentée] indexes Firestore   → <staging>
+[contract — non implémentée] rules Firestore    → <staging>  (après npm run test:rules)
+[expand — non implémentée] functions            → <staging>
+
+# Audits read-only (exécutables)
 node functions/scripts/audit-remote-drift.mjs            --project <staging>
 node functions/scripts/auditGhanaLicenseReadiness.mjs    --project <staging> --out gh-audit.csv
 

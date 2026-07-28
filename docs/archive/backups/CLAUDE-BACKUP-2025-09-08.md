@@ -1602,7 +1602,7 @@ After the initial security fix, GitHub security alerts detected **additional exp
 - `admin_panel/lib/firebase_options_demo.dart`
 - `admin_panel/lib/firebase_options_secure.dart`
 
-**Same exposed API key**: `AIzaSyAtAAKXYgcYUPvCHRVHWOU6Oiv8f0rwCCM`
+**Same exposed API key**: `[REDACTED_FIREBASE_WEB_API_KEY]`
 
 ### 🔒 **COMPREHENSIVE SECURITY REMEDIATION COMPLETED:**
 
@@ -1625,7 +1625,7 @@ After the initial security fix, GitHub security alerts detected **additional exp
 - **Repository Security**: ✅ **BULLETPROOF** (no traces remain)
 
 ### 🚨 **CRITICAL NEXT STEPS:**
-1. **Rotate API Keys in Firebase Console** - Revoke exposed key: `AIzaSyAtAAKXYgcYUPvCHRVHWOU6Oiv8f0rwCCM`
+1. **Rotate API Keys in Firebase Console** - Revoke exposed key: `[REDACTED_FIREBASE_WEB_API_KEY]`
 2. **Generate new API keys** for development use
 3. **Team must re-clone repository** (history rewritten)
 4. **Use template files only** for local configuration

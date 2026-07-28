@@ -125,7 +125,7 @@ This project includes specialized AI agents in `.claude/agents/`:
 - **agent-codeur.md** - Coding assistant agent
 - **agent-reviewer.md** - Code review agent
 - **agent-testeur.md** - Testing agent
-- **pharmapp-deployer.md** - Deployment specialist
+- ~~**pharmapp-deployer.md**~~ - Archivé 2026-07-22 (voir `docs/archive/`). Le déploiement passe uniquement par `npm run deploy:staging -- preflight --project=mediexchange-staging` ; aucune commande Firebase/GCloud directe.
 - **pharmapp-reviewer.md** - PharmApp-specific reviewer
 - **pharmapp-tester.md** - PharmApp-specific tester
 

@@ -25,34 +25,28 @@ Region functions partout : `europe-west1`. Firestore staging : Native,
 
 ## 2. Déployer une nouveauté sur STAGING
 
-Pré-requis : code committé sur `main`, tests verts (`npm test`, `npm run test:rules`).
+> ⛔ **Le déploiement direct est interdit.** Seul le preflight local est disponible :
+> `npm run deploy:staging -- preflight --project=mediexchange-staging`
+>
+> Les phases `expand`, `contract` et `verify` **ne sont pas implémentées**. Aucune
+> commande de déploiement Firebase ou GCloud ne doit être exécutée directement.
+> La séquence ci-dessous décrit l'état-cible **non exécutable** ; elle documente
+> ce que les phases mutantes automatiseront, pas une procédure à copier.
 
-```bash
-# Backend (depuis la racine)
-firebase deploy --only firestore:indexes --project=staging
-firebase deploy --only firestore:rules    --project=staging   # après npm run test:rules
-firebase deploy --only functions          --project=staging
+Pré-requis : code committé sur `main`, tests verts (`npm test`, `npm run test:rules`),
+`npm run deploy:staging -- preflight --project=mediexchange-staging` **PASS**.
 
-# Flutter web — clés staging via --dart-define (JAMAIS committées)
-#   Récupérer la config : firebase apps:sdkconfig web --project=mediexchange-staging
-cd pharmapp_unified && flutter build web --release \
-  --dart-define=USE_STAGING=true \
-  --dart-define=STAGING_API_KEY=<apiKey> \
-  --dart-define=STAGING_APP_ID=<appId> \
-  --dart-define=STAGING_SENDER_ID=<messagingSenderId> \
-  --dart-define=STAGING_PROJECT_ID=mediexchange-staging && cd ..
-firebase deploy --only hosting:app --project=staging
+État-cible des phases mutantes (NON EXÉCUTABLE tant qu'`expand`/`contract` ne sont
+pas livrées) :
 
-cd admin_panel && flutter build web --release \
-  --dart-define=USE_STAGING=true \
-  --dart-define=STAGING_API_KEY=<apiKey> \
-  --dart-define=STAGING_APP_ID=<appId> \
-  --dart-define=STAGING_SENDER_ID=<messagingSenderId> \
-  --dart-define=STAGING_PROJECT_ID=mediexchange-staging && cd ..
-firebase deploy --only hosting:admin --project=staging
-```
+| Phase future | Portée | Cible |
+|---|---|---|
+| `expand` | indexes Firestore, puis functions | `mediexchange-staging` |
+| `expand` | hosting app + admin (après `flutter build web --release --dart-define=USE_STAGING=true …`) | `mediexchange-staging` |
+| `contract` | rules Firestore (après `npm run test:rules` PASS) | `mediexchange-staging` |
 
-`USE_STAGING` est géré dans `pharmapp_unified/lib/main.dart`,
+Les clés staging passent par `--dart-define` (jamais committées ; config via
+`firebase apps:sdkconfig web`). `USE_STAGING` est géré dans `pharmapp_unified/lib/main.dart`,
 `admin_panel/lib/main.dart` et `shared/lib/services/authenticated_http_service.dart`
 (miroir du pattern `USE_EMULATOR`). Build prod (sans le flag) → prod inchangée.
 

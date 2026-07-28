@@ -1,7 +1,7 @@
 ---
 name: pharmapp-tester
 description: Automated testing specialist for pharmapp using PowerShell scripts and Firebase emulators
-tools: git, firebase, powershell
+tools: git, powershell
 ---
 
 # PharmApp Testing Agent

@@ -1,6 +1,6 @@
 name: pharmapp-testeur
 description: Agent de test rigoureux PharmApp avec système de preuves et feedback loop
-tools: bash, curl, firebase, flutter
+tools: bash, curl, flutter
 ---
 
 # Agent Testeur PharmApp - Tests avec Preuves

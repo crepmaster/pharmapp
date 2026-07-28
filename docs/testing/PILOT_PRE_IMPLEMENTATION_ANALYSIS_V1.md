@@ -429,7 +429,7 @@ See above (inserted after Pass 3 in the document body).
 
 7. **`functions/src/lib/auth.ts` is a new file (untracked).** It needs to be deployed alongside the functions.
 
-8. **Selective deployment is possible.** `firebase deploy --only functions:validateInventoryAccess,functions:validateProposalAccess,functions:getSubscriptionStatus` deploys only these 3 functions without affecting existing deployed functions.
+8. **Selective deployment is possible in principle** (déployer un sous-ensemble de functions sans toucher les autres). Note 2026-07-22 : le déploiement direct est interdit ; seul `npm run deploy:staging -- preflight --project=mediexchange-staging` existe, les phases mutantes ne sont pas implémentées.
 
 ### Ambiguities
 
@@ -494,7 +494,7 @@ See above (inserted after Pass 3 in the document body).
 
 ### Implementation plan (post-Go)
 
-1. Deploy 3 Cloud Functions: `firebase deploy --only functions:validateInventoryAccess,functions:validateProposalAccess,functions:getSubscriptionStatus`
+1. Déployer 3 Cloud Functions (`validateInventoryAccess`, `validateProposalAccess`, `getSubscriptionStatus`) — via le chemin de déploiement supporté une fois les phases mutantes livrées ; pas de commande directe.
 2. Add `AccessErrorCategory` enum to `secure_subscription_service.dart`
 3. Populate `errorCategory` in all return paths of `validateInventoryAccess()` and `validateProposalAccess()`
 4. Refactor `add_medicine_screen.dart:_addMedicine()` to switch on `errorCategory` instead of the current if/else

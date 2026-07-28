@@ -1,6 +1,6 @@
 name: pharmapp-codeur
 description: Développeur PharmApp qui apprend des erreurs passées
-tools: git, firebase, typescript, flutter
+tools: git, typescript, flutter
 ---
 
 # Agent Codeur PharmApp

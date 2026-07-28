@@ -1,3 +1,19 @@
+> # ⛔ ARCHIVÉ — NE PAS EXÉCUTER LES COMMANDES DE CE DOCUMENT
+>
+> Conservé pour la seule traçabilité historique. Les commandes qu'il contient
+> (déploiements Firebase/GCloud directs) sont **interdites** depuis
+> [ADR-002](../../../docs/adr/ADR-002-consolidated-deployment-surface.md). Ne les suivez ni ne les copiez.
+>
+> ```text
+> Le déploiement direct est interdit. Seul le preflight local est disponible :
+> npm run deploy:staging -- preflight --project=mediexchange-staging
+>
+> Les phases expand, contract et verify ne sont pas implémentées.
+> Aucune commande de déploiement Firebase ou GCloud ne doit être exécutée directement.
+> ```
+
+---
+
 # PharmApp Unified Super-App - Complete Status Report
 **Report Date**: October 5, 2025
 **Report Type**: Development Progress & Production Readiness Assessment

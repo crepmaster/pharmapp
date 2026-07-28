@@ -78,13 +78,10 @@ npm install
 
 ### 3. Firebase Setup
 
-```bash
-# Login to Firebase
-firebase login
-
-# Select project
-firebase use --add
-```
+The project aliases (`dev`, `staging`, `prod`) are already committed in
+`.firebaserc`; there is nothing to select. The Firebase CLI is pinned in
+`tools/deploy` and reached only through the repository's own wrapper — no
+global CLI, and no direct project selection.
 
 ## Development
 
@@ -114,11 +111,8 @@ npm run validate:quick
 ```bash
 cd functions
 
-# Start Firebase emulator
+# Start Firebase emulator (locked local CLI)
 npm run serve
-
-# Deploy to Firebase
-npm run deploy
 ```
 
 ### Integration Testing
@@ -183,18 +177,16 @@ firebase functions:secrets:set ORANGE_CALLBACK_TOKEN
 
 ## Deployment
 
-### Deploy Functions Only
+Deployments go through the single supported entry point, which refuses to
+run unless the commit is clean, pushed and verified:
 
 ```bash
-cd functions
-npm run deploy
+npm run deploy:staging -- preflight --project=mediexchange-staging
 ```
 
-### Deploy Everything
-
-```bash
-firebase deploy
-```
+There is deliberately no `npm run deploy` and no direct Firebase CLI deployment:
+a second path would not be gated, and the gate is only worth what it
+declines.
 
 ## Code Quality
 

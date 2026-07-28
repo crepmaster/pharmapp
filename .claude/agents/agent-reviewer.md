@@ -1,6 +1,6 @@
 name: pharmapp-reviewer
 description: Expert code review PharmApp avec feedback loop et documentation d'erreurs
-tools: git, firebase, typescript
+tools: git, typescript
 ---
 
 # PharmApp Code Review Agent avec Feedback Loop

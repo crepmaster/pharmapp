@@ -1,3 +1,24 @@
+> # ⛔ ARCHIVÉ — NE PAS EXÉCUTER LES COMMANDES DE CE DOCUMENT
+>
+> Archivé le 2026-07-21 par [ADR-002](../adr/ADR-002-consolidated-deployment-surface.md),
+> décision `ADR-DEC-002-01`. Conservé pour la traçabilité historique **uniquement**.
+>
+> Ce document désignait `pharmapp_unified/firestore.rules` et
+> `pharmapp_unified/firestore.indexes.json` comme les fichiers à éditer puis à
+> déployer. **Ces fichiers ont été supprimés** : ils étaient périmés (269 lignes
+> contre 657 ; 13 collections protégées contre 30 ; 2 index contre 15) et
+> divergeaient depuis le 2026-03-15.
+>
+> Suivre les instructions ci-dessous produisait l'un de deux résultats, tous deux
+> faux : soit le correctif édité ne partait jamais, soit il partait en emportant
+> la perte de protection de 17 collections et de 13 index — vers la production.
+>
+> **Source canonique unique** : `firebase.json`, `firestore.rules` et
+> `firestore.indexes.json` à la racine du dépôt.
+> **Seul chemin de déploiement supporté** : `npm run deploy:staging`.
+
+---
+
 # 🔒 FIREBASE SECURITY AUDIT REPORT
 **Project**: PharmApp Mobile (pharmapp_unified)
 **Date**: 2025-10-26

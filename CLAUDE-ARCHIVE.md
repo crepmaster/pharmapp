@@ -1,3 +1,19 @@
+> # ⛔ ARCHIVÉ — NE PAS EXÉCUTER LES COMMANDES DE CE DOCUMENT
+>
+> Conservé pour la seule traçabilité historique. Les commandes qu'il contient
+> (déploiements Firebase/GCloud directs) sont **interdites** depuis
+> [ADR-002](docs/adr/ADR-002-consolidated-deployment-surface.md). Ne les suivez ni ne les copiez.
+>
+> ```text
+> Le déploiement direct est interdit. Seul le preflight local est disponible :
+> npm run deploy:staging -- preflight --project=mediexchange-staging
+>
+> Les phases expand, contract et verify ne sont pas implémentées.
+> Aucune commande de déploiement Firebase ou GCloud ne doit être exécutée directement.
+> ```
+
+---
+
 # CLAUDE-ARCHIVE.md
 
 **Historique des sessions et états antérieurs.** Conservé pour vérité historique uniquement — peut contenir des informations **factuellement obsolètes** :
@@ -620,7 +636,7 @@ The mobile apps connect to a Firebase backend system (separate repository at D:\
    Edit `pharmacy_app/lib/firebase_options.dart` lines 28 & 30:
    ```dart
    // TESTING PHASE: Replace placeholders with real keys (from firebase CLI)
-   defaultValue: 'AIzaSyDrM96tzLwGkVaCvqEP9cWAXZYqvOEGyAs',      // ← Real key here
+   defaultValue: '[REDACTED_FIREBASE_WEB_API_KEY]',      // ← Real key here
    defaultValue: '1:850077575356:web:67c7130629f17dd57708b9',   // ← Real app ID here
    ```
 

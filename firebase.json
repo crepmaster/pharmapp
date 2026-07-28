@@ -1,5 +1,12 @@
 {
-  "functions": { "source": "functions" },
+  "functions": {
+    "source": "functions",
+    "ignore": ["node_modules", ".git", "*-debug.log"],
+    "predeploy": [
+      "npm --prefix functions run build",
+      "npm --prefix functions run verify:exports"
+    ]
+  },
   "firestore": { "rules": "firestore.rules", "indexes": "firestore.indexes.json" },
   "emulators": {
     "auth": { "port": 9099 },

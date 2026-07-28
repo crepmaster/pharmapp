@@ -1,0 +1,8 @@
+{
+  "name": "pharmapp-deploy-tools",
+  "private": true,
+  "description": "Deployment tooling, deliberately isolated from the Cloud Functions dependency graph (REQ-DEP-ISO-01).",
+  "devDependencies": {
+    "firebase-tools": "15.24.0"
+  }
+}
