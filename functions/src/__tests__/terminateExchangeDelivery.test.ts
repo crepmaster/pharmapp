@@ -273,6 +273,22 @@ describe("terminateExchangeDelivery — purchase compensation", () => {
     expect(d.payload.cancellationReason).toBe("pharmacy closed");
     expect(d.payload.failureReason).toBeUndefined();
   });
+
+  test("compensation has NO live dependency — refunds even with system_config absent and no currency snapshot", async () => {
+    // Phase 2 Correction 3: compensation must never gain a blocking territorial
+    // / config dependency. The purchase proposal here carries no `currencyCode`
+    // (legacy shape) and we drop system_config entirely; the refund must still
+    // happen from reservations alone. This locks the invariant against a future
+    // regression that would add a live guard to the compensation path.
+    world = purchaseWorld();
+    world.docs.delete(`system_config/main`);
+    await call(COURIER);
+    const w = writeTo(`wallets/${BUYER}`)!;
+    expect(w.payload.available).toEqual({ __op: "increment", n: TOTAL_WU });
+    const p = writeTo(`exchange_proposals/${PROPOSAL_ID}`)!;
+    expect(p.payload.status).toBe("cancelled");
+    expect(p.payload.reservations).toBeNull();
+  });
 });
 
 describe("terminateExchangeDelivery — exchange compensation", () => {

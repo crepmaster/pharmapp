@@ -60,10 +60,17 @@ interface FakeDoc {
 interface FakeWorld {
   pharmacies: Record<string, FakeDoc>;
   pharmacyInventory: Record<string, FakeDoc>;
+  wallets: Record<string, FakeDoc>;
 }
 
 function defaultWorld(): FakeWorld {
   return {
+    // Phase 2 — both wallets exist and match the derived currency (XAF) so the
+    // in-transaction trade-currency guard passes for these exchange-flow tests.
+    wallets: {
+      [PROPOSER]: { exists: true, data: { currency: "XAF", available: 0, held: 0 } },
+      [TARGET]: { exists: true, data: { currency: "XAF", available: 0, held: 0 } },
+    },
     pharmacies: {
       [PROPOSER]: {
         exists: true,
@@ -133,6 +140,7 @@ function buildFakeFirestore(world: FakeWorld) {
   const collectionMap: Record<string, string> = {
     pharmacy_inventory: "pharmacyInventory",
     pharmacies: "pharmacies",
+    wallets: "wallets",
   };
 
   function pickDoc(collKey: string, id: string): FakeDoc | undefined {
@@ -163,8 +171,9 @@ function buildFakeFirestore(world: FakeWorld) {
     exists: true,
     data: () => ({
       countries: {
-        CM: { licenseRequired: false },
+        CM: { licenseRequired: false, enabled: true, defaultCurrencyCode: "XAF" },
       },
+      currencies: { XAF: { code: "XAF", enabled: true, decimals: 0 } },
       // No citiesByCountry → courier fee path stays at 0 for exchange but
       // it doesn't matter for this test, which asserts proposal shape.
     }),

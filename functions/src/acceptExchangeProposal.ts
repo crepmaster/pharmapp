@@ -25,6 +25,7 @@ import { citySlug } from "./cityUtils.js";
 import { assertLicenseAllowsMarketplace } from "./lib/licenseGate.js";
 import { resolveCourierFee } from "./lib/exchangePipeline.js";
 import { majorToWalletUnits } from "./lib/moneyUnits.js";
+import { assertMatchesSnapshot } from "./lib/tradeCurrencyGuard.js";
 
 const db = getFirestore();
 
@@ -165,14 +166,22 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
         .doc(proposal.fromPharmacyId);
       const toPharmacyRef = db.collection("pharmacies").doc(proposal.toPharmacyId);
 
-      // Also read system_config/main to resolve the per-city courier fee.
+      // Also read system_config/main (courier fee + currency guard) and BOTH
+      // wallets (Phase 2 D4). All reads share this transaction's snapshot.
       const systemConfigRef = db.collection("system_config").doc("main");
-      const [fromPharmacySnapshot, toPharmacySnapshot, systemConfigSnapshot] =
-        await Promise.all([
-          transaction.get(fromPharmacyRef),
-          transaction.get(toPharmacyRef),
-          transaction.get(systemConfigRef),
-        ]);
+      const [
+        fromPharmacySnapshot,
+        toPharmacySnapshot,
+        systemConfigSnapshot,
+        fromWalletSnapshot,
+        toWalletSnapshot,
+      ] = await Promise.all([
+        transaction.get(fromPharmacyRef),
+        transaction.get(toPharmacyRef),
+        transaction.get(systemConfigRef),
+        transaction.get(db.collection("wallets").doc(proposal.fromPharmacyId)),
+        transaction.get(db.collection("wallets").doc(proposal.toPharmacyId)),
+      ]);
 
       if (!fromPharmacySnapshot.exists || !toPharmacySnapshot.exists) {
         throw new HttpsError("not-found", "Pharmacy data not found");
@@ -180,6 +189,31 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
 
       const fromPharmacy = fromPharmacySnapshot.data();
       const toPharmacy = toPharmacySnapshot.data();
+
+      // 🔒 PHASE 2 (G1–G6) — STRICT revalidation IN-TRANSACTION. `accept` moves
+      // value (held → deducted for purchase; binds the trade for exchange), so
+      // it re-derives the trade currency from the CURRENT party docs + wallets
+      // and asserts it equals the `currencyCode` snapshotted at creation. A
+      // legacy proposal with no snapshot, or a drift (party country/currency/
+      // wallet changed), is refused BEFORE any write — the transaction rolls
+      // back with zero side effects.
+      const resolvedDeliveryCurrency = assertMatchesSnapshot(
+        {
+          uid: proposal.fromPharmacyId,
+          countryCode: fromPharmacy?.countryCode,
+          cityCode: fromPharmacy?.cityCode ?? fromPharmacy?.city,
+          walletCurrency: fromWalletSnapshot.data()?.currency,
+        },
+        {
+          uid: proposal.toPharmacyId,
+          countryCode: toPharmacy?.countryCode,
+          cityCode: toPharmacy?.cityCode ?? toPharmacy?.city,
+          walletCurrency: toWalletSnapshot.data()?.currency,
+        },
+        systemConfigSnapshot.exists ? systemConfigSnapshot.data() : undefined,
+        proposal.currencyCode,
+        "acceptExchangeProposal"
+      );
 
       // Sprint 4 Finding 3 fix (post-livraison) — courier fee resolution
       // routed through the shared canonical helper `resolveCourierFee`.
@@ -213,29 +247,9 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
         courierFee,
       });
 
-      // Resolve the operating currency of the delivery from the pharmacy's
-      // country config. The proposal-side `details.currency` is only set
-      // for PURCHASE proposals (CanonicalPurchaseDetails); exchange
-      // proposals never carry a currency because no money changes hands
-      // on the medicine leg. But the delivery ALWAYS has a courier fee,
-      // and that fee must display in the country's currency — falling
-      // back to "XAF" here was the root cause of "3,000 XAF" appearing on
-      // Ghana deliveries. We prefer `system_config/main.countries[cc].defaultCurrencyCode`
-      // as the single source of truth (mirrors createMedicineRequest.ts
-      // and createPharmacyRegistration.ts contracts).
-      const systemConfigCountries = (systemConfigSnapshot.exists
-        ? (systemConfigSnapshot.data()?.countries as
-            | Record<string, { defaultCurrencyCode?: string } | undefined>
-            | undefined)
-        : undefined) ?? {};
-      const countryDefaultCurrency =
-        (systemConfigCountries[deliveryCountry]?.defaultCurrencyCode as
-          | string
-          | undefined) ?? undefined;
-      const resolvedDeliveryCurrency: string =
-        (proposal.details?.currency as string | undefined) ||
-        countryDefaultCurrency ||
-        "XAF";
+      // `resolvedDeliveryCurrency` is the snapshot-confirmed authoritative
+      // currency (from the revalidation above) — no XAF fallback, never the
+      // client value.
 
       // Resolve the medicine display name for the delivery item. Priority:
       // 1. Denormalized `medicineName` on the inventory doc (new write path)

@@ -26,8 +26,11 @@ import {
   isSandboxDemoCaller,
   isSandboxEnabled,
 } from "./lib/sandboxGate.js";
-import { getCountryDefaultCurrency } from "./lib/currencyResolver.js";
 import { majorToWalletUnits } from "./lib/moneyUnits.js";
+import {
+  assertMatchesSnapshot,
+  assertCourierMatchesTrade,
+} from "./lib/tradeCurrencyGuard.js";
 
 // Defence in depth: fail-fast at module load if SANDBOX_ENABLED slipped
 // through to prod. Called BEFORE any handler runs — makes a bad deploy
@@ -449,10 +452,15 @@ export async function completeDeliveryCore(args: {
       // Buyer pharmacy + sysconfig loaded too so we can resolve the operating
       // currency from countryCode instead of the historical `|| "XAF"` fallback
       // (see memory `project_currency_derived_from_country.md`, 2026-07-20).
+      // Phase 2 (G1–G6) — the guard needs BOTH pharmacies + BOTH wallets + the
+      // courier profile + wallet, all on this transaction snapshot.
       const readsToPerform: Promise<FirebaseFirestore.DocumentSnapshot>[] = [
         transaction.get(buyerWalletRef),
+        transaction.get(sellerWalletRef),
         transaction.get(courierWalletRef),
         transaction.get(db.collection("pharmacies").doc(buyerId)),
+        transaction.get(db.collection("pharmacies").doc(sellerId)),
+        transaction.get(db.collection("couriers").doc(userId)),
         transaction.get(db.collection("system_config").doc("main")),
       ];
       if (sourceInventoryRef) {
@@ -463,10 +471,13 @@ export async function completeDeliveryCore(args: {
       }
       const readResults = await Promise.all(readsToPerform);
       const buyerWalletSnap = readResults[0];
-      const courierWalletSnap = readResults[1];
-      const buyerPharmacySnap = readResults[2];
-      const sysConfigSnap = readResults[3];
-      let readIdx = 4;
+      const sellerWalletSnap = readResults[1];
+      const courierWalletSnap = readResults[2];
+      const buyerPharmacySnap = readResults[3];
+      const sellerPharmacySnap = readResults[4];
+      const courierProfileSnap = readResults[5];
+      const sysConfigSnap = readResults[6];
+      let readIdx = 7;
       const sourceInventorySnapshot = sourceInventoryRef ? readResults[readIdx++] : null;
       const exchangeInventorySnapshot = exchangeInventoryRef ? readResults[readIdx++] : null;
 
@@ -483,27 +494,50 @@ export async function completeDeliveryCore(args: {
       const courierFee = delivery.courierFee || 0;
       const halfBuyer = Math.floor(courierFee / 2);
       const halfSeller = courierFee - halfBuyer;
-      // Cascade to determine the settlement currency :
-      //   1. proposal.details.currency — set by client on purchase (canonical).
-      //   2. delivery.currency — set by acceptExchangeProposal from sysconfig
-      //      since commit c5715f60 (exchange path).
-      //   3. Country default resolved from sysconfig + buyer's countryCode —
-      //      catches legacy deliveries created before c5715f60.
-      //   4. "XAF" only if EVERYTHING above is missing, and log a warning.
-      const buyerCountryCode = (buyerPharmacySnap.data()?.countryCode as string | undefined) ?? null;
-      const sysConfigData = sysConfigSnap.exists
-        ? (sysConfigSnap.data() as Parameters<typeof getCountryDefaultCurrency>[0])
-        : null;
-      const countryDefaultCurrency = getCountryDefaultCurrency(sysConfigData, buyerCountryCode);
-      const currency =
-        (proposal?.details?.currency as string | undefined) ||
-        (delivery.currency as string | undefined) ||
-        countryDefaultCurrency ||
-        "XAF";
-      if (currency === "XAF" && !countryDefaultCurrency) {
-        logger.warn(
-          "completeExchangeDelivery: fell back to XAF — proposal, delivery and country config all missing currency",
-          { deliveryId, buyerId, buyerCountryCode }
+
+      // 🔒 PHASE 2 (G1–G6) — STRICT settlement revalidation, IN-TRANSACTION.
+      // Placed AFTER the idempotent replay early-return above, so a replay never
+      // depends on live config/wallets. Re-derives the trade currency from the
+      // CURRENT parties + wallets and asserts it equals the proposal's
+      // `currencyCode` snapshot — no XAF fallback, never the client value.
+      // Refuses (snapshot missing / drift) before ANY capture write.
+      const sysConfigData = sysConfigSnap.exists ? sysConfigSnap.data() : undefined;
+      const currency = assertMatchesSnapshot(
+        {
+          uid: buyerId,
+          countryCode: buyerPharmacySnap.data()?.countryCode,
+          cityCode: buyerPharmacySnap.data()?.cityCode ?? buyerPharmacySnap.data()?.city,
+          walletCurrency: buyerWalletSnap.data()?.currency,
+        },
+        {
+          uid: sellerId,
+          countryCode: sellerPharmacySnap.data()?.countryCode,
+          cityCode: sellerPharmacySnap.data()?.cityCode ?? sellerPharmacySnap.data()?.city,
+          walletCurrency: sellerWalletSnap.data()?.currency,
+        },
+        sysConfigData,
+        proposal?.currencyCode,
+        "completeExchangeDelivery"
+      );
+
+      // 🔒 Courier settlement guard (D4 third frontier). The courier wallet is
+      // credited below in the REAL path; verify the courier's territory +
+      // currency + wallet match the trade BEFORE any write. Skipped in sandbox
+      // demo mode (no courier credit) and when there is no fee to pay.
+      const tradeCountry = (buyerPharmacySnap.data()?.countryCode as string) ?? "";
+      const tradeCity =
+        ((buyerPharmacySnap.data()?.cityCode ?? buyerPharmacySnap.data()?.city) as string) ?? "";
+      if (!sandboxDemoActive && courierFee > 0) {
+        assertCourierMatchesTrade(
+          {
+            uid: userId,
+            countryCode: courierProfileSnap.data()?.countryCode,
+            cityCode: courierProfileSnap.data()?.cityCode ?? courierProfileSnap.data()?.city,
+            walletCurrency: courierWalletSnap.data()?.currency,
+          },
+          { currency, countryCode: tradeCountry, cityCode: tradeCity },
+          sysConfigData,
+          "completeExchangeDelivery"
         );
       }
 

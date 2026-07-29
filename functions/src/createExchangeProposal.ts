@@ -20,9 +20,12 @@
 
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
-import { citySlug } from "./cityUtils.js";
 import { assertLicenseAllowsMarketplace } from "./lib/licenseGate.js";
 import { majorToWalletUnits } from "./lib/moneyUnits.js";
+import {
+  assertTradeCurrency,
+  assertClientCurrencyMatches,
+} from "./lib/tradeCurrencyGuard.js";
 import {
   buildCanonicalProposalDocument,
   reserveExchangeInventory,
@@ -131,21 +134,14 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
 
       const pharmacyData = pharmacyDoc.data();
 
-      // 🔒 CITY ISOLATION: Both pharmacies must be in the same city
+      // Load the seller pharmacy — territory (same country + city) is now
+      // enforced by the Phase 2 trade-currency guard below (D3), which
+      // supersedes the legacy city-only check: a same `cityCode` in two
+      // different countries is refused, and two different XAF countries are
+      // refused territorially even though the currency would match.
       const targetPharmacyDoc = await db.collection("pharmacies").doc(toPharmacyId).get();
       if (!targetPharmacyDoc.exists) {
         throw new HttpsError("not-found", "Target pharmacy not found");
-      }
-      // Canonical comparison: prefer cityCode (Sprint 2A+), normalize legacy city to slug as fallback.
-      // This handles the transition period where some documents have cityCode and others don't.
-      const fromCity = pharmacyData?.cityCode || citySlug(pharmacyData?.city || "");
-      const toCity = targetPharmacyDoc.data()?.cityCode || citySlug(targetPharmacyDoc.data()?.city || "");
-      if (!fromCity || !toCity || fromCity !== toCity) {
-        logger.warn(`createExchangeProposal: City mismatch - ${fromCity} vs ${toCity}`);
-        throw new HttpsError(
-          "failed-precondition",
-          "Exchange proposals can only be created between pharmacies in the same city"
-        );
       }
 
       // Support both flat fields (subscriptionStatus) and nested (subscription.status)
@@ -182,24 +178,75 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
         { isActive, isTrial, isTrialValid }
       );
 
+      // Note: the pre-transaction pharmacy/subscription reads above are
+      // ergonomic (fast-fail + subscription policy) only. The AUTHORITATIVE
+      // monetary/territorial guard runs INSIDE the transaction below, on the
+      // same snapshot as the hold/reservation — nothing (wallet, territory,
+      // config) can change between check and write.
+
       // 🔒 ATOMIC TRANSACTION: Create proposal with balance/quantity reservation
       // This prevents race conditions where multiple proposals are created simultaneously
       const result = await db.runTransaction(async (transaction) => {
         // ===== PHASE 1: READ ALL DOCUMENTS (must read before any writes) =====
 
-        // For PURCHASE proposals: Read wallet balance
-        let walletRef;
+        // 🔒 PHASE 2 (G1–G6) — AUTHORITATIVE TRADE-CURRENCY GUARD, IN-TRANSACTION.
+        // These reads share the transaction snapshot with the hold/reservation
+        // writes below, closing the check→write race a pre-tx guard would leave
+        // open. Reads both pharmacies (territory), system_config (country/currency)
+        // and BOTH wallets (D4: must exist + match). All reads precede any write,
+        // so a guard refusal aborts the tx with ZERO side effects.
+        const walletRef = db.collection("wallets").doc(userId);
+        const [
+          buyerPharmTxSnap,
+          sellerPharmTxSnap,
+          sysConfigTxSnap,
+          buyerWalletTxSnap,
+          sellerWalletTxSnap,
+        ] = await Promise.all([
+          transaction.get(db.collection("pharmacies").doc(userId)),
+          transaction.get(db.collection("pharmacies").doc(toPharmacyId)),
+          transaction.get(db.collection("system_config").doc("main")),
+          transaction.get(walletRef),
+          transaction.get(db.collection("wallets").doc(toPharmacyId)),
+        ]);
+        const { currency: currencyCode } = assertTradeCurrency(
+          {
+            uid: userId,
+            countryCode: buyerPharmTxSnap.data()?.countryCode,
+            cityCode: buyerPharmTxSnap.data()?.cityCode ?? buyerPharmTxSnap.data()?.city,
+            walletCurrency: buyerWalletTxSnap.data()?.currency,
+          },
+          {
+            uid: toPharmacyId,
+            countryCode: sellerPharmTxSnap.data()?.countryCode,
+            cityCode: sellerPharmTxSnap.data()?.cityCode ?? sellerPharmTxSnap.data()?.city,
+            walletCurrency: sellerWalletTxSnap.data()?.currency,
+          },
+          sysConfigTxSnap.exists ? sysConfigTxSnap.data() : undefined,
+          "createExchangeProposal"
+        );
+        // Client-supplied currency (purchase only) is an ASSERTION: absent → ok,
+        // identical → ok, different → typed refusal. Never silently replaced —
+        // the persisted value is always the server-derived `currencyCode`.
+        assertClientCurrencyMatches(
+          details.type === "purchase" ? details.currency : undefined,
+          currencyCode,
+          "createExchangeProposal"
+        );
+
+        // For PURCHASE proposals: reuse the buyer wallet snapshot read above.
         let walletSnapshot;
         if (details.type === "purchase") {
-          if (!details.totalPrice || !details.currency) {
+          // Currency is server-derived (`currencyCode`) — the client value is
+          // only an assertion, already checked above. Only `totalPrice` is
+          // required from the client here.
+          if (!details.totalPrice) {
             throw new HttpsError(
               "invalid-argument",
-              "Purchase proposals require totalPrice and currency"
+              "Purchase proposals require totalPrice."
             );
           }
-
-          walletRef = db.collection("wallets").doc(userId);
-          walletSnapshot = await transaction.get(walletRef);
+          walletSnapshot = buyerWalletTxSnap;
         }
 
         // For EXCHANGE proposals: Read exchange inventory
@@ -313,12 +360,12 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
             );
             throw new HttpsError(
               "failed-precondition",
-              `Insufficient balance. Required: ${details.totalPrice} ${details.currency}, Available: ${availableBalance} ${details.currency}`,
+              `Insufficient balance. Required: ${details.totalPrice} ${currencyCode}, Available: ${availableBalance} ${currencyCode}`,
               {
                 code: "INSUFFICIENT_BALANCE",
                 required: details.totalPrice,
                 available: availableBalance,
-                currency: details.currency,
+                currency: currencyCode,
               }
             );
           }
@@ -332,7 +379,7 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
           });
 
           logger.info(
-            `createExchangeProposal: Reserved ${details.totalPrice} ${details.currency} from wallet`,
+            `createExchangeProposal: Reserved ${details.totalPrice} ${currencyCode} from wallet`,
             { userId, availableBalance, reservedWalletUnits }
           );
 
@@ -395,7 +442,9 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
             quantity: details.quantity,
             unitPrice: details.pricePerUnit ?? 0,
             totalPrice: details.totalPrice!,
-            currency: details.currency!,
+            // Legacy mirror of the top-level `currencyCode` — server-derived,
+            // never the client value; must never diverge from `currencyCode`.
+            currency: currencyCode,
             medicineName: inventorySnapshotCanonical.medicineName,
             medicineId: inventorySnapshotCanonical.medicineId,
             // Firestore rejects `undefined`. When the client omits `notes`
@@ -440,6 +489,7 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
             inventoryItemId,
             fromPharmacyId,
             toPharmacyId,
+            currencyCode,
             details: canonicalDetails,
             initialStatus: "pending",
             inventorySnapshot: inventorySnapshotCanonical,
@@ -450,9 +500,8 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
         transaction.set(proposalRef, proposalData);
 
         // Ledger: record the wallet hold event (after proposalRef is available).
-        // Purchase branch — `details.currency` is required + validated at the
-        // top of the callable, so it's always a non-empty string here. The
-        // historical `|| "XAF"` fallback was dead code and misleading.
+        // Currency is the server-derived `currencyCode` (Phase 2), never the
+        // client value.
         if (details.type === "purchase" && details.totalPrice) {
           const holdLedgerRef = db.collection("ledger").doc();
           transaction.set(holdLedgerRef, {
@@ -460,7 +509,7 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
             proposalId: proposalRef.id,
             userId,
             amount: details.totalPrice,
-            currency: details.currency!,
+            currency: currencyCode,
             from: "available",
             to: "held",
             description: "Wallet balance reserved for purchase proposal",
