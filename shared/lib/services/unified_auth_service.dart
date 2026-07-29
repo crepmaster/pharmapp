@@ -151,15 +151,21 @@ class UnifiedAuthService {
       //     wallets/{uid} atomically (anti-orphan on failure)
       //   - returns { uid, email, licenseStatus }
       // After success, the client signs in to obtain a session.
-      // Courier / admin flows keep the legacy client-side write below.
-      if (userType == UserType.pharmacy) {
+      // Pharmacy AND courier registration are backend-owned callables
+      // (TD-COURIER-ASSIGN-GUARD migrated courier to `createCourierRegistration`,
+      // mirroring the pharmacy path). Only admin keeps the legacy client write.
+      if (userType == UserType.pharmacy || userType == UserType.courier) {
+        final callableName = userType == UserType.pharmacy
+            ? 'createPharmacyRegistration'
+            : 'createCourierRegistration';
         try {
           final result = await _functions
-              .httpsCallable('createPharmacyRegistration')
+              .httpsCallable(callableName)
               .call<Map<String, dynamic>>({
             'email': email,
             'password': password,
             'profileData': profileData,
+            // Only pharmacies carry a license number; couriers never do.
             if (profileData['licenseNumber'] != null)
               'licenseNumber': profileData['licenseNumber'],
           });
@@ -234,8 +240,9 @@ class UnifiedAuthService {
         }
       }
 
-      // Legacy client-side flow for non-pharmacy roles (courier / admin)
-      // — to be migrated in a future sprint if regulatory needs change.
+      // Legacy client-side flow for admin only (courier + pharmacy are now
+      // backend-owned callables above). To be migrated if regulatory needs
+      // change.
       final credential = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
