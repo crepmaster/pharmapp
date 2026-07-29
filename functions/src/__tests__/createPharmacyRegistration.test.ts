@@ -635,4 +635,42 @@ describe("Territory anchor (phase 1) — country/city validation", () => {
       expect(mockCreateUser).not.toHaveBeenCalled();
     }
   );
+
+  test("REQ-TERR-CALL-010: citiesByCountry absent from config → refused before Auth", async () => {
+    // The whole cities map is missing (legacy / not-yet-seeded environment).
+    // Every city lookup then fails closed — no pharmacy is onboarded until the
+    // env is seeded. Built as a raw config WITHOUT the citiesByCountry key so
+    // this proves the `?.` absence path, not merely an empty country entry.
+    mockGet.mockResolvedValueOnce({
+      exists: true,
+      data: () => ({
+        countries: {
+          CM: { licenseRequired: false, enabled: true, defaultCurrencyCode: "XAF" },
+        },
+        currencies: DEFAULT_CURRENCIES,
+        // citiesByCountry deliberately omitted.
+      }),
+    });
+    await expect(wrapped({ data: BASE_INPUT } as any)).rejects.toMatchObject({
+      code: "failed-precondition",
+      details: { code: "CITY_INVALID_FOR_COUNTRY" },
+    });
+    expect(mockCreateUser).not.toHaveBeenCalled();
+  });
+
+  test("REQ-TERR-CALL-011: city present but enabled:false → refused before Auth", async () => {
+    // The city exists under the right country but is explicitly disabled. It
+    // must be refused just like an unknown city — a dormant city is not a
+    // valid registration target.
+    setSysConfig(
+      { CM: { licenseRequired: false } },
+      DEFAULT_CURRENCIES,
+      { CM: { douala: { enabled: false } } }
+    );
+    await expect(wrapped({ data: BASE_INPUT } as any)).rejects.toMatchObject({
+      code: "failed-precondition",
+      details: { code: "CITY_INVALID_FOR_COUNTRY" },
+    });
+    expect(mockCreateUser).not.toHaveBeenCalled();
+  });
 });
