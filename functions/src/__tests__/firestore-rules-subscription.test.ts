@@ -117,10 +117,14 @@ describe("SEC-001 — subscription fields absent at client create", () => {
     }
   );
 
-  test("REQ-SEC001-001: client create with NO subscription field → ALLOWED", async () => {
-    // Positive control: the hardening must not block account creation.
+  test("REQ-SEC001-001: client create with NO subscription field → now DENIED (create is backend-owned)", async () => {
+    // Territory anchor (phase 1) removed direct client creation of a pharmacy
+    // (`allow create: if false`). Account creation now goes exclusively through
+    // the `createPharmacyRegistration` callable (Admin SDK, rules-bypassing),
+    // which is proven by REQ-SEC001-002 below and the callable's unit tests.
+    // This case is inverted from ALLOWED to DENIED accordingly.
     const alice = testEnv.authenticatedContext(ALICE_UID);
-    await assertSucceeds(
+    await assertFails(
       setDoc(doc(alice.firestore(), `pharmacies/${ALICE_UID}`), PHARMACY_BASE)
     );
   });

@@ -155,6 +155,10 @@ const BASE_INPUT = {
     phoneNumber: "+237670000001",
     address: "1 Test Street, Douala",
     countryCode: "CM",
+    // Territory anchor (phase 1) — cityCode is now mandatory and validated
+    // against the country's `citiesByCountry` map. "douala" is an enabled CM
+    // city in DEFAULT_CITIES below.
+    cityCode: "douala",
   },
 };
 
@@ -176,21 +180,37 @@ const DEFAULT_CURRENCIES = {
  *  without each having to spell it out. */
 const COUNTRY_CURRENCY: Record<string, string> = { CM: "XAF", GH: "GHS" };
 
+/**
+ * Territory anchor (phase 1) — the callable now validates `cityCode` against
+ * `system_config/main.citiesByCountry`. Injected by default so existing
+ * fixtures resolve a valid enabled city; tests exercising the "unknown city"
+ * / "city of another country" branches pass an explicit cityCode.
+ */
+const DEFAULT_CITIES: Record<string, Record<string, { enabled: boolean }>> = {
+  CM: { douala: { enabled: true }, yaounde: { enabled: true } },
+  GH: { accra: { enabled: true }, kumasi: { enabled: true } },
+};
+
 function setSysConfig(
   countries: Record<string, unknown>,
-  currencies: Record<string, unknown> = DEFAULT_CURRENCIES
+  currencies: Record<string, unknown> = DEFAULT_CURRENCIES,
+  citiesByCountry: Record<string, unknown> = DEFAULT_CITIES
 ) {
-  const withCurrency: Record<string, unknown> = {};
+  const withDefaults: Record<string, unknown> = {};
   for (const [code, cfg] of Object.entries(countries)) {
     const c = (cfg ?? {}) as Record<string, unknown>;
-    withCurrency[code] =
-      "defaultCurrencyCode" in c || !(code in COUNTRY_CURRENCY)
-        ? c
-        : { ...c, defaultCurrencyCode: COUNTRY_CURRENCY[code] };
+    // Default `enabled: true` and inject a currency for known countries, then
+    // let the fixture override both (so a test can pass enabled:false, or a
+    // country without a currency, explicitly).
+    const base: Record<string, unknown> = { enabled: true };
+    if (!("defaultCurrencyCode" in c) && code in COUNTRY_CURRENCY) {
+      base.defaultCurrencyCode = COUNTRY_CURRENCY[code];
+    }
+    withDefaults[code] = { ...base, ...c };
   }
   mockGet.mockResolvedValueOnce({
     exists: true,
-    data: () => ({ countries: withCurrency, currencies }),
+    data: () => ({ countries: withDefaults, citiesByCountry, currencies }),
   });
 }
 
@@ -216,7 +236,7 @@ describe("createPharmacyRegistration callable — Sprint 2A.3", () => {
 
     const input = {
       ...BASE_INPUT,
-      profileData: { ...BASE_INPUT.profileData, countryCode: "GH" },
+      profileData: { ...BASE_INPUT.profileData, countryCode: "GH", cityCode: "accra" },
     };
 
     await expect(wrapped({ data: input } as any)).rejects.toMatchObject({
@@ -235,7 +255,7 @@ describe("createPharmacyRegistration callable — Sprint 2A.3", () => {
     const input = {
       ...BASE_INPUT,
       licenseNumber: "PMC-12345",
-      profileData: { ...BASE_INPUT.profileData, countryCode: "GH" },
+      profileData: { ...BASE_INPUT.profileData, countryCode: "GH", cityCode: "accra" },
     };
 
     const result = await wrapped({ data: input } as any);
@@ -251,7 +271,7 @@ describe("createPharmacyRegistration callable — Sprint 2A.3", () => {
     const input = {
       ...BASE_INPUT,
       licenseNumber: "not-matching",
-      profileData: { ...BASE_INPUT.profileData, countryCode: "GH" },
+      profileData: { ...BASE_INPUT.profileData, countryCode: "GH", cityCode: "accra" },
     };
 
     await expect(wrapped({ data: input } as any)).rejects.toMatchObject({
@@ -264,19 +284,6 @@ describe("createPharmacyRegistration callable — Sprint 2A.3", () => {
 // Sprint 3 — trial subscription init aligned with license verification.
 // Architect-locked in SPRINT_3_TRIAL_SUBSCRIPTION_TASK.md (decisions #2/#5).
 // ---------------------------------------------------------------------------
-
-function lastPharmacyDocWritten(): Record<string, unknown> {
-  // The batch.set is called 3 times per registration : users/{uid},
-  // pharmacies/{uid}, wallets/{uid}. We pick the pharmacy entry by
-  // looking up the call whose second argument has a `pharmacyName`.
-  for (const call of mockBatchSet.mock.calls) {
-    const [, payload] = call as [unknown, Record<string, unknown>];
-    if (payload && typeof payload === "object" && "pharmacyName" in payload) {
-      return payload;
-    }
-  }
-  throw new Error("No pharmacies batch.set call captured.");
-}
 
 describe("Sprint 3 — trial subscription init at registration", () => {
   test('non-mandatory country → subscriptionStatus="trial", hasActiveSubscription=true, dates set', async () => {
@@ -304,7 +311,7 @@ describe("Sprint 3 — trial subscription init at registration", () => {
     const input = {
       ...BASE_INPUT,
       licenseNumber: "PMC-12345",
-      profileData: { ...BASE_INPUT.profileData, countryCode: "GH" },
+      profileData: { ...BASE_INPUT.profileData, countryCode: "GH", cityCode: "accra" },
     };
     await wrapped({ data: input } as any);
 
@@ -351,7 +358,7 @@ describe("Sprint 3 — trial subscription init at registration", () => {
 
     const input = {
       ...BASE_INPUT,
-      profileData: { ...BASE_INPUT.profileData, countryCode: "GH" },
+      profileData: { ...BASE_INPUT.profileData, countryCode: "GH", cityCode: "accra" },
     };
     const first = await wrapped({ data: input } as any);
     expect(first.licenseStatus).toBe("not_required");
@@ -393,6 +400,19 @@ describe("Sprint 3 — trial subscription init at registration", () => {
 // Currency sprint — wallet currency is derived from the country ONLY.
 // ---------------------------------------------------------------------------
 
+function lastPharmacyDocWritten(): Record<string, unknown> {
+  // The batch.set is called 3 times per registration : users/{uid},
+  // pharmacies/{uid}, wallets/{uid}. We pick the pharmacy entry by
+  // looking up the call whose second argument has a `pharmacyName`.
+  for (const call of mockBatchSet.mock.calls) {
+    const [, payload] = call as [unknown, Record<string, unknown>];
+    if (payload && typeof payload === "object" && "pharmacyName" in payload) {
+      return payload;
+    }
+  }
+  throw new Error("No pharmacies batch.set call captured.");
+}
+
 function lastWalletDocWritten(): Record<string, unknown> {
   // The wallet entry is the batch.set payload carrying `available`/`held`
   // but no `pharmacyName`.
@@ -417,7 +437,7 @@ describe("Currency sprint — wallet currency derivation", () => {
     mockCreateUser.mockResolvedValueOnce({ uid: "gh-uid" });
     const input = {
       ...BASE_INPUT,
-      profileData: { ...BASE_INPUT.profileData, countryCode: "GH" },
+      profileData: { ...BASE_INPUT.profileData, countryCode: "GH", cityCode: "accra" },
     };
     await wrapped({ data: input } as any);
     expect(lastWalletDocWritten()).toMatchObject({ currency: "GHS" });
@@ -433,6 +453,7 @@ describe("Currency sprint — wallet currency derivation", () => {
       profileData: {
         ...BASE_INPUT.profileData,
         countryCode: "GH",
+        cityCode: "accra",
         currency: "XAF", // forged
       },
     };
@@ -471,5 +492,185 @@ describe("Currency sprint — wallet currency derivation", () => {
     await expect(wrapped({ data: BASE_INPUT } as any)).rejects.toMatchObject({
       code: "failed-precondition",
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Territory anchor (phase 1) — country enabled + city membership + canonical.
+// ---------------------------------------------------------------------------
+
+describe("Territory anchor (phase 1) — country/city validation", () => {
+  test("REQ-TERR-CALL-001: country present but not enabled → refused, no Auth", async () => {
+    setSysConfig({ CM: { licenseRequired: false, enabled: false } });
+    await expect(wrapped({ data: BASE_INPUT } as any)).rejects.toMatchObject({
+      code: "failed-precondition",
+      details: { code: "COUNTRY_NOT_ENABLED" },
+    });
+    // Territory checks run BEFORE auth.createUser — nothing is created.
+    expect(mockCreateUser).not.toHaveBeenCalled();
+    expect(mockBatch).not.toHaveBeenCalled();
+  });
+
+  test("REQ-TERR-CALL-002: missing cityCode → invalid-argument, no Auth", async () => {
+    setSysConfig({ CM: { licenseRequired: false } });
+    const input = {
+      ...BASE_INPUT,
+      profileData: { ...BASE_INPUT.profileData, cityCode: undefined },
+    };
+    await expect(wrapped({ data: input } as any)).rejects.toMatchObject({
+      code: "invalid-argument",
+    });
+    expect(mockCreateUser).not.toHaveBeenCalled();
+  });
+
+  test("REQ-TERR-CALL-003: unknown city for the country → refused, no Auth", async () => {
+    setSysConfig({ CM: { licenseRequired: false } });
+    const input = {
+      ...BASE_INPUT,
+      profileData: { ...BASE_INPUT.profileData, cityCode: "atlantis" },
+    };
+    await expect(wrapped({ data: input } as any)).rejects.toMatchObject({
+      code: "failed-precondition",
+      details: { code: "CITY_INVALID_FOR_COUNTRY" },
+    });
+    expect(mockCreateUser).not.toHaveBeenCalled();
+  });
+
+  test("REQ-TERR-CALL-004: city belonging to ANOTHER country → refused", async () => {
+    // "accra" is an enabled city, but under GH — not CM. The equal-currency
+    // trap does not apply here: this is a purely territorial refusal.
+    setSysConfig({ CM: { licenseRequired: false } });
+    const input = {
+      ...BASE_INPUT,
+      profileData: { ...BASE_INPUT.profileData, countryCode: "CM", cityCode: "accra" },
+    };
+    await expect(wrapped({ data: input } as any)).rejects.toMatchObject({
+      code: "failed-precondition",
+      details: { code: "CITY_INVALID_FOR_COUNTRY" },
+    });
+    expect(mockCreateUser).not.toHaveBeenCalled();
+  });
+
+  test("REQ-TERR-CALL-005: non-canonical city variant is NORMALISED then accepted", async () => {
+    // Contract choice: canonicalise (citySlug) then validate. "Douala" and
+    // " Douala " both resolve to the enabled key "douala".
+    setSysConfig({ CM: { licenseRequired: false } });
+    mockCreateUser.mockResolvedValueOnce({ uid: "canon-uid" });
+    const input = {
+      ...BASE_INPUT,
+      profileData: { ...BASE_INPUT.profileData, cityCode: "Douala" },
+    };
+    const result = await wrapped({ data: input } as any);
+    expect(result).toMatchObject({ uid: "canon-uid" });
+    // The stored cityCode is the canonical slug, not the raw client value.
+    expect(lastPharmacyDocWritten().cityCode).toBe("douala");
+  });
+
+  test("REQ-TERR-CALL-006: valid registration writes canonical city AND wallet in the derived currency", async () => {
+    setSysConfig({ GH: { licenseRequired: false } });
+    mockCreateUser.mockResolvedValueOnce({ uid: "gh-territory-uid" });
+    const input = {
+      ...BASE_INPUT,
+      profileData: { ...BASE_INPUT.profileData, countryCode: "GH", cityCode: "accra" },
+    };
+    await wrapped({ data: input } as any);
+    const pharmacyDoc = lastPharmacyDocWritten();
+    expect(pharmacyDoc.countryCode).toBe("GH");
+    expect(pharmacyDoc.cityCode).toBe("accra");
+    // Wallet currency is derived from the SAME country config, coherent with
+    // the validated territory.
+    expect(lastWalletDocWritten()).toMatchObject({ currency: "GHS" });
+  });
+
+  test("REQ-TERR-CALL-007: a territory validation failure creates neither pharmacy nor wallet", async () => {
+    setSysConfig({ CM: { licenseRequired: false } });
+    const input = {
+      ...BASE_INPUT,
+      profileData: { ...BASE_INPUT.profileData, cityCode: "atlantis" },
+    };
+    await expect(wrapped({ data: input } as any)).rejects.toBeDefined();
+    // No Auth user, no Firestore batch — the refusal is total.
+    expect(mockCreateUser).not.toHaveBeenCalled();
+    expect(mockBatch).not.toHaveBeenCalled();
+  });
+
+  test("REQ-TERR-CALL-008: lowercase countryCode is canonicalised to upper-case and persisted", async () => {
+    // Canonicalise-then-validate: "gh" resolves to the configured "GH", and
+    // the STORED value is the canonical "GH" — the raw client value never
+    // overwrites the persisted canonical one.
+    setSysConfig({ GH: { licenseRequired: false } });
+    mockCreateUser.mockResolvedValueOnce({ uid: "gh-lower-uid" });
+    const input = {
+      ...BASE_INPUT,
+      profileData: { ...BASE_INPUT.profileData, countryCode: "gh", cityCode: "accra" },
+    };
+    const result = await wrapped({ data: input } as any);
+    expect(result).toMatchObject({ uid: "gh-lower-uid" });
+    const pharmacyDoc = lastPharmacyDocWritten();
+    expect(pharmacyDoc.countryCode).toBe("GH");
+    // The backend-controlled licenseCountryCode mirrors the canonical value.
+    expect(pharmacyDoc.licenseCountryCode).toBe("GH");
+  });
+
+  test.each([
+    ["three letters", "USA"],
+    ["one letter", "C"],
+    ["letter+digit", "C1"],
+    ["digits", "12"],
+    ["embedded space", "G H"],
+    ["empty after trim", "   "],
+  ])(
+    "REQ-TERR-CALL-009: malformed countryCode (%s) → invalid-argument, no Auth",
+    async (_label, value) => {
+      // The shape check throws before the config read, so no sysconfig is
+      // needed. "   " trims to empty (caught by the required check); the
+      // others fail the ISO ^[A-Z]{2}$ test after upper-casing.
+      const input = {
+        ...BASE_INPUT,
+        profileData: { ...BASE_INPUT.profileData, countryCode: value, cityCode: "accra" },
+      };
+      await expect(wrapped({ data: input } as any)).rejects.toMatchObject({
+        code: "invalid-argument",
+      });
+      expect(mockCreateUser).not.toHaveBeenCalled();
+    }
+  );
+
+  test("REQ-TERR-CALL-010: citiesByCountry absent from config → refused before Auth", async () => {
+    // The whole cities map is missing (legacy / not-yet-seeded environment).
+    // Every city lookup then fails closed — no pharmacy is onboarded until the
+    // env is seeded. Built as a raw config WITHOUT the citiesByCountry key so
+    // this proves the `?.` absence path, not merely an empty country entry.
+    mockGet.mockResolvedValueOnce({
+      exists: true,
+      data: () => ({
+        countries: {
+          CM: { licenseRequired: false, enabled: true, defaultCurrencyCode: "XAF" },
+        },
+        currencies: DEFAULT_CURRENCIES,
+        // citiesByCountry deliberately omitted.
+      }),
+    });
+    await expect(wrapped({ data: BASE_INPUT } as any)).rejects.toMatchObject({
+      code: "failed-precondition",
+      details: { code: "CITY_INVALID_FOR_COUNTRY" },
+    });
+    expect(mockCreateUser).not.toHaveBeenCalled();
+  });
+
+  test("REQ-TERR-CALL-011: city present but enabled:false → refused before Auth", async () => {
+    // The city exists under the right country but is explicitly disabled. It
+    // must be refused just like an unknown city — a dormant city is not a
+    // valid registration target.
+    setSysConfig(
+      { CM: { licenseRequired: false } },
+      DEFAULT_CURRENCIES,
+      { CM: { douala: { enabled: false } } }
+    );
+    await expect(wrapped({ data: BASE_INPUT } as any)).rejects.toMatchObject({
+      code: "failed-precondition",
+      details: { code: "CITY_INVALID_FOR_COUNTRY" },
+    });
+    expect(mockCreateUser).not.toHaveBeenCalled();
   });
 });

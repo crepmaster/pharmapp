@@ -31,10 +31,11 @@ import type { Firestore, Timestamp } from "firebase-admin/firestore";
  * create-time nor at update-time). The Firestore rules enforce this,
  * and the rules tests iterate this list to prove each field is denied.
  *
- * Keep this in sync with `firestore.rules :: pharmacyLicenseFieldsAbsentAtCreate`
- * and `firestore.rules :: pharmacyLicenseFieldChanged` clauses on
- * `allow update`. If you add a 10th license field, add it both here
- * AND in the rules.
+ * Create-time is covered by `allow create: if false` (client create is
+ * denied outright since the territory-anchor phase). Update-time is covered
+ * per-field by the `firestore.rules :: pharmacyLicenseFieldChanged` clauses
+ * on `allow update` — keep this list in sync with those. If you add a 10th
+ * license field, add it both here AND in the rules update clause.
  *
  * `as const` + `readonly` so callers can `.includes()` against literal
  * unions without TypeScript widening.
