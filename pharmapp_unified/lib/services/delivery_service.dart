@@ -1,8 +1,6 @@
-import 'dart:async' show unawaited;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:pharmapp_shared/pharmapp_shared.dart';
 import '../models/delivery.dart';
 
 class DeliveryService {
@@ -23,22 +21,13 @@ class DeliveryService {
         .asyncExpand((courierDoc) {
       final courierData = courierDoc.data() ?? {};
 
-      // Prefer canonical cityCode (written by Sprint 2A+ registration).
-      // If absent, compute slug from legacy operatingCity/city and write it back
-      // lazily — this is the Sprint 2D backfill for pre-migration courier docs.
-      String? resolvedCityCode = courierData['cityCode'] as String?;
+      // Courier territory is backend-owned (createCourierRegistration) and
+      // client-immutable after the contract lot. The lazy `cityCode` backfill
+      // that used to run here was removed with TD-COURIER-ASSIGN-GUARD: a legacy
+      // courier without `cityCode` is backfilled SERVER-SIDE from a verified
+      // source, never by a client write derived from the mutable display name.
       final String? legacyCity = courierData['operatingCity'] as String?
           ?? courierData['city'] as String?;
-
-      if (resolvedCityCode == null &&
-          legacyCity != null &&
-          legacyCity.isNotEmpty) {
-        resolvedCityCode = MasterDataService.citySlug(legacyCity);
-        unawaited(_firestore
-            .collection('couriers')
-            .doc(currentUser.uid)
-            .update({'cityCode': resolvedCityCode}));
-      }
 
       // The delivery documents still carry the legacy 'city' field (set by the
       // backend exchangeCapture function). Querying on 'city' using the legacy
@@ -97,22 +86,22 @@ class DeliveryService {
     });
   }
 
-  /// Accept a delivery.
-  /// Updates the delivery document to assign the current courier.
-  /// Exchange hold is managed by the proposal system, not the courier.
+  /// Claim a delivery.
+  ///
+  /// TD-COURIER-ASSIGN-GUARD: the claim is now a backend callable
+  /// (`assignCourierToDelivery`), NOT a direct client write. The callable
+  /// re-derives the trade territory from the anchored pharmacies, matches the
+  /// courier's country/city/currency/wallet, and does an atomic compare-and-set
+  /// (`pending` + unassigned → `accepted` + courierId=self). A cross-country /
+  /// cross-city / currency-mismatched courier is refused before any write.
   static Future<void> acceptDelivery(String deliveryId) async {
     final currentUser = _auth.currentUser;
     if (currentUser == null) throw 'No authenticated user';
 
     try {
-      await _firestore.collection('deliveries').doc(deliveryId).update({
-        'courierId': currentUser.uid,
-        'courierName': currentUser.displayName,
-        'status': 'accepted',
-        'assignedAt': FieldValue.serverTimestamp(),
-        'acceptedAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      await _functions
+          .httpsCallable('assignCourierToDelivery')
+          .call({'deliveryId': deliveryId});
     } catch (e) {
       throw 'Failed to accept delivery: $e';
     }
@@ -136,12 +125,16 @@ class DeliveryService {
 
       switch (status) {
         case DeliveryStatus.enRoute:
-          // No extra fields needed
-          break;
+          // TD-COURIER-ASSIGN-GUARD: non-terminal transitions are backend-owned
+          // (`advanceCourierDelivery`), which enforces the ordered state machine
+          // (accepted → in_transit). No client write.
+          await _advanceDelivery(deliveryId, 'mark_in_transit');
+          return;
 
         case DeliveryStatus.pickedUp:
-          updateData['pickedUpAt'] = FieldValue.serverTimestamp();
-          break;
+          // Ordered machine: accepted|in_transit → picked_up. No client write.
+          await _advanceDelivery(deliveryId, 'confirm_pickup');
+          return;
 
         case DeliveryStatus.delivered:
           // `completeExchangeDelivery` is the SINGLE authority for this
@@ -249,6 +242,20 @@ class DeliveryService {
       });
     } catch (e) {
       throw 'Failed to terminate delivery and restore funds: $e';
+    }
+  }
+
+  /// Backend-owned non-terminal advance (TD-COURIER-ASSIGN-GUARD, Lot C).
+  /// `action` is 'mark_in_transit' or 'confirm_pickup'; the callable enforces
+  /// the ordered state machine and refuses any illegal / terminal transition.
+  static Future<void> _advanceDelivery(String deliveryId, String action) async {
+    try {
+      await _functions.httpsCallable('advanceCourierDelivery').call({
+        'deliveryId': deliveryId,
+        'action': action,
+      });
+    } catch (e) {
+      throw 'Failed to advance delivery: $e';
     }
   }
 
