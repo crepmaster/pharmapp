@@ -42,6 +42,7 @@ import { getAuth } from "firebase-admin/auth";
 import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { checkCurrencyConfigured } from "./lib/currencyResolver.js";
+import { citySlug } from "./cityUtils.js";
 
 const auth = getAuth();
 const db = getFirestore();
@@ -146,8 +147,18 @@ export const createPharmacyRegistration = onCall<CreatePharmacyRegistrationInput
       ? profile.phoneNumber.trim()
       : "";
     const address = typeof profile.address === "string" ? profile.address.trim() : "";
+    // Territory anchor (phase 1) : canonicalise countryCode to upper-case
+    // SERVER-SIDE, then validate the ISO 3166-1 alpha-2 shape. Upper-casing
+    // makes "gh" and "GH" resolve to the same configured country; the ISO
+    // check then rejects anything that is not exactly two letters ("USA",
+    // "C1", "G H"). Canonicalise-then-validate, mirroring the cityCode
+    // contract. The persisted value is this canonical form, never the raw
+    // payload (which is also skipped in the passthrough below).
     const countryCode = typeof profile.countryCode === "string"
-      ? profile.countryCode.trim()
+      ? profile.countryCode.trim().toUpperCase()
+      : "";
+    const cityCodeRaw = typeof profile.cityCode === "string"
+      ? profile.cityCode.trim()
       : "";
 
     if (!pharmacyName || !phoneNumber || !address) {
@@ -164,6 +175,21 @@ export const createPharmacyRegistration = onCall<CreatePharmacyRegistrationInput
         "countryCode is required for pharmacy registration."
       );
     }
+    if (!/^[A-Z]{2}$/.test(countryCode)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "countryCode must be an ISO 3166-1 alpha-2 code (two letters)."
+      );
+    }
+    if (!cityCodeRaw) {
+      // Territory anchor (phase 1) : cityCode is mandatory for a NEW pharmacy.
+      // The marketplace scope and courier matching key off it, and it must be
+      // validated against the country below — an unset city cannot be.
+      throw new HttpsError(
+        "invalid-argument",
+        "cityCode is required for pharmacy registration."
+      );
+    }
 
     const licenseNumberRaw = data.licenseNumber;
     const licenseNumber = typeof licenseNumberRaw === "string"
@@ -177,7 +203,12 @@ export const createPharmacyRegistration = onCall<CreatePharmacyRegistrationInput
         licenseRequired?: boolean;
         licenseFormatRegex?: string;
         defaultCurrencyCode?: string;
+        enabled?: boolean;
       } | undefined>;
+      citiesByCountry?: Record<
+        string,
+        Record<string, { enabled?: boolean } | undefined> | undefined
+      >;
       currencies?: Record<string, { enabled?: unknown } | undefined>;
     };
     const country = sysConfig.countries?.[countryCode];
@@ -189,6 +220,39 @@ export const createPharmacyRegistration = onCall<CreatePharmacyRegistrationInput
         "Country is not configured. Please contact support."
       );
     }
+
+    // Territory anchor (phase 1) : the country must be configured AND
+    // explicitly enabled. A country present but not flagged enabled has no
+    // active policy — fail closed rather than onboard into a dormant market.
+    // Missing `enabled` is read as NOT enabled (mirrors MasterDataService's
+    // `?? false`), so an ambiguous entry never authorises a registration.
+    if (country.enabled !== true) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Country is not enabled for registration. Please contact support.",
+        { code: "COUNTRY_NOT_ENABLED" }
+      );
+    }
+
+    // Territory anchor (phase 1) : canonicalise the city code SERVER-SIDE and
+    // verify it belongs to THIS country. `citySlug` mirrors the Flutter
+    // MasterDataService slug (kept in sync), so a client sending "Douala" or
+    // "douala" both resolve to the same key. An unknown city, or a city that
+    // lives under a different country, is refused — the client cannot smuggle
+    // a territory that would later drive the wrong currency / marketplace
+    // scope. Contract choice: NORMALISE (canonicalise then validate), not
+    // reject-on-non-canonical, so legacy clients sending a display name still
+    // register as long as the resolved slug is a real enabled city.
+    const cityCode = citySlug(cityCodeRaw);
+    const cityEntry = sysConfig.citiesByCountry?.[countryCode]?.[cityCode];
+    if (!cityEntry || cityEntry.enabled !== true) {
+      throw new HttpsError(
+        "failed-precondition",
+        "City is not a valid enabled city for this country.",
+        { code: "CITY_INVALID_FOR_COUNTRY" }
+      );
+    }
+
     const licenseRequired = country.licenseRequired === true;
 
     // Validate format regex if license was provided.
@@ -244,6 +308,8 @@ export const createPharmacyRegistration = onCall<CreatePharmacyRegistrationInput
         phoneNumber,
         address,
         countryCode,
+        // Territory anchor (phase 1) — server-canonicalised, country-validated.
+        cityCode,
         role: "pharmacy",
         isActive: true,
         createdAt: now,
@@ -271,7 +337,9 @@ export const createPharmacyRegistration = onCall<CreatePharmacyRegistrationInput
       // consumed (cityCode, locationData, displayName, …).
       for (const [k, v] of Object.entries(profile)) {
         if (k in pharmacyDoc) continue;
-        if (k === "pharmacyName" || k === "phoneNumber" || k === "address" || k === "countryCode") continue;
+        // `cityCode` is consumed + canonicalised above; never let the raw
+        // client value overwrite the validated one via passthrough.
+        if (k === "pharmacyName" || k === "phoneNumber" || k === "address" || k === "countryCode" || k === "cityCode") continue;
         if (v === undefined) continue;
         pharmacyDoc[k] = v;
       }

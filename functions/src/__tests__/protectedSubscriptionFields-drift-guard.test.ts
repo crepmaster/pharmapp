@@ -4,14 +4,15 @@
  *
  * Same reasoning as the license-field guard (Sprint 2A.3): the TS constant
  * is described as the single source of truth, but the rules file restates
- * the list by hand — once in `pharmacySubscriptionFieldsAbsentAtCreate`
- * and once per `allow update` clause. The two can drift silently when a
- * sixth field is added on one side only.
+ * the list by hand in each `allow update` clause. The two can drift silently
+ * when a sixth field is added on one side only. (The create side used to
+ * restate it too, via a per-field helper; the territory-anchor phase removed
+ * that when client create was denied outright.)
  *
  * This does NOT generate rules from the constant (no codegen magic). It
- * reads firestore.rules as text and asserts each field appears on both the
- * create side and the update side. A field added to TS but forgotten in
- * the rules fails here.
+ * reads firestore.rules as text and asserts each field is guarded on the
+ * update side, and that client create is denied outright. A field added to
+ * TS but forgotten in the rules fails here.
  *
  * Runs in the standard `npm test` suite — pure file read, no emulator.
  */
@@ -23,17 +24,14 @@ describe("PROTECTED_SUBSCRIPTION_FIELDS drift guard vs firestore.rules", () => {
   const rulesPath = path.resolve(__dirname, "../../../firestore.rules");
   const rulesText = fs.readFileSync(rulesPath, "utf8");
 
-  test.each(PROTECTED_SUBSCRIPTION_FIELDS)(
-    "%s is denied at create in firestore.rules",
-    (field) => {
-      // The create-side helper must list the field.
-      const createHelper = rulesText.match(
-        /function pharmacySubscriptionFieldsAbsentAtCreate\(data\)\s*\{[\s\S]*?\}/
-      );
-      expect(createHelper).not.toBeNull();
-      expect(createHelper![0]).toContain(`'${field}'`);
-    }
-  );
+  test("client create is denied outright in firestore.rules", () => {
+    // Territory anchor (phase 1): `allow create: if false` denies EVERY
+    // client create — a strictly stronger guarantee than the old per-field
+    // pharmacySubscriptionFieldsAbsentAtCreate helper, which the diff removed
+    // rather than leave as dead code. The subscription fields stay guarded on
+    // the update side (asserted below).
+    expect(rulesText).toMatch(/allow create:\s*if false/);
+  });
 
   test.each(PROTECTED_SUBSCRIPTION_FIELDS)(
     "%s is guarded on update in firestore.rules",
@@ -46,8 +44,10 @@ describe("PROTECTED_SUBSCRIPTION_FIELDS drift guard vs firestore.rules", () => {
     }
   );
 
-  test("both rules helpers exist", () => {
-    expect(rulesText).toContain("function pharmacySubscriptionFieldsAbsentAtCreate(data)");
+  test("the update-side change helper exists", () => {
+    // The create-side absent-at-create helper was removed with the territory
+    // anchor (client create is now denied outright); only the per-field
+    // update guard remains.
     expect(rulesText).toContain("function pharmacySubscriptionFieldChanged(before, after, name)");
   });
 

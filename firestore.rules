@@ -204,12 +204,28 @@ service cloud.firestore {
       // paths are all Admin SDK (createPharmacyRegistration,
       // startTrialForPharmacy, adminVerifyPharmacyLicense,
       // sandboxSubscriptionSuccess) and bypass these rules.
-      allow create: if isOwner(userId)
-                    && isValidPharmacyData(request.resource.data)
-                    && pharmacyLicenseFieldsAbsentAtCreate(request.resource.data)
-                    && pharmacySubscriptionFieldsAbsentAtCreate(request.resource.data);
+      // Territory anchor (phase 1, 2026-07-29) — direct client creation of a
+      // pharmacy is REMOVED. A pharmacy carries security-bearing attributes
+      // (countryCode / cityCode, from which the operating currency and the
+      // marketplace scope are derived) that must be validated server-side.
+      // `createPharmacyRegistration` (Admin SDK) is the sole create path and
+      // bypasses these rules. `allow create: if false` is a STRONGER guard
+      // than the old per-field "absent at create" helpers: it denies EVERY
+      // client create, so those helpers were removed rather than left as dead
+      // code. The backend-controlled license / subscription fields remain
+      // guarded on the update side below (and asserted by the drift-guard
+      // tests against that side).
+      allow create: if false;
+      // `countryCode` / `cityCode` are frozen against client mutation (phase 1).
+      // Immutability only — legacy pharmacies missing these fields are NOT
+      // forced to add them (no mandatory check here), so they can still update
+      // other fields. A legitimate territorial correction will be a dedicated
+      // backend callable (audit/backfill lot), which runs on the Admin SDK and
+      // bypasses these rules.
       allow update: if isOwner(userId)
                     && isValidPharmacyData(request.resource.data)
+                    && !pharmacyTerritorialFieldChanged(resource.data, request.resource.data, 'countryCode')
+                    && !pharmacyTerritorialFieldChanged(resource.data, request.resource.data, 'cityCode')
                     && !pharmacySubscriptionFieldChanged(resource.data, request.resource.data, 'hasActiveSubscription')
                     && !pharmacySubscriptionFieldChanged(resource.data, request.resource.data, 'subscriptionStatus')
                     && !pharmacySubscriptionFieldChanged(resource.data, request.resource.data, 'subscriptionEndDate')
@@ -227,34 +243,24 @@ service cloud.firestore {
       allow delete: if isOwner(userId);
     }
 
+    // Territory anchor (phase 1, 2026-07-29): true when the named territorial
+    // field's PRESENCE or VALUE differs between pre- and post-image. Key-based
+    // on purpose (not a value-only compare): adding an absent field
+    // (absent→present), deleting a present one, or changing a value are ALL
+    // caught. This closes the client-side mutation of `countryCode`/`cityCode`
+    // — the fields from which currency and marketplace scope are derived —
+    // WITHOUT making them mandatory (a legacy doc without them stays editable
+    // on its other fields). Mirrors `pharmacyLicenseFieldChanged`.
+    function pharmacyTerritorialFieldChanged(before, after, name) {
+      return (before.keys().hasAny([name]) != after.keys().hasAny([name]))
+          || (before.keys().hasAny([name]) && before[name] != after[name]);
+    }
+
     // Sprint 2a F-LICENSE: returns true if the named field's presence or
     // value differs between the pre-image (before) and post-image (after).
     function pharmacyLicenseFieldChanged(before, after, name) {
       return (before.keys().hasAny([name]) != after.keys().hasAny([name]))
           || (before.keys().hasAny([name]) && before[name] != after[name]);
-    }
-
-    // Sprint 2A.1 F-LICENSE (security correction): returns true ONLY if
-    // the pharmacy create payload does NOT carry any of the 9
-    // backend-controlled license fields. The canonical write paths
-    // (`submitPharmacyLicense` and `adminVerifyPharmacyLicense`) run with
-    // admin SDK privileges and bypass these rules — they remain the only
-    // legitimate way to set license metadata on a pharmacy doc.
-    // SEC-001 — mirrors PROTECTED_SUBSCRIPTION_FIELDS in
-    // functions/src/lib/subscriptionFields.ts. A drift-guard test asserts
-    // every entry of that constant appears in this file.
-    //
-    // Absent at create: a pharmacy document is created with no subscription
-    // state at all; the backend sets it (trial or trial_pending_license)
-    // via createPharmacyRegistration.
-    function pharmacySubscriptionFieldsAbsentAtCreate(data) {
-      return !data.keys().hasAny([
-        'hasActiveSubscription',
-        'subscriptionStatus',
-        'subscriptionEndDate',
-        'subscriptionPlan',
-        'subscriptionStartDate'
-      ]);
     }
 
     // SEC-001 — true when the named field's presence or value differs
@@ -267,20 +273,6 @@ service cloud.firestore {
           || (before.keys().hasAny([name]) && before[name] != after[name]);
     }
 
-    function pharmacyLicenseFieldsAbsentAtCreate(data) {
-      return !data.keys().hasAny([
-        'licenseStatus',
-        'licenseVerifiedBy',
-        'licenseVerifiedAt',
-        'licenseRejectionReason',
-        'licenseGraceEndsAt',
-        'licenseNumber',
-        'licenseCountryCode',
-        'licenseDocumentUrl',
-        'licenseExpiryDate'
-      ]);
-    }
-    
     // Pharmacy data validation function
     function isValidPharmacyData(data) {
       return data.keys().hasAll(['email', 'pharmacyName', 'phoneNumber', 'address', 'role']) &&

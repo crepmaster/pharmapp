@@ -27,6 +27,7 @@ import {
 } from "@firebase/rules-unit-testing";
 import {
   collection,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -169,11 +170,16 @@ describe("Sprint 2A.1 + 2A.2 — F-LICENSE rules: deny client license-field writ
     );
   });
 
-  // ─── CREATE ALLOW SCENARIO ────────────────────────────────────────────
+  // ─── CREATE NOW REMOVED (territory anchor, phase 1) ───────────────────
 
-  test("REQ-2A1-007: client create with NO license field → ALLOWED (legit registration path)", async () => {
+  test("REQ-2A1-007: client create with NO license field → now DENIED (create is backend-owned)", async () => {
+    // Territory anchor (phase 1) inverted this case. Direct client creation
+    // of a pharmacy is removed entirely (`allow create: if false`) because a
+    // pharmacy's countryCode/cityCode must be validated server-side. The
+    // canonical create path is the `createPharmacyRegistration` callable
+    // (Admin SDK, rules-bypassing). See also REQ-G0c-004.
     const alice = testEnv.authenticatedContext(ALICE_UID);
-    await assertSucceeds(
+    await assertFails(
       setDoc(doc(alice.firestore(), `pharmacies/${ALICE_UID}`), {
         ...VALID_PHARMACY_BASE,
       })
@@ -215,6 +221,109 @@ describe("Sprint 2A.1 + 2A.2 — F-LICENSE rules: deny client license-field writ
         })
       );
     });
+  });
+});
+
+// ===========================================================================
+// Territory anchor (phase 1, 2026-07-29) — pharmacies.countryCode/cityCode
+// are frozen against client mutation, and direct client creation is removed.
+// Immutability only: legacy pharmacies missing these fields keep updating
+// their other fields (no mandatory check in this phase).
+// ===========================================================================
+
+describe("Territory anchor — pharmacies.countryCode/cityCode immutable + create removed", () => {
+  /** A seeded pharmacy that DOES carry territorial fields. */
+  const WITH_TERRITORY = Object.freeze({
+    ...VALID_PHARMACY_BASE,
+    countryCode: "CM",
+    cityCode: "douala",
+  });
+
+  async function seedWithTerritory(data: Record<string, unknown> = WITH_TERRITORY) {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), `pharmacies/${ALICE_UID}`), data);
+    });
+  }
+
+  test("REQ-G0a-001: client changes countryCode → DENIED", async () => {
+    await seedWithTerritory();
+    const alice = testEnv.authenticatedContext(ALICE_UID);
+    await assertFails(
+      updateDoc(doc(alice.firestore(), `pharmacies/${ALICE_UID}`), {
+        countryCode: "GH",
+      })
+    );
+  });
+
+  test("REQ-G0a-002: client changes cityCode → DENIED", async () => {
+    await seedWithTerritory();
+    const alice = testEnv.authenticatedContext(ALICE_UID);
+    await assertFails(
+      updateDoc(doc(alice.firestore(), `pharmacies/${ALICE_UID}`), {
+        cityCode: "yaounde",
+      })
+    );
+  });
+
+  test("REQ-G0a-003: client deletes countryCode → DENIED", async () => {
+    await seedWithTerritory();
+    const alice = testEnv.authenticatedContext(ALICE_UID);
+    await assertFails(
+      updateDoc(doc(alice.firestore(), `pharmacies/${ALICE_UID}`), {
+        countryCode: deleteField(),
+      })
+    );
+  });
+
+  test("REQ-G0a-004: client ADDS countryCode to a legacy doc without one → DENIED", async () => {
+    // absent → present is a change too: the injection vector for a forged
+    // territory on a legacy pharmacy that predates the field.
+    await seedWithTerritory({ ...VALID_PHARMACY_BASE }); // no countryCode/cityCode
+    const alice = testEnv.authenticatedContext(ALICE_UID);
+    await assertFails(
+      updateDoc(doc(alice.firestore(), `pharmacies/${ALICE_UID}`), {
+        countryCode: "CM",
+      })
+    );
+  });
+
+  test("REQ-G0a-005: legacy doc WITHOUT territory can still update another field → ALLOWED", async () => {
+    // The non-regression heart of the phased split: freezing must not force a
+    // legacy pharmacy (no countryCode/cityCode) to add them just to edit its
+    // phone number.
+    await seedWithTerritory({ ...VALID_PHARMACY_BASE }); // no territorial fields
+    const alice = testEnv.authenticatedContext(ALICE_UID);
+    await assertSucceeds(
+      updateDoc(doc(alice.firestore(), `pharmacies/${ALICE_UID}`), {
+        phoneNumber: "+237680000009",
+      })
+    );
+  });
+
+  test("REQ-G0a-006: re-sending the SAME countryCode/cityCode → ALLOWED", async () => {
+    await seedWithTerritory();
+    const alice = testEnv.authenticatedContext(ALICE_UID);
+    await assertSucceeds(
+      updateDoc(doc(alice.firestore(), `pharmacies/${ALICE_UID}`), {
+        countryCode: "CM",
+        cityCode: "douala",
+        phoneNumber: "+237680000010",
+      })
+    );
+  });
+
+  test("REQ-G0c-004: client create of a pharmacy → DENIED (create is backend-owned)", async () => {
+    // Even a fully-valid payload carrying coherent territory is refused: the
+    // ONLY create path is the backend callable `createPharmacyRegistration`
+    // (Admin SDK), which validates country + city server-side. The useful
+    // proof of the create path's correctness is the callable's own unit
+    // tests (REQ-TERR-CALL-*), not an Admin-SDK-bypass here.
+    const alice = testEnv.authenticatedContext(ALICE_UID);
+    await assertFails(
+      setDoc(doc(alice.firestore(), `pharmacies/${ALICE_UID}`), {
+        ...WITH_TERRITORY,
+      })
+    );
   });
 });
 

@@ -5,10 +5,11 @@
  *
  * The architect's finding was that `PROTECTED_LICENSE_FIELDS` was sold
  * as a "single source of truth" but `firestore.rules` actually
- * duplicates the list manually in its `pharmacyLicenseFieldsAbsentAtCreate`
- * helper and in each `allow update` clause. The TS list and the rules
- * list can drift silently if a future engineer adds a 10th field on one
- * side but not the other.
+ * restates the list manually in each `allow update` clause. The TS list
+ * and the rules list can drift silently if a future engineer adds a 10th
+ * field on one side but not the other. (The create side used to restate it
+ * too, via a per-field helper; the territory-anchor phase removed that when
+ * client create was denied outright.)
  *
  * This test does NOT regenerate the rules from the TS list (avoiding
  * the magic-codegen path the architect was wary of). Instead it
@@ -30,19 +31,23 @@ describe("PROTECTED_LICENSE_FIELDS drift guard vs firestore.rules", () => {
   test.each(PROTECTED_LICENSE_FIELDS)(
     "field '%s' appears in firestore.rules",
     (field) => {
-      // The rules reference each field as a string literal — either in
-      // pharmacyLicenseFieldsAbsentAtCreate's array, or as the third
-      // argument to pharmacyLicenseFieldChanged in the allow update
-      // clause. Both forms produce the literal field name surrounded by
-      // single quotes in the rules text.
+      // The rules reference each field as a string literal — the third
+      // argument to pharmacyLicenseFieldChanged in the `allow update`
+      // clause. (The create side no longer lists fields: client create is
+      // denied outright — see the dedicated test below.) That produces the
+      // literal field name surrounded by single quotes in the rules text.
       const quoted = `'${field}'`;
       expect(rulesText).toContain(quoted);
     }
   );
 
-  test("rules deny-on-create helper references PROTECTED_LICENSE_FIELDS-equivalent list", () => {
-    // Sanity: the dedicated helper for create-time deny exists.
-    expect(rulesText).toMatch(/pharmacyLicenseFieldsAbsentAtCreate/);
+  test("client create is denied outright — no per-field create helper needed", () => {
+    // Territory anchor (phase 1): `allow create: if false` denies EVERY
+    // client create — a strictly stronger guarantee than the old per-field
+    // "absent at create" helper, which the diff removed rather than leave as
+    // dead code. The license fields stay guarded on the update side (asserted
+    // above + below).
+    expect(rulesText).toMatch(/allow create:\s*if false/);
   });
 
   test("rules update-clause helper references the per-field change check", () => {
