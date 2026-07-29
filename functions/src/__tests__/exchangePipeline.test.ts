@@ -199,6 +199,7 @@ describe("buildCanonicalProposalDocument", () => {
       inventoryItemId: "inv-1",
       fromPharmacyId: "buyer",
       toPharmacyId: "seller",
+      currencyCode: "XAF",
       details: {
         type: "purchase",
         quantity: 10,
@@ -219,6 +220,8 @@ describe("buildCanonicalProposalDocument", () => {
     expect((doc.details as { type: string }).type).toBe("purchase");
     expect(doc.status).toBe("pending");
     expect(doc.acceptedBy).toBeUndefined();
+    // Phase 2 — the authoritative currency is written top-level.
+    expect(doc.currencyCode).toBe("XAF");
   });
 
   test("exchange: reservations.inventoryReserved = exchangeQuantity, walletReserved = null", () => {
@@ -227,6 +230,7 @@ describe("buildCanonicalProposalDocument", () => {
       inventoryItemId: "inv-2",
       fromPharmacyId: "requester",
       toPharmacyId: "seller",
+      currencyCode: "XAF",
       details: {
         type: "exchange",
         quantity: 30,
@@ -269,6 +273,7 @@ describe("buildCanonicalProposalDocument", () => {
           inventoryItemId: "inv-3",
           fromPharmacyId: "x",
           toPharmacyId: "y",
+          currencyCode: "XAF",
           details: {
             type: "purchase",
             quantity: 1,

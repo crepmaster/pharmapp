@@ -135,6 +135,14 @@ export interface BuildProposalInput {
   inventoryItemId: string;
   fromPharmacyId: string;
   toPharmacyId: string;
+  /**
+   * Phase 2 (G1–G6) — the authoritative operating currency of the trade,
+   * DERIVED SERVER-SIDE by `tradeCurrencyGuard` and written top-level. This is
+   * the canonical currency for both price and courier fee (incl. barter).
+   * `details.currency` (purchase only) is a legacy mirror of the SAME value
+   * and must never diverge. New critical readers use `currencyCode`.
+   */
+  currencyCode: string;
   details: CanonicalProposalDetails;
   /** Initial status — `pending` for createExchangeProposal, `accepted` for
    * the medicine_request bridge (which jumps straight to accepted because
@@ -165,6 +173,13 @@ export interface BuildDeliveryInput {
   /** Courier fee in minor / major units, depending on legacy convention.
    *  Sprint 4 lock #6: no money refactor — caller computes as today. */
   courierFee: number;
+  /**
+   * Phase 2 (G1–G6) — server-derived authoritative currency of the trade.
+   * `delivery.currency` is set to THIS for BOTH purchase and exchange: barter
+   * still carries a courier fee, so an empty currency would violate D4. Never
+   * "" and never a client value.
+   */
+  currencyCode: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -454,6 +469,8 @@ export function buildCanonicalProposalDocument(
     inventoryItemId: input.inventoryItemId,
     fromPharmacyId: input.fromPharmacyId,
     toPharmacyId: input.toPharmacyId,
+    // Phase 2 (G1–G6) — server-derived authoritative currency, top-level.
+    currencyCode: input.currencyCode,
     details: { ...input.details },
     status: input.initialStatus,
     reservations,
@@ -500,9 +517,9 @@ export function buildCanonicalDeliveryDocument(
   const totalPrice = isPurchase
     ? (input.proposalDetails as CanonicalPurchaseDetails).totalPrice
     : 0;
-  const currency = isPurchase
-    ? (input.proposalDetails as CanonicalPurchaseDetails).currency
-    : "";
+  // Phase 2 — always the server-derived currency, for purchase AND barter
+  // (barter carries a courier fee → a currency is mandatory, D4).
+  const currency = input.currencyCode;
 
   return {
     deliveryId,

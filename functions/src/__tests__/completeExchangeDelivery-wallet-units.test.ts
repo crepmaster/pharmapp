@@ -139,6 +139,7 @@ function seed() {
           fromPharmacyId: BUYER,
           toPharmacyId: SELLER,
           inventoryItemId: INVENTORY_ID,
+          currencyCode: "GHS", // Phase 2 — authoritative snapshot for settlement revalidation.
           reservations: { walletReserved: TOTAL_AMOUNT },
           details: {
             type: "purchase",
@@ -178,10 +179,21 @@ function seed() {
         },
       },
     ],
-    [`pharmacies/${BUYER}`, { exists: true, data: { email: "buyer@example.com" } }],
-    [`pharmacies/${SELLER}`, { exists: true, data: { email: "seller@example.com" } }],
+    [`pharmacies/${BUYER}`, { exists: true, data: { email: "buyer@example.com", countryCode: "GH", cityCode: "accra" } }],
+    [`pharmacies/${SELLER}`, { exists: true, data: { email: "seller@example.com", countryCode: "GH", cityCode: "accra" } }],
     // Real courier (in couriers/), non-sandbox → production settlement path.
-    [`couriers/${COURIER}`, { exists: true, data: { email: "courier@example.com" } }],
+    // Phase 2 — courier territory + wallet must match the trade (GH/accra/GHS).
+    [`couriers/${COURIER}`, { exists: true, data: { email: "courier@example.com", countryCode: "GH", cityCode: "accra" } }],
+    [
+      `system_config/main`,
+      {
+        exists: true,
+        data: {
+          countries: { GH: { defaultCurrencyCode: "GHS", enabled: true, licenseRequired: false } },
+          currencies: { GHS: { code: "GHS", enabled: true, decimals: 2 } },
+        },
+      },
+    ],
   ]);
 }
 
@@ -238,5 +250,76 @@ describe("completeExchangeDelivery — courier credit stays raw major (anti-regr
     // GREEN before and after the fix: this invariant must never change.
     await callAsCourier();
     expect(incrementOn(`wallets/${COURIER}`)).toBe(COURIER_FEE);
+  });
+});
+
+// ===========================================================================
+// Phase 2 — settlement guard refuses with ZERO mutation. Each test starts from
+// a VALID settlement world (GH/accra, GHS wallets, courier GH/accra, config,
+// currencyCode snapshot) and alters EXACTLY ONE dimension. The guard runs after
+// the reads and before ANY capture write, so a refusal leaves no wallet
+// mutation, no ledger, no inventory decrement and no status change.
+// ===========================================================================
+describe("completeExchangeDelivery — guard refuses at settlement with zero side effects", () => {
+  const expectNoMutation = () => expect(txWrites).toHaveLength(0);
+
+  test("trade snapshot missing → CURRENCY_SNAPSHOT_MISSING, zero mutation", async () => {
+    const p = docs.get(`exchange_proposals/${PROPOSAL_ID}`)!;
+    const data = { ...(p.data as Record<string, unknown>) };
+    delete data.currencyCode;
+    docs.set(`exchange_proposals/${PROPOSAL_ID}`, { exists: true, data });
+    await expect(callAsCourier()).rejects.toMatchObject({
+      details: { code: "CURRENCY_SNAPSHOT_MISSING" },
+    });
+    expectNoMutation();
+  });
+
+  test("courier in another country → COURIER_CROSS_COUNTRY, zero mutation", async () => {
+    docs.set(`couriers/${COURIER}`, {
+      exists: true,
+      data: { email: "c", countryCode: "CM", cityCode: "accra" },
+    });
+    await expect(callAsCourier()).rejects.toMatchObject({
+      details: { code: "COURIER_CROSS_COUNTRY" },
+    });
+    expectNoMutation();
+  });
+
+  test("courier in another city → COURIER_CROSS_CITY, zero mutation", async () => {
+    docs.set(`couriers/${COURIER}`, {
+      exists: true,
+      data: { email: "c", countryCode: "GH", cityCode: "kumasi" },
+    });
+    await expect(callAsCourier()).rejects.toMatchObject({
+      details: { code: "COURIER_CROSS_CITY" },
+    });
+    expectNoMutation();
+  });
+
+  test("courier profile unresolvable (no country) → COURIER_COUNTRY_MISSING, zero mutation", async () => {
+    docs.delete(`couriers/${COURIER}`);
+    await expect(callAsCourier()).rejects.toMatchObject({
+      details: { code: "COURIER_COUNTRY_MISSING" },
+    });
+    expectNoMutation();
+  });
+
+  test("courier wallet absent → COURIER_WALLET_MISSING, zero mutation", async () => {
+    docs.delete(`wallets/${COURIER}`);
+    await expect(callAsCourier()).rejects.toMatchObject({
+      details: { code: "COURIER_WALLET_MISSING" },
+    });
+    expectNoMutation();
+  });
+
+  test("courier wallet in another currency → COURIER_WALLET_CURRENCY_MISMATCH, zero mutation", async () => {
+    docs.set(`wallets/${COURIER}`, {
+      exists: true,
+      data: { available: 0, held: 0, currency: "XAF" },
+    });
+    await expect(callAsCourier()).rejects.toMatchObject({
+      details: { code: "COURIER_WALLET_CURRENCY_MISMATCH" },
+    });
+    expectNoMutation();
   });
 });

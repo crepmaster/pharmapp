@@ -28,6 +28,10 @@ import { HttpsError } from "firebase-functions/v2/https";
 import { citySlug } from "../cityUtils.js";
 import { majorToWalletUnits } from "./moneyUnits.js";
 import {
+  assertTradeCurrency,
+  assertClientCurrencyMatches,
+} from "./tradeCurrencyGuard.js";
+import {
   buildCanonicalDeliveryDocument,
   buildCanonicalProposalDocument,
   pharmacyInfoFromDoc,
@@ -113,7 +117,10 @@ export async function acceptRequestOfferIntoCanonicalProposal(
 
   const sellerUid = offerData.sellerPharmacyId as string;
   const totalPrice = offerData.totalPrice as number;
-  const currencyCode = (offerData.currencyCode as string) || "XAF";
+  // Client-supplied currency from the offer — an ASSERTION only, checked
+  // against the server-derived `currencyCode` below. Never authoritative, and
+  // the historical `|| "XAF"` fallback is removed (Phase 2, no silent XAF).
+  const offeredCurrencyCode = offerData.currencyCode;
 
   const inventoryRef = db
     .collection("pharmacy_inventory")
@@ -187,6 +194,39 @@ export async function acceptRequestOfferIntoCanonicalProposal(
       "Seller pharmacy is no longer in the same city as the request."
     );
   }
+
+  // Phase 2 (G1–G6) — authoritative trade-currency guard. Reads sysConfig +
+  // the seller wallet (buyer wallet already read above) and derives the
+  // currency server-side; refuses cross-territory or a wallet-currency
+  // mismatch. The whole bridge runs inside one transaction, so a throw here
+  // rolls back with zero side effects. All reads stay before the first write.
+  const [guardSysConfigSnap, sellerWalletGuardSnap] = await Promise.all([
+    transaction.get(db.collection("system_config").doc("main")),
+    transaction.get(db.collection("wallets").doc(sellerUid)),
+  ]);
+  const { currency: currencyCode } = assertTradeCurrency(
+    {
+      uid: callerUid,
+      countryCode: buyerPharm.countryCode,
+      cityCode: buyerPharm.cityCode ?? buyerPharm.city,
+      walletCurrency: buyerWallet?.currency,
+    },
+    {
+      uid: sellerUid,
+      countryCode: sellerPharm.countryCode,
+      cityCode: sellerPharm.cityCode ?? sellerPharm.city,
+      walletCurrency: sellerWalletGuardSnap.data()?.currency,
+    },
+    guardSysConfigSnap.exists ? guardSysConfigSnap.data() : undefined,
+    "acceptRequestOfferIntoCanonicalProposal"
+  );
+  // Offer currency is an assertion vs the server-derived value; never silently
+  // replaced (the persisted value is always `currencyCode`).
+  assertClientCurrencyMatches(
+    offeredCurrencyCode,
+    currencyCode,
+    "acceptRequestOfferIntoCanonicalProposal"
+  );
 
   const otherOffersQuery = db
     .collection("medicine_request_offers")
@@ -279,6 +319,7 @@ export async function acceptRequestOfferIntoCanonicalProposal(
       inventoryItemId: offerData.inventoryItemId as string,
       fromPharmacyId: callerUid,
       toPharmacyId: sellerUid,
+      currencyCode,
       details,
       initialStatus: "accepted",
       acceptedBy: sellerUid,
@@ -309,6 +350,7 @@ export async function acceptRequestOfferIntoCanonicalProposal(
         packaging: (inventoryData.packaging as string) || "",
       },
       courierFee: Math.round(totalPrice * 0.12),
+      currencyCode,
     },
     now
   );
@@ -489,10 +531,23 @@ export async function acceptExchangeRequestOfferIntoCanonicalProposal(
   const systemConfigRef = db.collection("system_config").doc("main");
   const buyerPharmRef = db.collection("pharmacies").doc(callerUid);
   const sellerPharmRef = db.collection("pharmacies").doc(sellerUid);
-  const [buyerPharmSnap, sellerPharmSnap, systemConfigSnap] = await Promise.all([
+  // Phase 2 (G1–G6) — barter still has a settlement currency (the courier fee),
+  // so BOTH wallets must exist and match the derived currency (D4). Read them
+  // alongside the config already loaded for the fee.
+  const buyerWalletGuardRef = db.collection("wallets").doc(callerUid);
+  const sellerWalletGuardRef = db.collection("wallets").doc(sellerUid);
+  const [
+    buyerPharmSnap,
+    sellerPharmSnap,
+    systemConfigSnap,
+    buyerWalletGuardSnap,
+    sellerWalletGuardSnap,
+  ] = await Promise.all([
     transaction.get(buyerPharmRef),
     transaction.get(sellerPharmRef),
     transaction.get(systemConfigRef),
+    transaction.get(buyerWalletGuardRef),
+    transaction.get(sellerWalletGuardRef),
   ]);
   if (!buyerPharmSnap.exists || !sellerPharmSnap.exists) {
     throw new HttpsError("not-found", "Pharmacy profile not found.");
@@ -520,6 +575,27 @@ export async function acceptExchangeRequestOfferIntoCanonicalProposal(
       "Seller pharmacy is no longer in the same city as the request."
     );
   }
+
+  // Phase 2 (G1–G6) — full guard incl. wallets for barter (D4). No client
+  // currency to assert (exchange offers carry no currency); the derived
+  // `currencyCode` is authoritative. A throw rolls back the whole transaction.
+  const guard = assertTradeCurrency(
+    {
+      uid: callerUid,
+      countryCode: buyerPharm.countryCode,
+      cityCode: buyerPharm.cityCode ?? buyerPharm.city,
+      walletCurrency: buyerWalletGuardSnap.data()?.currency,
+    },
+    {
+      uid: sellerUid,
+      countryCode: sellerPharm.countryCode,
+      cityCode: sellerPharm.cityCode ?? sellerPharm.city,
+      walletCurrency: sellerWalletGuardSnap.data()?.currency,
+    },
+    systemConfigSnap.exists ? systemConfigSnap.data() : undefined,
+    "acceptExchangeRequestOfferIntoCanonicalProposal"
+  );
+  const currencyCode = guard.currency;
 
   const otherOffersQuery = db
     .collection("medicine_request_offers")
@@ -586,6 +662,7 @@ export async function acceptExchangeRequestOfferIntoCanonicalProposal(
       inventoryItemId: offerData.inventoryItemId as string,
       fromPharmacyId: callerUid, // requester (will receive item A)
       toPharmacyId: sellerUid, // seller (will receive item B back-office)
+      currencyCode,
       details,
       initialStatus: "accepted",
       acceptedBy: sellerUid,
@@ -643,6 +720,7 @@ export async function acceptExchangeRequestOfferIntoCanonicalProposal(
         packaging: (sellerInventoryData.packaging as string) || "",
       },
       courierFee,
+      currencyCode,
     },
     now
   );

@@ -80,10 +80,37 @@ interface FakeWorld {
   /** Sprint 4 Finding 1: `system_config/main` doc read by the bridge to
    *  resolve courier fee. Absent by default → bridge falls back to 0. */
   system_config?: Record<string, FakeDoc>;
+  /** Phase 2 — wallets read by the in-transaction trade-currency guard. */
+  wallets?: Record<string, FakeDoc>;
+}
+
+// Phase 2 — an explicit guard-valid `system_config` (CM enabled + XAF),
+// optionally merged with extra keys (e.g. `citiesByCountry` for courier-fee
+// tests). Kept explicit so each test alters ONE dimension, with no hidden
+// global default silently validating everything.
+function sysConfigDoc(extra: Record<string, unknown> = {}): Record<string, FakeDoc> {
+  return {
+    main: {
+      exists: true,
+      data: {
+        countries: {
+          CM: { enabled: true, defaultCurrencyCode: "XAF", licenseRequired: false },
+        },
+        currencies: { XAF: { code: "XAF", enabled: true, decimals: 0 } },
+        ...extra,
+      },
+    },
+  };
 }
 
 function defaultWorld(): FakeWorld {
   return {
+    // Phase 2 — both wallets exist and match the derived XAF currency (D4).
+    wallets: {
+      [REQUESTER]: { exists: true, data: { currency: "XAF", available: 0, held: 0, deducted: 0 } },
+      [SELLER]: { exists: true, data: { currency: "XAF", available: 0, held: 0, deducted: 0 } },
+    },
+    system_config: sysConfigDoc(),
     medicineRequests: {
       [REQUEST_ID]: {
         exists: true,
@@ -397,18 +424,9 @@ describe("acceptExchangeRequestOfferIntoCanonicalProposal — happy path", () =>
 describe("acceptExchangeRequestOfferIntoCanonicalProposal — courier fee (Finding 1)", () => {
   test("city has explicit exchangeFee → delivery.courierFee = exchangeFee", async () => {
     const world = defaultWorld();
-    world.system_config = {
-      main: {
-        exists: true,
-        data: {
-          citiesByCountry: {
-            CM: {
-              douala: { deliveryFee: 1000, exchangeFee: 1500 },
-            },
-          },
-        },
-      },
-    };
+    world.system_config = sysConfigDoc({
+      citiesByCountry: { CM: { douala: { deliveryFee: 1000, exchangeFee: 1500 } } },
+    });
     const { writes } = await runBridge(world);
     const delivery = writes.find(
       (w) => w.op === "set" && w.collection === "deliveries"
@@ -419,16 +437,9 @@ describe("acceptExchangeRequestOfferIntoCanonicalProposal — courier fee (Findi
 
   test("city has deliveryFee only → delivery.courierFee = deliveryFee × 1.2 rounded", async () => {
     const world = defaultWorld();
-    world.system_config = {
-      main: {
-        exists: true,
-        data: {
-          citiesByCountry: {
-            CM: { douala: { deliveryFee: 500 } },
-          },
-        },
-      },
-    };
+    world.system_config = sysConfigDoc({
+      citiesByCountry: { CM: { douala: { deliveryFee: 500 } } },
+    });
     const { writes } = await runBridge(world);
     const delivery = writes.find(
       (w) => w.op === "set" && w.collection === "deliveries"
@@ -438,7 +449,8 @@ describe("acceptExchangeRequestOfferIntoCanonicalProposal — courier fee (Findi
 
   test("no per-city config → delivery.courierFee = 0 (documented no-config posture)", async () => {
     const world = defaultWorld();
-    // No world.system_config defined.
+    // Guard-valid system_config (from defaultWorld) but NO citiesByCountry →
+    // courier fee resolves to 0.
     const { writes } = await runBridge(world);
     const delivery = writes.find(
       (w) => w.op === "set" && w.collection === "deliveries"
@@ -448,16 +460,9 @@ describe("acceptExchangeRequestOfferIntoCanonicalProposal — courier fee (Findi
 
   test("system_config exists but unrelated country → delivery.courierFee = 0", async () => {
     const world = defaultWorld();
-    world.system_config = {
-      main: {
-        exists: true,
-        data: {
-          citiesByCountry: {
-            GH: { accra: { deliveryFee: 999 } },
-          },
-        },
-      },
-    };
+    world.system_config = sysConfigDoc({
+      citiesByCountry: { GH: { accra: { deliveryFee: 999 } } },
+    });
     const { writes } = await runBridge(world);
     const delivery = writes.find(
       (w) => w.op === "set" && w.collection === "deliveries"
@@ -595,16 +600,23 @@ function purchaseWorld(buyerAvailable: number): FakeWorld {
     inventoryItemId: SELLER_INV_ID,
     offeredQuantity: 10,
     totalPrice: PURCHASE_TOTAL_MAJOR, // major, business value
-    currencyCode: "GHS",
+    // Phase 2 — CM territory ⇒ XAF; offer currency is an assertion that must
+    // match the server-derived value (both parties are CM/douala here).
+    currencyCode: "XAF",
   };
   // Drop the competing exchange offer to keep the purchase path clean.
   delete w.medicineRequestOffers[OTHER_OFFER_ID];
   w.offersByRequest[REQUEST_ID] = [{ id: OFFER_ID, data: { status: "pending" } }];
-  // Buyer pharmacy wallet, seeded in legacy units (× 100).
+  // Both wallets exist and match the derived XAF currency (D4); buyer seeded
+  // in legacy units (× 100).
   (w as unknown as Record<string, Record<string, FakeDoc>>).wallets = {
     [REQUESTER]: {
       exists: true,
-      data: { available: buyerAvailable, held: 0, deducted: 0, currency: "GHS" },
+      data: { available: buyerAvailable, held: 0, deducted: 0, currency: "XAF" },
+    },
+    [SELLER]: {
+      exists: true,
+      data: { available: 0, held: 0, deducted: 0, currency: "XAF" },
     },
   };
   return w;

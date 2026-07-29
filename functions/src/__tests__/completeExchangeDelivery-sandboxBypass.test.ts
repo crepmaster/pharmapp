@@ -201,6 +201,7 @@ function buildFakeWorld(overrides: {
             fromPharmacyId: BUYER,
             toPharmacyId: SELLER,
             inventoryItemId: INVENTORY_ID,
+            currencyCode: "GHS", // Phase 2 — settlement revalidation snapshot.
             reservations: { walletReserved: TOTAL_AMOUNT },
             details: {
               type: proposalType,
@@ -241,10 +242,24 @@ function buildFakeWorld(overrides: {
           },
         },
       ],
-      // Pharmacy caller lookup (for the sandbox email gate).
-      [`pharmacies/${BUYER}`, { exists: true, data: { email: buyerEmail } }],
-      [`pharmacies/${SELLER}`, { exists: true, data: { email: sellerEmail } }],
-      [`pharmacies/${OUTSIDER_COURIER}`, { exists: true, data: { email: courierEmail } }],
+      // Pharmacy caller lookup (for the sandbox email gate). Phase 2 —
+      // trade territory (GH/accra) so the settlement revalidation passes; the
+      // courier guard is skipped in sandbox demo mode.
+      [`pharmacies/${BUYER}`, { exists: true, data: { email: buyerEmail, countryCode: "GH", cityCode: "accra" } }],
+      [`pharmacies/${SELLER}`, { exists: true, data: { email: sellerEmail, countryCode: "GH", cityCode: "accra" } }],
+      [`pharmacies/${OUTSIDER_COURIER}`, { exists: true, data: { email: courierEmail, countryCode: "GH", cityCode: "accra" } }],
+      // Courier profile for the real (non-sandbox) outsider-courier path.
+      [`couriers/${OUTSIDER_COURIER}`, { exists: true, data: { email: courierEmail, countryCode: "GH", cityCode: "accra" } }],
+      [
+        `system_config/main`,
+        {
+          exists: true,
+          data: {
+            countries: { GH: { defaultCurrencyCode: "GHS", enabled: true, licenseRequired: false } },
+            currencies: { GHS: { code: "GHS", enabled: true, decimals: 2 } },
+          },
+        },
+      ],
     ]),
   };
 }
