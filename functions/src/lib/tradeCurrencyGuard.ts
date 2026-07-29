@@ -342,20 +342,23 @@ export function assertCourierMatchesTrade(
 }
 
 /**
- * Revalidation (G6). Re-derives the trade currency from the CURRENT party
- * docs and asserts it equals the currency snapshotted on the proposal at
- * creation. A drift (e.g. a party's country/currency changed, or a wallet
- * now contradicts) refuses the mutation rather than settling on stale terms.
+ * Revalidation (G6) — canonical primitive. Re-derives the trade territory +
+ * currency from the CURRENT party docs and asserts the currency equals the
+ * snapshot on the proposal. Returns the confirmed `{ currency, countryCode,
+ * cityCode }` so callers that need the AUTHORITATIVE territory (e.g. the
+ * courier assignment guard) do NOT rebuild it from a denormalised
+ * `delivery.cityCode` nor duplicate the derivation.
  *
- * Returns the (re-derived, confirmed) currency on success.
+ * A drift (a party's country/currency changed, or a wallet now contradicts)
+ * refuses rather than settling on stale terms.
  */
-export function assertMatchesSnapshot(
+export function assertMatchesSnapshotTerritory(
   buyer: TradePartyInput,
   seller: TradePartyInput,
   sysConfig: TradeSysConfig | undefined | null,
   snapshotCurrency: unknown,
   label: string
-): string {
+): { currency: string; countryCode: string; cityCode: string } {
   const snapshot = asNonEmptyString(snapshotCurrency);
   if (!snapshot) {
     // A proposal with no authoritative currency snapshot cannot be revalidated
@@ -374,5 +377,20 @@ export function assertMatchesSnapshot(
       { code: "CURRENCY_SNAPSHOT_MISMATCH" }
     );
   }
-  return snapshot;
+  return { currency: snapshot, countryCode: live.countryCode, cityCode: live.cityCode };
+}
+
+/**
+ * Backward-compatible wrapper — returns only the confirmed currency string.
+ * Kept for the existing callers (`acceptExchangeProposal`,
+ * `completeExchangeDelivery`) that only need the currency.
+ */
+export function assertMatchesSnapshot(
+  buyer: TradePartyInput,
+  seller: TradePartyInput,
+  sysConfig: TradeSysConfig | undefined | null,
+  snapshotCurrency: unknown,
+  label: string
+): string {
+  return assertMatchesSnapshotTerritory(buyer, seller, sysConfig, snapshotCurrency, label).currency;
 }
