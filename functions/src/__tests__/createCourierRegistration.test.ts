@@ -70,9 +70,18 @@ const DEFAULT_CURRENCIES = {
   XAF: { code: "XAF", enabled: true, decimals: 0 },
   GHS: { code: "GHS", enabled: true, decimals: 2 },
 };
-const DEFAULT_CITIES: Record<string, Record<string, { enabled: boolean }>> = {
-  CM: { douala: { enabled: true }, yaounde: { enabled: true } },
-  GH: { accra: { enabled: true }, kumasi: { enabled: true } },
+const DEFAULT_CITIES: Record<
+  string,
+  Record<string, { enabled: boolean; name?: string }>
+> = {
+  CM: {
+    douala: { enabled: true, name: "Douala" },
+    yaounde: { enabled: true, name: "Yaounde" },
+  },
+  GH: {
+    accra: { enabled: true, name: "Accra" },
+    kumasi: { enabled: true, name: "Kumasi" },
+  },
 };
 const COUNTRY_CURRENCY: Record<string, string> = { CM: "XAF", GH: "GHS" };
 
@@ -141,7 +150,21 @@ describe("createCourierRegistration — happy path", () => {
     expect(mockBatchCommit).toHaveBeenCalledTimes(1);
     expect(mockDeleteUser).not.toHaveBeenCalled();
     const courier = lastCourierDocWritten();
-    expect(courier).toMatchObject({ role: "courier", isActive: true, countryCode: "GH", cityCode: "accra" });
+    expect(courier).toMatchObject({
+      role: "courier",
+      isActive: true,
+      isAvailable: false,
+      rating: 0,
+      totalDeliveries: 0,
+      countryCode: "GH",
+      cityCode: "accra",
+      // Config-derived display name — legacy getAvailableDeliveries filter.
+      operatingCity: "Accra",
+      city: "Accra",
+      // Derived from validated fullName.
+      displayName: "Kwame Courier",
+      name: "Kwame Courier",
+    });
     expect(lastWalletDocWritten()).toMatchObject({ currency: "GHS" });
   });
 
@@ -248,6 +271,110 @@ describe("createCourierRegistration — currency derivation", () => {
     };
     await wrapped({ data: input } as any);
     expect(lastWalletDocWritten()).toMatchObject({ currency: "GHS" });
+  });
+});
+
+describe("createCourierRegistration — profile is an allowlist, not a passthrough", () => {
+  test("forged trust-boundary fields cannot override server values NOR be persisted freely", async () => {
+    setSysConfig({ GH: {} });
+    mockCreateUser.mockResolvedValueOnce({ uid: "inject-uid" });
+    const input = {
+      ...BASE_INPUT,
+      profileData: {
+        ...BASE_INPUT.profileData,
+        // Every one of these is a forged privilege/identity claim.
+        role: "admin",
+        isActive: false,
+        isAvailable: true,
+        rating: 5,
+        totalDeliveries: 9999,
+        verificationStatus: "verified",
+        currency: "XAF",
+        // A stray unknown key must simply be dropped.
+        maliciousFlag: true,
+      },
+    };
+    await wrapped({ data: input } as any);
+    const courier = lastCourierDocWritten();
+    // Server values win — forged claims are overwritten.
+    expect(courier.role).toBe("courier");
+    expect(courier.isActive).toBe(true);
+    expect(courier.isAvailable).toBe(false);
+    expect(courier.rating).toBe(0);
+    expect(courier.totalDeliveries).toBe(0);
+    // Fields with no server slot are NOT persisted at all.
+    expect(courier).not.toHaveProperty("verificationStatus");
+    expect(courier).not.toHaveProperty("currency");
+    expect(courier).not.toHaveProperty("maliciousFlag");
+  });
+
+  test("lying operatingCity/city are ignored — persisted values come from config", async () => {
+    setSysConfig({ GH: {} });
+    mockCreateUser.mockResolvedValueOnce({ uid: "liar-uid" });
+    const input = {
+      ...BASE_INPUT,
+      profileData: {
+        ...BASE_INPUT.profileData,
+        // Validated cityCode=accra (GH), but a lying display name pointing at
+        // a different market. Config must win.
+        operatingCity: "Douala",
+        city: "Douala",
+      },
+    };
+    await wrapped({ data: input } as any);
+    const courier = lastCourierDocWritten();
+    expect(courier.operatingCity).toBe("Accra");
+    expect(courier.city).toBe("Accra");
+  });
+
+  test("plain-object paymentPreferences is allowlisted through", async () => {
+    setSysConfig({ GH: {} });
+    mockCreateUser.mockResolvedValueOnce({ uid: "pay-uid" });
+    const prefs = { method: "mtn_momo_gh", msisdn: "+233240000001" };
+    const input = {
+      ...BASE_INPUT,
+      profileData: { ...BASE_INPUT.profileData, paymentPreferences: prefs },
+    };
+    await wrapped({ data: input } as any);
+    expect(lastCourierDocWritten()).toMatchObject({ paymentPreferences: prefs });
+  });
+
+  test("non-object paymentPreferences is dropped (minimal type validation)", async () => {
+    setSysConfig({ GH: {} });
+    mockCreateUser.mockResolvedValueOnce({ uid: "badpay-uid" });
+    const input = {
+      ...BASE_INPUT,
+      profileData: { ...BASE_INPUT.profileData, paymentPreferences: "not-an-object" },
+    };
+    await wrapped({ data: input } as any);
+    expect(lastCourierDocWritten()).not.toHaveProperty("paymentPreferences");
+  });
+
+  test("enabled city with no usable name → CITY_NAME_UNCONFIGURED, no Auth", async () => {
+    // The city is enabled but its config entry has no `name`. The legacy
+    // delivery filter needs that name — fail closed, before minting Auth.
+    setSysConfig({ GH: {} }, DEFAULT_CURRENCIES, {
+      GH: { accra: { enabled: true } }, // no name
+    });
+    await expect(wrapped({ data: BASE_INPUT } as any)).rejects.toMatchObject({
+      code: "failed-precondition",
+      details: { code: "CITY_NAME_UNCONFIGURED" },
+    });
+    expect(mockCreateUser).not.toHaveBeenCalled();
+    expect(mockBatch).not.toHaveBeenCalled();
+  });
+
+  test("registered courier profile is shaped for the getAvailableDeliveries query", async () => {
+    // Contract guard: getAvailableDeliveries matches
+    // (operatingCity ?? city) against delivery.city (a display name). The
+    // persisted courier must therefore carry the canonical display name.
+    setSysConfig({ GH: {} });
+    mockCreateUser.mockResolvedValueOnce({ uid: "query-uid" });
+    await wrapped({ data: BASE_INPUT } as any);
+    const courier = lastCourierDocWritten();
+    const filterValue = (courier.operatingCity ?? courier.city) as string;
+    expect(filterValue).toBe("Accra");
+    expect(filterValue.length).toBeGreaterThan(0);
   });
 });
 

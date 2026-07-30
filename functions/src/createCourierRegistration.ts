@@ -7,7 +7,7 @@
  * client-written document whose `countryCode`/`cityCode` could be forged at
  * signup and then "frozen" while still being wrong.
  *
- * Creates, via Admin SDK, atomically (anti-orphan on failure):
+ * Creates, via Admin SDK:
  *   - Firebase Auth user,
  *   - `users/{uid}` (role: courier),
  *   - `couriers/{uid}` (territory canonicalised + validated SERVER-SIDE),
@@ -15,11 +15,29 @@
  *     store raw major — the doc shape is identical, the ×100 convention is a
  *     write-time boundary, not a doc field).
  *
+ * NOT a global transaction. The three Firestore docs are written in one
+ * atomic batch, but Auth user creation happens first and is a SEPARATE
+ * operation. If the batch fails after Auth succeeded, the Auth user is
+ * removed by a BEST-EFFORT compensating `deleteUser` (anti-orphan). That
+ * compensation can itself fail (logged for manual remediation) — so this is
+ * compensated, not transactional, and a rare orphan Auth user is possible.
+ *
  * Couriers have NO subscription and NO license (unlike pharmacies), so those
  * branches are absent here. The territory/currency validation is identical:
  * countryCode upper-cased + ISO, country configured AND enabled, cityCode
  * canonicalised + present + enabled under that country, currency derived +
  * usable. The client currency is never authoritative.
+ *
+ * SECURITY — the `couriers/{uid}` document is built from an explicit
+ * allowlist, NEVER from a raw passthrough of `profileData`. Trust boundary
+ * fields (`role`, `isActive`, `isAvailable`, `rating`, `totalDeliveries`),
+ * territory (`countryCode`, `cityCode`), currency, and the courier's operating
+ * city name are all SERVER-forged. The client cannot inject or override any of
+ * them. `operatingCity`/`city` are derived from the canonical
+ * `citiesByCountry[countryCode][cityCode].name` — never from the payload —
+ * because the legacy `getAvailableDeliveries` query matches the courier's city
+ * DISPLAY NAME against `delivery.city`; a client-supplied name could point the
+ * courier at the wrong market (or none).
  */
 
 import { onCall, HttpsError } from "firebase-functions/v2/https";
@@ -36,10 +54,10 @@ interface CreateCourierRegistrationInput {
   email?: string;
   password?: string;
   /**
-   * Free-form courier profile data (fullName, phoneNumber, vehicleType,
-   * licensePlate, countryCode, cityCode, displayName, ...). We extract the
-   * fields we care about explicitly and pass the rest through into
-   * `couriers/{uid}`.
+   * Courier profile data (fullName, phoneNumber, vehicleType, licensePlate,
+   * countryCode, cityCode, paymentPreferences, ...). Only an explicit
+   * allowlist of these fields is persisted into `couriers/{uid}`; every other
+   * key is dropped. There is NO raw passthrough.
    */
   profileData?: Record<string, unknown>;
 }
@@ -123,7 +141,7 @@ export const createCourierRegistration = onCall<CreateCourierRegistrationInput>(
       } | undefined>;
       citiesByCountry?: Record<
         string,
-        Record<string, { enabled?: boolean } | undefined> | undefined
+        Record<string, { enabled?: boolean; name?: string } | undefined> | undefined
       >;
       currencies?: Record<string, { enabled?: unknown } | undefined>;
     };
@@ -149,6 +167,21 @@ export const createCourierRegistration = onCall<CreateCourierRegistrationInput>(
         "failed-precondition",
         "City is not a valid enabled city for this country.",
         { code: "CITY_INVALID_FOR_COUNTRY" }
+      );
+    }
+
+    // The courier's operating-city DISPLAY NAME is derived SERVER-SIDE from the
+    // canonical config, never from the payload. `getAvailableDeliveries`
+    // matches this name against `delivery.city`, so it must be the same
+    // canonical string the settlement pipeline writes onto deliveries. An
+    // enabled city with no usable name is a config defect — fail closed rather
+    // than register a courier who would silently see the wrong market or none.
+    const cityName = typeof cityEntry.name === "string" ? cityEntry.name.trim() : "";
+    if (cityName.length === 0) {
+      throw new HttpsError(
+        "failed-precondition",
+        "City has no display name configured; cannot register courier.",
+        { code: "CITY_NAME_UNCONFIGURED" }
       );
     }
 
@@ -183,41 +216,60 @@ export const createCourierRegistration = onCall<CreateCourierRegistrationInput>(
       // ---- 4. Write Firestore docs (users + couriers + wallet) ----------
       const now = FieldValue.serverTimestamp();
 
+      // `couriers/{uid}` is built from an EXPLICIT ALLOWLIST. There is no raw
+      // passthrough of `profileData`: a client cannot inject or override any
+      // trust-boundary field. Every value below is either validated input
+      // (fullName/phone/vehicle/plate), server-canonical (territory/currency),
+      // config-derived (operatingCity/city name), or a server-forged constant
+      // (role/isActive/isAvailable/rating/totalDeliveries).
       const courierDoc: Record<string, unknown> = {
         email,
         fullName,
+        // displayName + name mirror the validated fullName, never a client
+        // display field that could diverge from the account identity.
+        displayName: fullName,
+        name: fullName,
         phoneNumber,
         vehicleType,
         licensePlate,
+        // Server-canonicalised, country-validated territory.
         countryCode,
-        // Server-canonicalised, country-validated.
         cityCode,
+        // Config-derived display name — legacy delivery-filter compatibility.
+        // NEVER the client `operatingCity`/`city`.
+        operatingCity: cityName,
+        city: cityName,
+        // Server-forged trust-boundary constants. A courier starts inactive
+        // for pickups, unrated, with no delivery history; `isActive` gates
+        // assignment (assignCourierToDelivery) so it is backend-owned.
         role: "courier",
         isActive: true,
+        isAvailable: false,
+        rating: 0,
+        totalDeliveries: 0,
         createdAt: now,
         updatedAt: now,
       };
-      // Pass through any optional profile fields we have not explicitly
-      // consumed (locationData, displayName, operatingCity, …). The canonical
-      // territory fields are never overwritten by the raw client payload.
-      for (const [k, v] of Object.entries(profile)) {
-        if (k in courierDoc) continue;
-        if (
-          k === "fullName" || k === "phoneNumber" || k === "vehicleType" ||
-          k === "licensePlate" || k === "countryCode" || k === "cityCode"
-        ) {
-          continue;
-        }
-        if (v === undefined) continue;
-        courierDoc[k] = v;
+
+      // Documented optional allowlist. `paymentPreferences` is the courier's
+      // own payout config (mobile-money coordinates) and is accepted ONLY when
+      // it is a plain object — minimal type validation, no deep trust. Any
+      // other profile key (currency, verificationStatus, locationData, forged
+      // role/rating/…) is silently dropped: it never reaches Firestore.
+      const paymentPreferences = profile.paymentPreferences;
+      if (
+        paymentPreferences !== null &&
+        typeof paymentPreferences === "object" &&
+        !Array.isArray(paymentPreferences)
+      ) {
+        courierDoc.paymentPreferences = paymentPreferences;
       }
 
       const usersDoc = {
         uid: createdUid,
         email,
-        displayName: typeof profile.displayName === "string" && profile.displayName.trim().length > 0
-          ? profile.displayName
-          : fullName,
+        // Derived from the validated fullName, never a client display field.
+        displayName: fullName,
         phoneNumber,
         role: "courier",
         isActive: true,
