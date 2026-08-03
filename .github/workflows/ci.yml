@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# Least privilege: this workflow only reads the repository. It publishes no
+# artifact, writes no comment and touches no deployment.
+permissions:
+  contents: read
+
+jobs:
+  functions-tests:
+    name: functions-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      - name: Install functions dependencies
+        working-directory: functions
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: functions
+        run: npm run typecheck
+
+      - name: Lint
+        working-directory: functions
+        run: npm run lint
+
+      - name: Jest unit and integration tests
+        working-directory: functions
+        run: npm test
+
+      - name: Export barrier
+        working-directory: functions
+        run: npm run test:barrier
+
+  firestore-rules:
+    name: firestore-rules
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            functions/package-lock.json
+            tools/deploy/package-lock.json
+
+      # The Firestore emulator is a Java process. Java is installed only here:
+      # functions-tests must stay runnable without a JVM.
+      - name: Setup Java 21
+        uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4.9.0
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # test:rules runs jest from functions/node_modules through the emulator,
+      # so both dependency graphs are required. They stay isolated per
+      # REQ-DEP-ISO-01: firebase-tools is resolved from tools/deploy, never PATH.
+      - name: Install functions dependencies
+        working-directory: functions
+        run: npm ci
+
+      - name: Install deploy tooling dependencies
+        working-directory: tools/deploy
+        run: npm ci
+
+      - name: Firestore rules emulator tests
+        working-directory: functions
+        run: npm run test:rules
