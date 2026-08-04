@@ -158,6 +158,36 @@ Identifié pendant la recette V1+V2 (mars 2026), pas adressé. Détail en mémoi
 
 ---
 
+## 💱 Sprint Currency (E1–E2c) — clôturé + déployé staging (2026-07-21)
+
+**Terminé et déployé EXCLUSIVEMENT sur `mediexchange-staging`. Aucune opération production.**
+HEAD déployé : **`9bec2dda`**.
+
+**Contrat d'unités wallet (legacy, deux conventions par type de propriétaire)** :
+
+- **pharmacie** : montants stockés en `major × 100` dans le wallet (le dashboard divise par 100 à l'affichage) ;
+- **courier** : `major` brut (widget affiche tel quel) ;
+- **conversion uniquement aux frontières d'écriture wallet** via `majorToWalletUnits(major, ownerType)` ([functions/src/lib/moneyUnits.ts](functions/src/lib/moneyUnits.ts)). Les documents métier et les ledgers du pipeline restent en **major**. Le crédit courier (`courierFee`) reste en major brut — jamais ×100.
+
+**Devise** : dérivée **côté serveur** depuis le pays (`pharmacy.countryCode` → `system_config/main.countries[cc].defaultCurrencyCode`, validée contre `currencies`). La valeur `currency` fournie par le client **n'est pas autoritative** (ignorée à l'inscription et au sandbox). Wallet existant : currency snapshotée conservée, refus (409) si elle contredit la devise dérivée — jamais corrigée en silence.
+
+**Sandbox** : `sandboxCredit` (pharmacy-only, F1b préservé) et `sandboxDebit` (pharmacy + courier) dérivent la devise et convertissent selon l'owner. Plafond crédit par devise depuis `system_config.currencies[code].sandboxMaxCreditMajor` (obligatoire, aucun fallback) — **XAF 100000 / GHS 2000** en unités major. `sandboxDebit` borné uniquement par le solde (jamais le cap crédit).
+
+**Rules C1/C2 actives** : C1 = `couriers.countryCode` obligatoire/ISO/immuable + `users.role`/`userType` immuables (frontière currency) ; C2 = 5 champs subscription backend-only (paywall, voir [docs/security/SEC-001-subscription-self-grant.md](docs/security/SEC-001-subscription-self-grant.md)).
+
+**Validations sur staging réel** : recette E2E currency **14/14** (GH→GHS, crédit 50→5000 / UI 50,00 GHS, cap 2001 refusé, débit 20→3000 ; CM→XAF, crédit 5000→500000) + smoke sécurité **4/4** (C1/C2 : self-grant subscription & role → 403, update légitime → 200). Backend : Jest 586/586, rules emulator 83/83.
+
+**Limites honnêtes** :
+
+- affichage Web prouvé **transitivement** (bundle déployé hash-identique au build testé E2b + données `getWallet` correctes) — **répétition visuelle navigateur encore à faire** sur <https://mediexchange-staging.web.app> ;
+- flux **settlement GH complet** (proposal→accept→complete) **non rejoué sur staging** (gate licence GH `licenseRequired` exige vérif admin) — sa conversion ×100 est couverte par les tests E1 sur le code identique déployé ;
+- **APK non construit, non testé, non déployé** (hors périmètre, après-démo) ;
+- **assouplissement du gate email sandbox** (`@promoshake.net` only) reporté **avant le sprint APK** (voir mémoire `project_sandbox_email_gate_relax.md`).
+
+Commits E1→E2c : `9f4fa415` (unités pipeline), `27c3cd86` (sandbox backend), `b849e1df` (écran sandbox), `9bec2dda` (seed caps) ; amont : `a15c1dde` (getWallet), `a77517c2` (registration), `0f6b1f9b`/`1a04eaad` (rules C1/C2), `506fe8f1` (resolver), `d1c9b387` (validation ISO).
+
+---
+
 ## ✅ Sprints récemment fermés (avril–mai 2026)
 
 | Date | Sprint | Sujet | Commits |
