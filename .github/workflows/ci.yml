@@ -1,0 +1,114 @@
+name: CI
+
+# CI de base du backend Firebase Functions.
+#
+# ⚠️ LES NOMS DE JOBS SONT CONTRACTUELS.
+# La protection de branche de `main` exige déjà les deux status checks
+# `functions-tests` et `firestore-rules` (enforce_admins = true). Ces checks
+# n'avaient aucun workflow pour les rapporter : toute PR vers main restait
+# bloquée en « Expected — waiting for status to be reported ». Les `name:`
+# ci-dessous SONT ces contextes. Les renommer rebloque main en silence ;
+# c'est aussi pourquoi la version de Node ne figure pas dans le nom.
+#
+# Hors périmètre, délibérément : les tests Flutter. Au 2026-08-04 les trois
+# paquets ne sont pas verts (13 échecs : pharmapp_unified 11, tous dans
+# test/screens/auth/unified_registration_screen_test.dart ; admin_panel 1,
+# le smoke test de gabarit ; shared 1, isPhoneValid legacy). Ajouter un job
+# rouge n'aurait servi qu'à être ignoré. À ajouter une fois les suites
+# réparées.
+#
+# Ce workflow ne porte AUCUNE autorité de gouvernance : il ne lit ni DECISION,
+# ni manifeste, ni disposition. Y greffer un jour un contrôle de gouvernance
+# en ferait une surface constitutionnelle, soumise au cycle renforcé.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Une seule exécution utile par référence : les pushs successifs annulent
+# les runs devenus caducs plutôt que de consommer des minutes pour rien.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  functions-tests:
+    name: functions-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: functions
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          # Épinglé sur `engines.node` de functions/package.json.
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      # `npm ci` et non `npm install` : installation reproductible depuis le
+      # lockfile suivi, et échec si package.json et package-lock.json divergent.
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      # jest.config.cjs limite la suite à `src/**/*.test.ts` : `lib/` (sortie
+      # compilée) et les suites `firestore-rules*` sont exclues, d'où l'absence
+      # de Java dans ce job. Vérifié localement : 40 suites, 669 tests.
+      - name: Tests
+        run: npm test
+
+  firestore-rules:
+    name: firestore-rules
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: functions
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      # L'émulateur Firestore tourne sur la JVM. CLAUDE.md exige Java 21+.
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install
+        run: npm ci
+
+      # firebase-tools n'est pas une devDependency du paquet : le script
+      # `test:rules` appelle le CLI `firebase`, qu'il faut donc fournir.
+      # Majeure épinglée sur la version validée localement (15.18.0).
+      - name: Install Firebase CLI
+        run: npm i -g firebase-tools@^15
+
+      # `--project=demo-pharmapp-rules` : projet de démonstration, donc aucun
+      # identifiant ni secret requis. Vérifié localement : 4 suites, 104 tests.
+      - name: Rules tests
+        run: npm run test:rules
