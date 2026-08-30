@@ -199,6 +199,31 @@ function buildCityIndex(citiesByCountry) {
   return index;
 }
 
+/**
+ * City-name readiness. `createCourierRegistration` now fails closed with
+ * CITY_NAME_UNCONFIGURED when an ENABLED city has no usable `name` — the
+ * legacy `getAvailableDeliveries` filter matches that display name against
+ * `delivery.city`, so a nameless-but-enabled city would silently strand a
+ * courier. This gate surfaces every such city BEFORE the backend-owned
+ * registration is promoted, so the config is fixed first. Offenders are
+ * printed as `countryCode.cityCode` — config keys, never courier PII.
+ */
+function auditCityNameReadiness(citiesByCountry) {
+  let enabledTotal = 0;
+  let withName = 0;
+  const offenders = [];
+  for (const [countryCode, cities] of Object.entries(citiesByCountry ?? {})) {
+    for (const [cityCode, city] of Object.entries(cities ?? {})) {
+      if (city?.enabled !== true) continue;
+      enabledTotal++;
+      const name = typeof city?.name === "string" ? city.name.trim() : "";
+      if (name.length > 0) withName++;
+      else offenders.push(`${countryCode}.${cityCode}`);
+    }
+  }
+  return { enabledTotal, withName, missingName: offenders.length, offenders };
+}
+
 const pct = (n, total) => (total === 0 ? "0.0" : ((n / total) * 100).toFixed(1));
 
 function printBucket(label, count, total, samples) {
@@ -226,9 +251,27 @@ if (!sysConfigSnap.exists) {
 const sysConfig = sysConfigSnap.data() ?? {};
 const countries = sysConfig.countries ?? {};
 const cityIndex = buildCityIndex(sysConfig.citiesByCountry);
+const cityNameReadiness = auditCityNameReadiness(sysConfig.citiesByCountry);
 
 console.log(`   countries configured : ${Object.keys(countries).join(", ") || "(none)"}`);
 console.log(`   city index entries   : ${cityIndex.size}\n`);
+
+console.log("🏷️  city-name readiness (createCourierRegistration gate)");
+printBucket("enabled cities configured", cityNameReadiness.enabledTotal, cityNameReadiness.enabledTotal);
+printBucket("with usable name", cityNameReadiness.withName, cityNameReadiness.enabledTotal);
+printBucket(
+  "MISSING name → would block registration",
+  cityNameReadiness.missingName,
+  cityNameReadiness.enabledTotal
+);
+if (cityNameReadiness.missingName > 0) {
+  console.log(`      offenders: ${cityNameReadiness.offenders.join(", ")}`);
+  console.log(
+    "      ⚠️  fix these before promoting backend-owned courier registration " +
+      "(CITY_NAME_UNCONFIGURED)."
+  );
+}
+console.log("");
 
 const couriersSnap = await db.collection("couriers").get();
 const total = couriersSnap.size;
@@ -455,6 +498,7 @@ console.log(
       environment,
       totalCouriers: total,
       ...b,
+      cityNameReadiness,
       walletCurrencies: Object.fromEntries(walletCurrencies),
       countryDistribution: Object.fromEntries(countryDistribution),
       mismatchShapes: Object.fromEntries(mismatchShapes),

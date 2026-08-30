@@ -68,6 +68,9 @@ export { backfillLicenseGracePeriod } from "./backfillLicenseGracePeriod.js";
 // `system_config/main.countries.{code}.licenseRequired` SERVER-SIDE at
 // create time so a super-admin toggle takes effect immediately.
 export { createPharmacyRegistration } from "./createPharmacyRegistration.js";
+export { createCourierRegistration } from "./createCourierRegistration.js";
+export { assignCourierToDelivery } from "./assignCourierToDelivery.js";
+export { advanceCourierDelivery } from "./advanceCourierDelivery.js";
 
 // ======================= Admin License Config (Sprint 2B.1) =======================
 // Admin-only callable that updates the 7 license fields on

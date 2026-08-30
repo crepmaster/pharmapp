@@ -13,6 +13,7 @@ import {
   assertClientCurrencyMatches,
   assertCourierMatchesTrade,
   assertMatchesSnapshot,
+  assertMatchesSnapshotTerritory,
   tradeCurrencyHttpsError,
   type TradePartyInput,
   type TradeSysConfig,
@@ -374,6 +375,20 @@ describe("assertCourierMatchesTrade — the third (courier) currency frontier", 
 describe("assertMatchesSnapshot — revalidation (G6)", () => {
   test("live currency equal to snapshot → returns it", () => {
     expect(assertMatchesSnapshot(cmBuyer, cmSeller, SYS, "XAF", "settle")).toBe("XAF");
+  });
+
+  test("territory primitive returns canonical {currency, countryCode, cityCode}", () => {
+    expect(assertMatchesSnapshotTerritory(cmBuyer, cmSeller, SYS, "XAF", "assign")).toEqual({
+      currency: "XAF",
+      countryCode: "CM",
+      cityCode: "douala",
+    });
+  });
+
+  test("wrapper and primitive agree on the currency", () => {
+    const prim = assertMatchesSnapshotTerritory(cmBuyer, cmSeller, SYS, "XAF", "x");
+    const wrap = assertMatchesSnapshot(cmBuyer, cmSeller, SYS, "XAF", "x");
+    expect(wrap).toBe(prim.currency);
   });
 
   test("missing snapshot → CURRENCY_SNAPSHOT_MISSING", () => {
