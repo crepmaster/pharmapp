@@ -2,6 +2,18 @@
 
 Périmètre : trois sessions web distinctes sur `mediexchange-staging` (pharmacie vendeuse, pharmacie acheteuse, coursier), dans Ghana / Kumasi, en GHS. Utiliser les trois comptes dédiés décrits dans `ORDRE_DEMO_STAGING_FIXTURES.md`. Leur licence et leur abonnement sont **fictifs et réservés à staging**. Ne jamais présenter ces comptes comme des pharmacies réellement habilitées.
 
+## Recette technique avant le `contract`
+
+Une fois le commit candidat poussé et la phase `expand` vérifiée, lancer **une seule fois** :
+
+```powershell
+node functions/scripts/rehearseOrdreStaging.mjs --project=mediexchange-staging --apply=ordre-2026-09-28
+```
+
+Le script relit la preuve `expand` du même commit, connecte réellement les trois comptes Auth, publie le lot vendeur par l’API Firestore avec son jeton utilisateur (donc sous les Rules), exécute les deux parcours via les callables, puis vérifie les statuts, les lots, les soldes et le ledger. Il écrit un checkpoint sous `functions/.demo-backups/` après chaque étape et un reçu `.deploy/recette-<SHA8>.json` seulement après les deux parcours terminés. **En cas d’échec, lire le checkpoint et inspecter les documents avant toute relance.** Le script refuse les relances avec un checkpoint incomplet du même commit ; il ne répare pas automatiquement une transaction partielle. Toute modification du commit exige une nouvelle publication et une nouvelle recette. Cette recette valide les services, pas la navigation des écrans ; essayer ensuite le parcours complet dans le web sous les Rules finales.
+
+La répétition laisse le lot vendeur publié et consomme du stock. Avant la présentation, le dépublier dans l’interface, après s’être assuré qu’aucune proposition ouverte ne le réserve. Les transactions terminées de la répétition restent consultables comme secours ; ne pas vider leur historique.
+
 ## Avant d’ouvrir les trois sessions
 
 1. Vérifier que `expand` puis `contract` et `verify` du déploiement staging ont réussi, avec preuve des artefacts distants et recette des deux parcours. Ne pas changer de projet Firebase pendant la démonstration.
