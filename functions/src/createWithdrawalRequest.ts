@@ -18,6 +18,7 @@
  */
 
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { assertOwnerOperatingCurrency } from "./lib/pharmacyOperatingCurrency.js";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { randomUUID } from "crypto";
@@ -375,6 +376,7 @@ export const createWithdrawalRequest = onCall<CreateWithdrawalInput>(
       .doc("main")
       .get();
     const sysConfig = (sysConfigSnap.data() ?? {}) as {
+      countries?: Record<string, { enabled?: boolean; defaultCurrencyCode?: string }>;
       mobileMoneyProviders?: Record<
         string,
         {
@@ -387,7 +389,7 @@ export const createWithdrawalRequest = onCall<CreateWithdrawalInput>(
       >;
       currencies?: Record<
         string,
-        { decimals?: number; minWithdrawalMinor?: number }
+        { enabled?: unknown; decimals?: number; minWithdrawalMinor?: number }
       >;
     };
     const provider = sysConfig.mobileMoneyProviders?.[providerId];
@@ -423,6 +425,8 @@ export const createWithdrawalRequest = onCall<CreateWithdrawalInput>(
         "Provider currency does not match request currency."
       );
     }
+
+    assertOwnerOperatingCurrency(ownerData, sysConfig, currencyCode);
 
     // ---- 8b. Hotfix 3.2b Fix 2: enforce minimum withdrawal amount ----
     // Admin override via system_config/main.currencies[code].minWithdrawalMinor

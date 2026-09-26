@@ -9,7 +9,7 @@
  *    snapshotted at init time (ADR-001 guard #2).
  */
 
-import { onRequest } from "firebase-functions/v2/https";
+import { onRequest, HttpsError } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
@@ -19,6 +19,7 @@ import {
   toLegacyWalletUnits,
   FALLBACK_DECIMALS,
 } from "./lib/moneyUnits.js";
+import { assertPharmacyOperatingCurrency } from "./lib/pharmacyOperatingCurrency.js";
 
 const db = getFirestore();
 
@@ -134,7 +135,8 @@ export const paystackWebhook = onRequest(
         }
 
         const userId = creditTargetUid;
-        const displayCurrency = (payment.displayCurrency as string) || "GHS";
+        const displayCurrency = (payment.displayCurrency as string) ||
+          (payment.currency as string);
         const snappedDecimals =
           typeof payment.currencyDecimals === "number"
             ? (payment.currencyDecimals as number)
@@ -151,7 +153,27 @@ export const paystackWebhook = onRequest(
         );
 
         const walletRef = db.collection("wallets").doc(userId);
-        const walletSnap = await tx.get(walletRef);
+        const [pharmacySnap, configSnap, walletSnap] = await Promise.all([
+          tx.get(db.collection("pharmacies").doc(userId)),
+          tx.get(db.collection("system_config").doc("main")),
+          tx.get(walletRef),
+        ]);
+        try {
+          assertPharmacyOperatingCurrency(
+            pharmacySnap.data(), configSnap.data(), displayCurrency,
+            walletSnap.exists ? walletSnap.data() : undefined
+          );
+        } catch (error) {
+          if (!(error instanceof HttpsError)) throw error;
+          // Paystack may already have charged the customer. Record the
+          // failure for manual reconciliation; never convert or credit it.
+          tx.update(paymentRef, {
+            status: "settlement_blocked",
+            settlementBlockedReason: "country_or_wallet_currency_mismatch",
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+          return { status: "settlement_blocked" as const, ownerType };
+        }
         if (!walletSnap.exists) {
           tx.set(walletRef, {
             available: walletLegacyDelta,
@@ -201,7 +223,7 @@ export const paystackWebhook = onRequest(
         logger.warn("paystackWebhook: settlement blocked", {
           reference,
           ownerType: result.ownerType,
-          reason: "non-pharmacy ownerType",
+          reason: "owner or country currency guard",
         });
       }
       logger.info("paystackWebhook: processed", {

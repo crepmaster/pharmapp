@@ -29,6 +29,7 @@
  */
 
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { assertPharmacyOperatingCurrency } from "./lib/pharmacyOperatingCurrency.js";
 import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { creditPlatformTreasury } from "./lib/platformTreasury.js";
@@ -86,8 +87,10 @@ const SANDBOX_PLAN_AMOUNTS: Record<string, Record<string, number>> = {
 };
 
 function sandboxPlanAmount(planName: string, currencyCode: string): number {
-  const table =
-    SANDBOX_PLAN_AMOUNTS[currencyCode] ?? SANDBOX_PLAN_AMOUNTS["XAF"];
+  const table = SANDBOX_PLAN_AMOUNTS[currencyCode];
+  if (!table) {
+    throw new HttpsError("failed-precondition", "No sandbox plan price for country currency.");
+  }
   return table[planName.toLowerCase()] ?? table["basic"];
 }
 
@@ -169,23 +172,18 @@ export const sandboxSubscriptionSuccess = onCall<SandboxSubscriptionData>(
           pharmacyData.country as string | undefined
         )?.toLowerCase();
         countryCode = (legacyCountry && LEGACY_COUNTRY_TO_ISO[legacyCountry])
-          || "CM";
+          || "";
         logger.info(
           `sandboxSubscriptionSuccess: legacy country fallback '${legacyCountry}' → '${countryCode}'`,
           { userId }
         );
       }
 
-      // 1d. Derive currencyCode from system_config; fall back to "XAF".
-      let currencyCode = "XAF";
-      if (configSnap.exists) {
-        const configData = configSnap.data()!;
-        const countries = configData.countries as
-          | Record<string, { defaultCurrencyCode?: string }>
-          | undefined;
-        const defaultCurrency = countries?.[countryCode]?.defaultCurrencyCode;
-        if (defaultCurrency) currencyCode = defaultCurrency;
-      }
+      // 1d. Derive the only permitted country currency; no Cameroon/XAF
+      // default can silently denominate another country's subscription.
+      const currencyCode = assertPharmacyOperatingCurrency(
+        { countryCode }, configSnap.data()
+      );
 
       // 1e. Compute amount server-side (client never controls the price).
       const amount = sandboxPlanAmount(normalizedPlan, currencyCode);

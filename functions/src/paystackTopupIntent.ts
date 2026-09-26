@@ -21,6 +21,7 @@ import {
   toLegacyWalletUnits,
 } from "./lib/moneyUnits.js";
 import { requirePharmacyOwner } from "./lib/auth.js";
+import { assertPharmacyOperatingCurrency } from "./lib/pharmacyOperatingCurrency.js";
 import {
   assertSandboxAllowedForProject,
   isSandboxDemoCaller,
@@ -77,22 +78,16 @@ export const paystackTopupIntent = onCall<PaystackTopupData>(
       );
     }
 
-    // Resolve currency decimals via system_config (same pattern as MTN MoMo).
-    const displayCurrency = currency ?? "GHS";
-    let currencyDecimals: number;
-    try {
-      const cfg = await db.collection("system_config").doc("main").get();
-      const currencies =
-        (cfg.data()?.currencies as Record<string, { decimals?: number }>) ?? {};
-      currencyDecimals = resolveDecimals(
-        displayCurrency,
-        currencies[displayCurrency],
-        (reason) =>
-          logger.warn("paystackTopupIntent: decimals fallback", { reason })
-      );
-    } catch {
-      currencyDecimals = resolveDecimals(displayCurrency, undefined);
-    }
+    const cfg = await db.collection("system_config").doc("main").get();
+    const walletRef = db.collection("wallets").doc(userId);
+    const walletSnap = await walletRef.get();
+    const displayCurrency = assertPharmacyOperatingCurrency(
+      pharmacySnap.data(), cfg.data(), currency,
+      walletSnap.exists ? walletSnap.data() : undefined
+    );
+    const currencies =
+      (cfg.data()?.currencies as Record<string, { decimals?: number }>) ?? {};
+    const currencyDecimals = resolveDecimals(displayCurrency, currencies[displayCurrency]);
 
     let amountMinor: number;
     try {
@@ -128,12 +123,19 @@ export const paystackTopupIntent = onCall<PaystackTopupData>(
     // ----------------------------------------------------------------------
     if (isSandboxDemoCaller({ email })) {
       const paymentRef = db.collection("payments").doc(reference);
-      const walletRef = db.collection("wallets").doc(userId);
       const walletLegacyDelta = toLegacyWalletUnits(amountMinor, currencyDecimals);
 
       await db.runTransaction(async (tx) => {
-        const walletSnap = await tx.get(walletRef);
-        if (!walletSnap.exists) {
+        const [livePharmacy, liveConfig, liveWallet] = await Promise.all([
+          tx.get(db.collection("pharmacies").doc(userId)),
+          tx.get(db.collection("system_config").doc("main")),
+          tx.get(walletRef),
+        ]);
+        assertPharmacyOperatingCurrency(
+          livePharmacy.data(), liveConfig.data(), displayCurrency,
+          liveWallet.exists ? liveWallet.data() : undefined
+        );
+        if (!liveWallet.exists) {
           tx.set(walletRef, {
             available: walletLegacyDelta,
             held: 0,

@@ -22,13 +22,32 @@ const mockPaymentUpdate = jest.fn() as jest.MockedFunction<
 >;
 mockPaymentUpdate.mockResolvedValue(undefined);
 const mockPaymentDoc = jest.fn(() => ({
+  _collection: "payments",
   get: mockPaymentGet,
   update: mockPaymentUpdate,
 }));
+const mockTxGet = jest.fn(async (ref: { _collection?: string }) => {
+  if (ref._collection === "payments") return mockPaymentGet();
+  if (ref._collection === "pharmacies") {
+    return { exists: true, data: () => ({ countryCode: "GH" }) };
+  }
+  if (ref._collection === "system_config") {
+    return { exists: true, data: () => ({
+      countries: { GH: { enabled: true, defaultCurrencyCode: "GHS" } },
+      currencies: { GHS: { enabled: true, decimals: 2 } },
+    }) };
+  }
+  return { exists: true, data: () => ({ currency: "GHS" }) };
+});
+const mockTxUpdate = jest.fn();
+const mockTxSet = jest.fn();
+const mockRunTransaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+  fn({ get: mockTxGet, update: mockTxUpdate, set: mockTxSet })
+);
 
 const mockCollection = jest.fn((name: string) => {
   if (name === "payments") return { doc: mockPaymentDoc };
-  return { doc: () => ({ get: jest.fn(), update: jest.fn() }) };
+  return { doc: () => ({ _collection: name, get: jest.fn(), update: jest.fn() }) };
 });
 
 jest.mock("firebase-admin/app", () => ({
@@ -37,8 +56,11 @@ jest.mock("firebase-admin/app", () => ({
 }));
 
 jest.mock("firebase-admin/firestore", () => ({
-  getFirestore: jest.fn(() => ({ collection: mockCollection })),
-  FieldValue: { serverTimestamp: jest.fn(() => "mock-timestamp") },
+  getFirestore: jest.fn(() => ({ collection: mockCollection, runTransaction: mockRunTransaction })),
+  FieldValue: {
+    serverTimestamp: jest.fn(() => "mock-timestamp"),
+    increment: jest.fn((n: number) => ({ __op: "increment", n })),
+  },
 }));
 
 jest.mock("firebase-functions/logger", () => ({
@@ -165,6 +187,26 @@ describe("mtnMomoCheckStatus — staging sandbox short-circuit", () => {
 
     const result = (await callAs("u1", "ref-sandbox-courier")) as Record<string, unknown>;
     expect(result.status).toBe("settlement_blocked");
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  test("paid XAF intent for a GH pharmacy is recorded blocked without a wallet credit", async () => {
+    process.env.SANDBOX_ENABLED = "true";
+    mockPaymentGet.mockResolvedValue({
+      exists: true,
+      data: () => ({
+        userId: "u1", ownerType: "pharmacy", ownerId: "u1",
+        status: "pending", sandboxMode: true, displayCurrency: "XAF",
+        amountMinor: 100, currencyDecimals: 0,
+      }),
+    });
+
+    const result = (await callAs("u1", "ref-gh-xaf")) as Record<string, unknown>;
+    expect(result.status).toBe("settlement_blocked");
+    expect(mockTxUpdate).toHaveBeenCalledWith(
+      expect.anything(), expect.objectContaining({ status: "settlement_blocked" })
+    );
+    expect(mockTxSet).not.toHaveBeenCalled();
     expect(mockFetch).not.toHaveBeenCalled();
   });
 });

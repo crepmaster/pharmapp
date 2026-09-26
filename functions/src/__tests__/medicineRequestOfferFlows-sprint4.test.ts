@@ -94,8 +94,9 @@ const SYS_CONFIG_CM_NOT_REQUIRED = {
   exists: true,
   data: () => ({
     countries: {
-      CM: { licenseRequired: false, defaultCurrencyCode: "XAF" },
+      CM: { licenseRequired: false, enabled: true, defaultCurrencyCode: "XAF" },
     },
+    currencies: { XAF: { enabled: true, decimals: 0 } },
   }),
 };
 

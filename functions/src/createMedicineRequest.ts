@@ -10,6 +10,7 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { assertLicenseAllowsMarketplace } from "./lib/licenseGate.js";
 import { assertCanonicalMode } from "./lib/exchangePipeline.js";
+import { assertPharmacyOperatingCurrency } from "./lib/pharmacyOperatingCurrency.js";
 
 const db = getFirestore();
 
@@ -84,18 +85,12 @@ export const createMedicineRequest = onCall<CreateRequestData>(
       }
     }
 
-    // Validate currencyCode matches country
+    // A medicine request is also a monetary offer surface: persist only the
+    // operating currency derived from its pharmacy's country.
     const configSnap = await db.collection("system_config").doc("main").get();
-    if (configSnap.exists) {
-      const countries = (configSnap.data()?.countries as Record<string, any>) || {};
-      const country = countries[countryCode];
-      if (country?.defaultCurrencyCode && data.currencyCode !== country.defaultCurrencyCode) {
-        throw new HttpsError(
-          "invalid-argument",
-          `currencyCode must be '${country.defaultCurrencyCode}' for country '${countryCode}'.`
-        );
-      }
-    }
+    const currencyCode = assertPharmacyOperatingCurrency(
+      pharmacy, configSnap.data(), data.currencyCode
+    );
 
     // Create the request
     const requestRef = db.collection("medicine_requests").doc();
@@ -115,7 +110,7 @@ export const createMedicineRequest = onCall<CreateRequestData>(
       medicineSnapshot: data.medicineSnapshot || {},
       requestedQuantity: data.requestedQuantity,
       requestMode,
-      currencyCode: data.currencyCode,
+      currencyCode,
       notes: (data.notes || "").trim(),
       status: "open",
       selectedOfferId: null,

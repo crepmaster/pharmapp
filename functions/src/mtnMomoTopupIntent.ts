@@ -27,6 +27,7 @@ import {
   toMinor,
 } from "./lib/moneyUnits.js";
 import { requirePharmacyOwner } from "./lib/auth.js";
+import { assertPharmacyOperatingCurrency } from "./lib/pharmacyOperatingCurrency.js";
 import {
   assertSandboxAllowedForProject,
   isSandboxDemoCaller,
@@ -132,7 +133,12 @@ export const mtnMomoTopupIntent = onCall<TopupIntentData>(
     // The business-level currency shown to the pharmacy (GHS, XAF, etc.).
     // This is the ADR-001 "displayCurrency" — it's what we snapshot in the
     // payment record, independent of what the PSP's sandbox requires on the wire.
-    const displayCurrency = currency ?? "XAF";
+    const configSnap = await db.collection("system_config").doc("main").get();
+    const walletSnap = await db.collection("wallets").doc(userId).get();
+    const displayCurrency = assertPharmacyOperatingCurrency(
+      pharmacySnap.data(), configSnap.data(), currency,
+      walletSnap.exists ? walletSnap.data() : undefined
+    );
 
     // In sandbox, MTN only accepts EUR on the wire. In production we send the
     // real local currency. This divergence is tracked via payment.currency
@@ -142,26 +148,9 @@ export const mtnMomoTopupIntent = onCall<TopupIntentData>(
     // Resolve currency decimals ONCE at intent time and snapshot them on the
     // payment. `mtnMomoCheckStatus` must NOT re-read system_config to avoid
     // config-drift between intent and settlement (ADR-001 guard #2).
-    let currencyDecimals: number;
-    try {
-      const configSnap = await db
-        .collection("system_config")
-        .doc("main")
-        .get();
-      const currencies =
-        (configSnap.data()?.currencies as Record<string, { decimals?: number }>) ?? {};
-      currencyDecimals = resolveDecimals(
-        displayCurrency,
-        currencies[displayCurrency],
-        (reason) => logger.warn("mtnMomoTopupIntent: decimals fallback", { reason })
-      );
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      logger.warn("mtnMomoTopupIntent: system_config read failed, using fallback", {
-        message,
-      });
-      currencyDecimals = resolveDecimals(displayCurrency, undefined);
-    }
+    const currencies =
+      (configSnap.data()?.currencies as Record<string, { decimals?: number }>) ?? {};
+    const currencyDecimals = resolveDecimals(displayCurrency, currencies[displayCurrency]);
 
     let amountMinor: number;
     try {

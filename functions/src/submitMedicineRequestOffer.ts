@@ -18,6 +18,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { assertLicenseAllowsMarketplace } from "./lib/licenseGate.js";
+import { assertPharmacyOperatingCurrency } from "./lib/pharmacyOperatingCurrency.js";
 import {
   assertCanonicalMode,
   assertOfferMatchesRequest,
@@ -221,7 +222,10 @@ export const submitMedicineRequestOffer = onCall<SubmitOfferData>(
     }
 
     const totalPrice = validatedUnitPrice * data.offeredQuantity;
-    const currencyCode = (requestData.currencyCode as string) || "XAF";
+    const configSnap = await db.collection("system_config").doc("main").get();
+    const currencyCode = assertPharmacyOperatingCurrency(
+      sellerPharm, configSnap.data(), requestData.currencyCode
+    );
 
     // Create the offer
     const offerRef = db.collection("medicine_request_offers").doc();

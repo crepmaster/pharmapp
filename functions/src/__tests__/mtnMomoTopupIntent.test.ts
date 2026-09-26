@@ -14,6 +14,7 @@ import { jest } from "@jest/globals";
 
 const mockPharmacyGet = jest.fn() as jest.MockedFunction<() => Promise<unknown>>;
 const mockSysConfigGet = jest.fn() as jest.MockedFunction<() => Promise<unknown>>;
+const mockWalletGet = jest.fn() as jest.MockedFunction<() => Promise<unknown>>;
 const mockPaymentSet = jest.fn() as jest.MockedFunction<
   (data: Record<string, unknown>) => Promise<void>
 >;
@@ -26,6 +27,7 @@ mockPaymentDoc.mockImplementation(() => ({ set: mockPaymentSet }));
 const mockCollection = jest.fn((name: string) => {
   if (name === "pharmacies") return { doc: () => ({ get: mockPharmacyGet }) };
   if (name === "system_config") return { doc: () => ({ get: mockSysConfigGet }) };
+  if (name === "wallets") return { doc: () => ({ get: mockWalletGet }) };
   if (name === "payments") return { doc: mockPaymentDoc };
   return { doc: () => ({ get: jest.fn() }) };
 });
@@ -76,11 +78,15 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockPharmacyGet.mockResolvedValue({
     exists: true,
-    data: () => ({ email: "test@promoshake.net", role: "pharmacy" }),
+    data: () => ({ email: "test@promoshake.net", role: "pharmacy", countryCode: "CM" }),
   });
   mockSysConfigGet.mockResolvedValue({
-    data: () => ({ currencies: { XAF: { decimals: 0 }, GHS: { decimals: 2 } } }),
+    data: () => ({
+      countries: { CM: { enabled: true, defaultCurrencyCode: "XAF" } },
+      currencies: { XAF: { enabled: true, decimals: 0 } },
+    }),
   });
+  mockWalletGet.mockResolvedValue({ exists: false });
 });
 
 function callOk(data: Record<string, unknown>, uid: string = "test-uid"): Promise<unknown> {
@@ -113,6 +119,28 @@ describe("mtnMomoTopupIntent — unauthenticated / input validation", () => {
     await expect(callOk({ amount: 100, phoneNumber: "+123" })).rejects.toMatchObject({
       code: "invalid-argument",
     });
+  });
+});
+
+describe("mtnMomoTopupIntent — country currency", () => {
+  test("refuses GHS for a Cameroon pharmacy before contacting MTN", async () => {
+    await expect(callOk({
+      amount: 100,
+      phoneNumber: "237670123456",
+      currency: "GHS",
+    })).rejects.toMatchObject({ code: "failed-precondition" });
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockPaymentSet).not.toHaveBeenCalled();
+  });
+
+  test("refuses an XAF request when the existing wallet is GHS", async () => {
+    mockWalletGet.mockResolvedValue({ exists: true, data: () => ({ currency: "GHS" }) });
+    await expect(callOk({
+      amount: 100,
+      phoneNumber: "237670123456",
+      currency: "XAF",
+    })).rejects.toMatchObject({ code: "failed-precondition" });
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });
 
@@ -183,7 +211,7 @@ describe("mtnMomoTopupIntent — staging sandbox bypass", () => {
     process.env.SANDBOX_ENABLED = "true";
     mockPharmacyGet.mockResolvedValue({
       exists: true,
-      data: () => ({ email: "real-user@gmail.com", role: "pharmacy" }),
+      data: () => ({ email: "real-user@gmail.com", role: "pharmacy", countryCode: "CM" }),
     });
     mockFetch.mockResolvedValueOnce({
       ok: true,

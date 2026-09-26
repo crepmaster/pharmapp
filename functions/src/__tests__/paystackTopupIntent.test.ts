@@ -29,7 +29,11 @@ mockPaymentDoc.mockImplementation(() => ({ set: mockPaymentSet }));
 
 // Wallet + ledger mocks for the sandbox-bypass transaction path.
 const mockWalletGet = jest.fn() as jest.MockedFunction<() => Promise<unknown>>;
-const mockTxGet = jest.fn() as jest.MockedFunction<(ref: unknown) => Promise<unknown>>;
+const mockTxGet = jest.fn(async (ref: { _collection?: string }) => {
+  if (ref._collection === "pharmacies") return mockPharmacyGet();
+  if (ref._collection === "system_config") return mockSysConfigGet();
+  return mockWalletGet();
+});
 const mockTxSet = jest.fn();
 const mockTxUpdate = jest.fn();
 const mockLedgerDoc = jest.fn(() => ({ id: "ledger-id" }));
@@ -42,16 +46,16 @@ mockRunTransaction.mockImplementation(async (fn) =>
 
 const mockCollection = jest.fn((name: string) => {
   if (name === "pharmacies") {
-    return { doc: () => ({ get: mockPharmacyGet }) };
+    return { doc: () => ({ _collection: name, get: mockPharmacyGet }) };
   }
   if (name === "system_config") {
-    return { doc: () => ({ get: mockSysConfigGet }) };
+    return { doc: () => ({ _collection: name, get: mockSysConfigGet }) };
   }
   if (name === "payments") {
     return { doc: mockPaymentDoc };
   }
   if (name === "wallets") {
-    return { doc: () => ({ get: mockWalletGet }) };
+    return { doc: () => ({ _collection: name, get: mockWalletGet }) };
   }
   if (name === "ledger") {
     return { doc: mockLedgerDoc };
@@ -119,11 +123,16 @@ beforeEach(() => {
     data: () => ({
       email: "test@promoshake.net",
       role: "pharmacy",
+      countryCode: "GH",
     }),
   });
   mockSysConfigGet.mockResolvedValue({
-    data: () => ({ currencies: { GHS: { decimals: 2 } } }),
+    data: () => ({
+      countries: { GH: { enabled: true, defaultCurrencyCode: "GHS" } },
+      currencies: { GHS: { enabled: true, decimals: 2 } },
+    }),
   });
+  mockWalletGet.mockResolvedValue({ exists: false });
 });
 
 function callOk(data: Record<string, unknown>, uid: string = "test-uid"): Promise<unknown> {
@@ -168,6 +177,25 @@ describe("paystackTopupIntent — pharmacy profile gating", () => {
     // Did NOT create a payment doc.
     expect(mockPaymentSet).not.toHaveBeenCalled();
   });
+
+  test("refuses XAF for a Ghanaian pharmacy before any payment or sandbox credit", async () => {
+    await expect(callOk({ amount: 100, currency: "XAF" })).rejects.toMatchObject({
+      code: "failed-precondition",
+    });
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockRunTransaction).not.toHaveBeenCalled();
+  });
+
+  test("refuses a wallet denominated differently from the country", async () => {
+    mockWalletGet.mockResolvedValue({
+      exists: true,
+      data: () => ({ currency: "XAF" }),
+    });
+    await expect(callOk({ amount: 100, currency: "GHS" })).rejects.toMatchObject({
+      code: "failed-precondition",
+    });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
 });
 
 describe("paystackTopupIntent — Paystack API failure", () => {
@@ -209,7 +237,6 @@ describe("paystackTopupIntent — staging sandbox bypass", () => {
     process.env.SANDBOX_ENABLED = "true";
     // No wallet exists yet -> the bypass creates one with the credited amount.
     mockWalletGet.mockResolvedValue({ exists: false });
-    mockTxGet.mockResolvedValue({ exists: false });
 
     const result = (await callOk({ amount: 100, currency: "GHS" })) as {
       success: boolean;
@@ -253,7 +280,7 @@ describe("paystackTopupIntent — staging sandbox bypass", () => {
     process.env.SANDBOX_ENABLED = "true";
     mockPharmacyGet.mockResolvedValue({
       exists: true,
-      data: () => ({ email: "real-user@gmail.com", role: "pharmacy" }),
+      data: () => ({ email: "real-user@gmail.com", role: "pharmacy", countryCode: "GH" }),
     });
     mockFetch.mockResolvedValue({
       ok: true,

@@ -23,6 +23,7 @@ import {
   assertSandboxAllowedForProject,
   isSandboxEnabled,
 } from "./lib/sandboxGate.js";
+import { assertPharmacyOperatingCurrency } from "./lib/pharmacyOperatingCurrency.js";
 
 // Defence in depth: fail-fast at module load if SANDBOX_ENABLED slipped
 // through to prod. Would otherwise let a sandboxMode payment auto-credit
@@ -221,11 +222,11 @@ export const mtnMomoCheckStatus = onCall<CheckStatusData>(
         };
       }
 
-      // Settlement is idempotent and uses the payment snapshot captured at
-      // intent time (ADR-001 guard #2: no live system_config re-read).
+      // Amount and decimals come from the payment snapshot captured at intent
+      // time. Currency itself is rechecked against the live owner country,
+      // config and wallet inside the credit transaction below.
       const walletRef = db.collection("wallets").doc(creditTargetUid);
-      const displayCurrency =
-        payment.displayCurrency || payment.currency || "XAF";
+      const displayCurrency = payment.displayCurrency || payment.currency;
 
       // Canonical ADR-001 value. Fall back to legacy `amount * 10^decimals`
       // only for intents that predate Phase 1a (backward compat).
@@ -243,15 +244,35 @@ export const mtnMomoCheckStatus = onCall<CheckStatusData>(
       // `availableMinor` writes.
       const walletLegacyDelta = toLegacyWalletUnits(amountMinor, snapshottedDecimals);
 
-      await db.runTransaction(async (tx) => {
+      const settlement = await db.runTransaction(async (tx) => {
         const freshPayment = await tx.get(paymentRef);
         if (!freshPayment.exists) {
           throw new HttpsError("not-found", "Payment vanished.");
         }
         // Idempotency: skip if another process already credited.
-        if (freshPayment.data()?.status === "successful") return;
+        if (freshPayment.data()?.status === "successful") return "successful";
+        if (freshPayment.data()?.status === "settlement_blocked") return "settlement_blocked";
 
-        const walletSnap = await tx.get(walletRef);
+        const [pharmacySnap, configSnap, walletSnap] = await Promise.all([
+          tx.get(db.collection("pharmacies").doc(creditTargetUid)),
+          tx.get(db.collection("system_config").doc("main")),
+          tx.get(walletRef),
+        ]);
+        try {
+          assertPharmacyOperatingCurrency(
+            pharmacySnap.data(), configSnap.data(), displayCurrency,
+            walletSnap.exists ? walletSnap.data() : undefined
+          );
+        } catch (error) {
+          if (!(error instanceof HttpsError)) throw error;
+          tx.update(paymentRef, {
+            status: "settlement_blocked",
+            settlementBlockedReason: "country_or_wallet_currency_mismatch",
+            financialTransactionId: mtnStatus.financialTransactionId ?? null,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+          return "settlement_blocked";
+        }
         if (!walletSnap.exists) {
           tx.set(walletRef, {
             available: walletLegacyDelta,
@@ -292,7 +313,12 @@ export const mtnMomoCheckStatus = onCall<CheckStatusData>(
           provider: "mtn_momo",
           createdAt: FieldValue.serverTimestamp(),
         });
+        return "successful";
       });
+
+      if (settlement === "settlement_blocked") {
+        return { status: "settlement_blocked", reason: "country_or_wallet_currency_mismatch" };
+      }
 
       return {
         status: "successful",
