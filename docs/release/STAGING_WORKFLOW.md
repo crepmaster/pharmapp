@@ -201,8 +201,15 @@ Prérequis posés sur staging (2026-05-21) pour une validation hands-on :
 - **Sandbox activé** : `SANDBOX_ENABLED=true` (via `functions/.env.mediexchange-staging`,
   gitignored ; appliqué aux callables `sandboxCredit/Debit/AdvanceWithdrawal/SubscriptionSuccess`).
   → le crédit wallet in-app fonctionne **uniquement pour les comptes `*@promoshake.net`**.
-- **Super admin** : `admin@promoshake.net` / `Admin1234!` (doc `admins/{uid}`,
-  role super_admin, scopes GH+CM).
+- **Super admin** : compte `admins/{uid}` role super_admin, scopes GH+CM.
+  Identifiant et mot de passe détenus **hors dépôt** par le responsable
+  staging ; le mot de passe est chiffré DPAPI (utilisateur Windows courant)
+  dans un dossier de son profil réservé à son seul compte, jamais dans
+  `functions/.demo-backups/` ni dans `.deploy/`. Les demander au responsable staging ; ne jamais les faire
+  transiter par Git ou une messagerie, ni les recopier dans un document, un
+  script ou un log. L'ancien mot de passe, public dans l'historique Git depuis
+  le commit `497af377` (2026-05-21), est refusé par staging ; le mot de passe
+  du compte a été réinitialisé le 2026-09-26.
 - **Emails de test** : utiliser `*@promoshake.net` pour toute pharmacie test
   (sinon le crédit wallet est refusé : `NOT_TEST_ACCOUNT`).
 
@@ -211,7 +218,7 @@ Parcours de validation (mappé sur les 8 scénarios) :
 1. **S1/S2 — Inscription** : sur l'app, inscrire une pharmacie Ghana
    (`*@promoshake.net`, ville Accra). Sans licence → re-prompt `LICENSE_REQUIRED`.
    Avec licence `GH-1234` → compte créé `pending_verification`.
-2. **S3 — Verify** : sur l'admin (`admin@promoshake.net`), "License Reviews" →
+2. **S3 — Verify** : sur l'admin (compte super admin ci-dessus), "License Reviews" →
    verify → la pharmacie passe `verified` + trial démarre.
 3. **S4 — Purchase** : 2e pharmacie Accra, ajouter de l'inventaire, créditer le
    wallet via SandboxTestingScreen, créer une medicine request, faire une offre

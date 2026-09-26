@@ -28,7 +28,7 @@ META = {
     "date": date.today().isoformat(),
     "app_url": "https://mediexchange-staging.web.app",
     "admin_url": "https://mediexchange-staging-admin.web.app",
-    "admin_login": "admin@promoshake.net  /  Admin1234!",
+    "admin_login": "super admin credentials: ask the staging owner (never versioned)",
     "project": "mediexchange-staging (isolated staging Firebase project - NOT production)",
 }
 
@@ -67,7 +67,7 @@ TEST_CASES = [
     ("TC-ADM-01", "Admin - Auth", "S3", "P1",
      "Admin URL reachable.",
      "Log into the admin console.",
-     "admin@promoshake.net / Admin1234!",
+     "Super admin credentials from the staging owner (never versioned)",
      "Admin dashboard loads."),
     ("TC-ADM-02", "Admin - License", "S3", "P1",
      "A pending Ghana pharmacy exists (TC-REG-02).",
