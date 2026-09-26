@@ -47,6 +47,9 @@ export const ALLOWED_FUNCTIONS_IGNORE = Object.freeze([
   // writes into the tree BEFORE the artefact is hashed. Not excluding them
   // made the hash capture a per-run log and stop being reproducible.
   "*-debug.log",
+  // Demo fixture backups may contain credentials. .gitignore is not used by
+  // Firebase's Functions packager, so this exclusion must be explicit.
+  ".demo-backups",
   "firebase-debug.log",
   "firebase-debug.*.log",
   ".runtimeconfig.json",
@@ -57,7 +60,7 @@ export const ALLOWED_FUNCTIONS_IGNORE = Object.freeze([
  * upload from carrying hundreds of MB and the git history; `*-debug.log` keeps
  * the artefact hash deterministic across runs.
  */
-export const REQUIRED_FUNCTIONS_IGNORE = Object.freeze(["node_modules", ".git", "*-debug.log"]);
+export const REQUIRED_FUNCTIONS_IGNORE = Object.freeze(["node_modules", ".git", "*-debug.log", ".demo-backups"]);
 
 function refuse(code, message) {
   return { ok: false, code, message };
@@ -415,6 +418,7 @@ export function checkContractPrerequisite({ phase, proof, gitSha, functionsArtif
       !/^sha256:[0-9a-f]{64}$/.test(String(proof.remoteHosting?.admin?.artifactHash ?? "")) ||
       !proof.remoteHosting?.app?.version || !proof.remoteHosting?.admin?.version ||
       !/^\.deploy[\\/]rollback-before-/.test(String(proof.rollbackSnapshot ?? "")) ||
+      typeof proof.writtenAt?.toMillis !== "function" ||
       !Number.isFinite(Date.parse(proof.verifiedAt ?? ""))) {
     return refuse(
       "CONTRACT_NEEDS_REMOTE_PROOF",
@@ -500,24 +504,72 @@ export function checkContractRecord({ proof, gitSha, rulesHash }) {
   return accept();
 }
 
-/** Manual demo IDs are evidence only when Firestore confirms both completed flows. */
-export function checkDemoRecette({ receipt, saleProposal, saleDelivery, exchangeProposal, exchangeDelivery }) {
+/** Manual demo IDs are evidence only when Firestore confirms both fresh, settled flows. */
+export function checkDemoRecette({ receipt, verifiedAt, saleProposal, saleDelivery, saleLedger,
+  exchangeProposal, exchangeDelivery, exchangeLedger }) {
   const ids = [receipt?.saleProposalId, receipt?.exchangeProposalId];
   if (ids.some((id) => typeof id !== "string" || !/^[A-Za-z0-9_-]{4,}$/.test(id)) || ids[0] === ids[1]) {
     return refuse("DEMO_RECETTE_MISSING", "Contract requires distinct sale and exchange proposal IDs in the local demo receipt.");
   }
+  const millis = (value) => value?.toMillis?.() ??
+    (value instanceof Date ? value.getTime() :
+      (typeof value === "string" ? Date.parse(value) : NaN));
+  const started = millis(verifiedAt);
+  const fresh = (proposal, delivery) => Number.isFinite(started) &&
+    [proposal?.createdAt, delivery?.createdAt, proposal?.completedAt, delivery?.completedAt]
+      .every((value) => Number.isFinite(millis(value)) && millis(value) >= started);
   const linked = (proposal, delivery, proposalId) =>
     proposal?.status === "completed" && delivery?.status === "delivered" &&
     typeof proposal?.deliveryId === "string" && proposal.deliveryId === delivery?.id &&
-    delivery?.proposalId === proposalId;
+    delivery?.proposalId === proposalId &&
+    typeof delivery?.courierId === "string" && delivery.courierId.length > 3 &&
+    proposal?.currencyCode === "GHS" && delivery?.currency === "GHS" &&
+    fresh(proposal, delivery);
+  const major = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0;
+  const cents = (value) => major(value) ? Math.round(value * 100) : NaN;
+  const entries = (rows, type) => Array.isArray(rows) ? rows.filter((row) => row?.type === type) : [];
+  const courierPayment = (rows, delivery, proposalId, requireProposalId) => {
+    const paid = entries(rows, "courier_payment");
+    return paid.length === 1 && paid[0].userId === delivery?.courierId &&
+      paid[0].deliveryId === delivery?.id && paid[0].currency === "GHS" &&
+      (!requireProposalId || paid[0].proposalId === proposalId) &&
+      major(paid[0].amount) && paid[0].amount > 0 &&
+      cents(paid[0].amount) === cents(delivery?.courierFee) ? paid[0] : null;
+  };
   if (!linked(saleProposal, saleDelivery, ids[0]) || saleProposal?.details?.type !== "purchase") {
-    return refuse("SALE_RECETTE_INCOMPLETE", "The sale proposal and its linked delivery are not both completed on staging.");
+    return refuse("SALE_RECETTE_INCOMPLETE", "Sale must be created and completed after expand, linked to its GHS delivery and courier.");
+  }
+  const salePayment = entries(saleLedger, "exchange_delivery_payment");
+  if (!courierPayment(saleLedger, saleDelivery, ids[0], false) || salePayment.length !== 1 ||
+      salePayment[0].deliveryId !== saleDelivery.id || salePayment[0].proposalId !== ids[0] ||
+      salePayment[0].currency !== "GHS" || !major(salePayment[0].totalAmount) ||
+      salePayment[0].totalAmount <= 0 ||
+      cents(salePayment[0].totalAmount) !== cents(saleProposal.details?.totalPrice)) {
+    return refuse("SALE_LEDGER_INCOMPLETE", "Sale medicine payment or courier payment is missing, duplicated, or inconsistent in GHS.");
   }
   if (!linked(exchangeProposal, exchangeDelivery, ids[1]) || exchangeProposal?.details?.type !== "exchange" ||
+      exchangeDelivery?.stockTransit?.version !== 1 ||
       exchangeDelivery?.stockTransit?.outbound?.state !== "received_pending" ||
       exchangeDelivery?.stockTransit?.return?.state !== "received_pending" ||
-      exchangeDelivery?.sandboxJourney?.returnPhase !== "return_delivered") {
-    return refuse("EXCHANGE_RECETTE_INCOMPLETE", "The exchange has no confirmed outbound and return receipts in staging.");
+      exchangeDelivery?.sandboxJourney?.outboundPhase !== "delivered" ||
+      exchangeDelivery?.sandboxJourney?.returnPhase !== "return_delivered" ||
+      exchangeDelivery?.sandboxJourney?.updatedBy !== exchangeDelivery.courierId ||
+      millis(exchangeDelivery?.sandboxJourney?.updatedAt) < started) {
+    return refuse("EXCHANGE_RECETTE_INCOMPLETE", "Exchange must have a courier and two physical receipts after expand.");
+  }
+  const exchangePaid = courierPayment(exchangeLedger, exchangeDelivery, ids[1], true);
+  const fees = entries(exchangeLedger, "courier_fee");
+  const expectedParties = [exchangeProposal?.fromPharmacyId, exchangeProposal?.toPharmacyId].sort();
+  if (!exchangePaid || exchangePaid.currencyCode !== "GHS" ||
+      !Number.isInteger(exchangePaid.amountMinor) || exchangePaid.amountMinor !== cents(exchangePaid.amount) ||
+      fees.length !== 2 ||
+      JSON.stringify(fees.map((fee) => fee.userId).sort()) !== JSON.stringify(expectedParties) ||
+      fees.some((fee) => fee.currency !== "GHS" || fee.currencyCode !== "GHS" ||
+        fee.from !== "held" || fee.deliveryId !== exchangeDelivery.id || fee.proposalId !== ids[1] ||
+        fee.courierId !== exchangeDelivery.courierId || !major(fee.amount) ||
+        !Number.isInteger(fee.amountMinor) || fee.amountMinor !== cents(fee.amount)) ||
+      fees.reduce((total, fee) => total + fee.amountMinor, 0) !== exchangePaid.amountMinor) {
+    return refuse("EXCHANGE_LEDGER_INCOMPLETE", "Exchange courier fee holds and payment do not balance in GHS.");
   }
   return accept({ saleProposalId: ids[0], exchangeProposalId: ids[1] });
 }

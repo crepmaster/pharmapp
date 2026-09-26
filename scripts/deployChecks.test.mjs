@@ -144,7 +144,7 @@ describe("commit is pushed — proven against the server, not a cached ref", () 
 describe("functions.ignore — explicit, and *-debug.log mandatory", () => {
   // The minimal valid list. `*-debug.log` is now required so the emulator logs
   // a Rules-then-hash preflight produces cannot enter the artefact hash.
-  const REQUIRED = ["node_modules", ".git", "*-debug.log"];
+  const REQUIRED = ["node_modules", ".git", "*-debug.log", ".demo-backups"];
 
   test("the required minimal list is accepted", () => {
     assert.equal(checkFunctionsIgnore({ functions: { ignore: [...REQUIRED] } }).ok, true);
@@ -163,6 +163,11 @@ describe("functions.ignore — explicit, and *-debug.log mandatory", () => {
     const r = checkFunctionsIgnore({ functions: { ignore: ["node_modules", ".git"] } });
     assert.equal(r.code, "FUNCTIONS_IGNORE_INCOMPLETE");
     assert.match(r.message, /\*-debug\.log/);
+  });
+
+  test("omitting the ignored demo credential backups is refused", () => {
+    assert.equal(checkFunctionsIgnore({ functions: { ignore: ["node_modules", ".git", "*-debug.log"] } }).code,
+      "FUNCTIONS_IGNORE_INCOMPLETE");
   });
 
   test("omitting node_modules or .git is still refused", () => {
@@ -319,6 +324,7 @@ describe("contract — a local manifest is never proof", () => {
         admin: { artifactHash: hash, version: "sites/mediexchange-staging-admin/versions/1" },
       },
       rollbackSnapshot: ".deploy/rollback-before-abc123-1234",
+      writtenAt: { toMillis: () => Date.parse("2026-09-26T14:00:01.000Z") },
       verifiedAt: "2026-09-26T14:00:00.000Z",
     };
     assert.equal(checkContractPrerequisite({ phase: "contract", proof, gitSha: "abc123", functionsArtifactHash: hash }).ok, true);
@@ -330,6 +336,7 @@ describe("contract — a local manifest is never proof", () => {
       { ...proof, remoteFunctions: [{ ...proof.remoteFunctions[0], artifactHash: `sha256:${"b".repeat(64)}` }] },
       { ...proof, remoteHosting: { ...proof.remoteHosting, app: { ...proof.remoteHosting.app, artifactHash: "bad" } } },
       { ...proof, verifiedAt: "invalid" },
+      { ...proof, writtenAt: null },
     ]) {
       assert.equal(checkContractPrerequisite({ phase: "contract", proof: altered, gitSha: "abc123", functionsArtifactHash: hash }).code, "CONTRACT_NEEDS_REMOTE_PROOF");
     }
@@ -408,16 +415,38 @@ describe("remote Rules contract record", () => {
 });
 
 describe("demo recette before restrictive Rules", () => {
+  const verifiedAt = { toMillis: () => Date.parse("2026-09-26T14:00:00Z") };
+  const createdAt = "2026-09-26T14:01:00Z";
+  const completedAt = "2026-09-26T14:05:00Z";
   const receipt = { saleProposalId: "sale_1234", exchangeProposalId: "exchange_1234" };
-  const saleProposal = { status: "completed", deliveryId: "sale_delivery", details: { type: "purchase" } };
-  const saleDelivery = { id: "sale_delivery", proposalId: "sale_1234", status: "delivered" };
-  const exchangeProposal = { status: "completed", deliveryId: "exchange_delivery", details: { type: "exchange" } };
+  const saleProposal = { status: "completed", deliveryId: "sale_delivery", currencyCode: "GHS",
+    createdAt, completedAt, details: { type: "purchase", totalPrice: 31 } };
+  const saleDelivery = { id: "sale_delivery", proposalId: "sale_1234", status: "delivered",
+    courierId: "courier_1234", currency: "GHS", courierFee: 6, createdAt, completedAt };
+  const saleLedger = [
+    { type: "exchange_delivery_payment", deliveryId: "sale_delivery", proposalId: "sale_1234", currency: "GHS", totalAmount: 31 },
+    { type: "courier_payment", deliveryId: "sale_delivery", userId: "courier_1234", currency: "GHS", amount: 6 },
+  ];
+  const exchangeProposal = { status: "completed", deliveryId: "exchange_delivery", currencyCode: "GHS",
+    fromPharmacyId: "buyer_1234", toPharmacyId: "seller_1234", createdAt, completedAt,
+    details: { type: "exchange" } };
   const exchangeDelivery = {
-    id: "exchange_delivery", proposalId: "exchange_1234", status: "delivered",
-    stockTransit: { outbound: { state: "received_pending" }, return: { state: "received_pending" } },
-    sandboxJourney: { returnPhase: "return_delivered" },
+    id: "exchange_delivery", proposalId: "exchange_1234", status: "delivered", courierId: "courier_1234",
+    currency: "GHS", courierFee: 6, createdAt, completedAt,
+    stockTransit: { version: 1, outbound: { state: "received_pending" }, return: { state: "received_pending" } },
+    sandboxJourney: { outboundPhase: "delivered", returnPhase: "return_delivered",
+      updatedBy: "courier_1234", updatedAt: completedAt },
   };
-  const base = { receipt, saleProposal, saleDelivery, exchangeProposal, exchangeDelivery };
+  const exchangeLedger = [
+    { type: "courier_fee", userId: "buyer_1234", amount: 3, amountMinor: 300, currency: "GHS", currencyCode: "GHS",
+      from: "held", deliveryId: "exchange_delivery", proposalId: "exchange_1234", courierId: "courier_1234" },
+    { type: "courier_fee", userId: "seller_1234", amount: 3, amountMinor: 300, currency: "GHS", currencyCode: "GHS",
+      from: "held", deliveryId: "exchange_delivery", proposalId: "exchange_1234", courierId: "courier_1234" },
+    { type: "courier_payment", userId: "courier_1234", amount: 6, amountMinor: 600,
+      currency: "GHS", currencyCode: "GHS", deliveryId: "exchange_delivery", proposalId: "exchange_1234" },
+  ];
+  const base = { receipt, verifiedAt, saleProposal, saleDelivery, saleLedger,
+    exchangeProposal, exchangeDelivery, exchangeLedger };
   test("accepts linked, completed sale and round-trip exchange", () => {
     assert.equal(checkDemoRecette(base).ok, true);
   });
@@ -425,6 +454,17 @@ describe("demo recette before restrictive Rules", () => {
     assert.equal(checkDemoRecette({ ...base, receipt: null }).code, "DEMO_RECETTE_MISSING");
     assert.equal(checkDemoRecette({ ...base, saleDelivery: { ...saleDelivery, proposalId: "other" } }).code, "SALE_RECETTE_INCOMPLETE");
     assert.equal(checkDemoRecette({ ...base, exchangeDelivery: { ...exchangeDelivery, stockTransit: { ...exchangeDelivery.stockTransit, return: { state: "in_transit" } } } }).code, "EXCHANGE_RECETTE_INCOMPLETE");
+  });
+  test("refuses old cases, missing courier, wrong currency and unbalanced ledger", () => {
+    assert.equal(checkDemoRecette({ ...base, saleProposal: { ...saleProposal, createdAt: "2026-09-25T12:00:00Z" } }).code,
+      "SALE_RECETTE_INCOMPLETE");
+    assert.equal(checkDemoRecette({ ...base, saleDelivery: { ...saleDelivery, courierId: null } }).code,
+      "SALE_RECETTE_INCOMPLETE");
+    assert.equal(checkDemoRecette({ ...base, saleLedger: saleLedger.map((row) => ({ ...row, currency: "XAF" })) }).code,
+      "SALE_LEDGER_INCOMPLETE");
+    assert.equal(checkDemoRecette({ ...base, exchangeLedger: exchangeLedger.map((row) =>
+      row.type === "courier_fee" ? { ...row, amountMinor: 200 } : row) }).code,
+      "EXCHANGE_LEDGER_INCOMPLETE");
   });
 });
 

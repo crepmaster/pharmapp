@@ -520,7 +520,7 @@ if (phase !== "preflight") {
     return snap.exists ? snap.data() : null;
   }
 
-  async function demoRecette() {
+  async function demoRecette(verifiedAt) {
     const receipt = must(parseJsonOrRefuse(
       readText(path.join(STATE_DIR, `recette-${localSha.slice(0, 8)}.json`)),
       `.deploy/recette-${localSha.slice(0, 8)}.json`
@@ -531,7 +531,10 @@ if (phase !== "preflight") {
       const proposal = proposalSnap.exists ? proposalSnap.data() : null;
       const deliveryId = proposal?.deliveryId;
       const deliverySnap = typeof deliveryId === "string" ? await db.collection("deliveries").doc(deliveryId).get() : null;
-      return { proposal, delivery: deliverySnap?.exists ? { id: deliverySnap.id, ...deliverySnap.data() } : null };
+      const ledgerSnap = typeof deliveryId === "string" ?
+        await db.collection("ledger").where("deliveryId", "==", deliveryId).get() : null;
+      return { proposal, delivery: deliverySnap?.exists ? { id: deliverySnap.id, ...deliverySnap.data() } : null,
+        ledger: ledgerSnap?.docs.map((doc) => doc.data()) ?? [] };
     }
     if (![receipt?.saleProposalId, receipt?.exchangeProposalId]
       .every((id) => typeof id === "string" && /^[A-Za-z0-9_-]{4,}$/.test(id))) {
@@ -539,8 +542,9 @@ if (phase !== "preflight") {
     }
     const sale = await proposalWithDelivery(receipt.saleProposalId);
     const exchange = await proposalWithDelivery(receipt.exchangeProposalId);
-    must(checkDemoRecette({ receipt, saleProposal: sale.proposal, saleDelivery: sale.delivery,
-      exchangeProposal: exchange.proposal, exchangeDelivery: exchange.delivery }));
+    must(checkDemoRecette({ receipt, verifiedAt, saleProposal: sale.proposal, saleDelivery: sale.delivery,
+      saleLedger: sale.ledger, exchangeProposal: exchange.proposal, exchangeDelivery: exchange.delivery,
+      exchangeLedger: exchange.ledger }));
     say("  ✓ staging sale and round-trip exchange confirmed by Firestore");
   }
 
@@ -663,7 +667,7 @@ if (phase !== "preflight") {
       }
     }
     if (phase === "contract") {
-      await demoRecette();
+      await demoRecette(proof.writtenAt);
       const beforeRules = await inspectRules(remote);
       if (beforeRules.ruleset !== proof.rulesBefore?.ruleset) {
         die({ code: "RULES_MOVED_SINCE_EXPAND", message: "Active Rules changed since expand; contract requires a new review." });

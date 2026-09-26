@@ -90,11 +90,14 @@ Après `expand`, réaliser les deux parcours sur staging. Créer
 {"saleProposalId":"ID_PROPOSITION_VENTE","exchangeProposalId":"ID_PROPOSITION_ECHANGE"}
 ```
 
-`contract` relit lui-même les propositions et livraisons staging. La vente
-doit être `completed`/`delivered`. L'échange doit l'être aussi, avec les
-réceptions des stocks transitaires aller et retour (`received_pending`) et
-`sandboxJourney.returnPhase=return_delivered`. Les ID seuls ne suffisent pas.
-Les montants et écritures du ledger sont encore un contrôle de recette séparé.
+`contract` relit lui-même les propositions, livraisons et écritures `ledger`
+staging. Leur création et achèvement doivent être postérieurs à
+`proof.writtenAt`, l'horodatage serveur de la preuve `expand`. La vente doit
+être `completed`/`delivered`, en GHS, avec un paiement médicament cohérent
+et un paiement du livreur. L'échange doit l'être aussi, avec le contrat de
+stock transitoire version 1, les deux réceptions physiques
+(`received_pending`), le retour final et les deux frais retenus qui
+s'additionnent au paiement du livreur en GHS. Les ID seuls ne suffisent pas.
 
 Les clés staging passent par `--dart-define` (jamais committées ; config via
 `firebase apps:sdkconfig web`). `USE_STAGING` est géré dans `pharmapp_unified/lib/main.dart`,
