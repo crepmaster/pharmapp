@@ -1,6 +1,6 @@
 # Démonstration à l’Ordre des pharmaciens — staging, 28 septembre 2026
 
-Périmètre : trois sessions web distinctes sur `mediexchange-staging` (pharmacie vendeuse, pharmacie acheteuse, coursier), dans Ghana / Kumasi, en GHS. Utiliser les trois comptes dédiés décrits dans `ORDRE_DEMO_STAGING_FIXTURES.md`. Leur licence et leur abonnement sont **fictifs et réservés à staging**. Ne jamais présenter ces comptes comme des pharmacies réellement habilitées.
+Périmètre : trois sessions web distinctes sur `mediexchange-staging` (pharmacie vendeuse, pharmacie acheteuse, coursier), dans Ghana / Kumasi, en GHS. Chaque pays opère uniquement dans sa devise configurée : aucune conversion ni vente/échange transfrontalier. Utiliser les trois comptes dédiés décrits dans `ORDRE_DEMO_STAGING_FIXTURES.md`. Leur licence et leur abonnement sont **fictifs et réservés à staging**. Ne jamais présenter ces comptes comme des pharmacies réellement habilitées.
 
 ## Recette technique avant le `contract`
 
