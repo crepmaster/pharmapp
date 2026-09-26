@@ -1,6 +1,7 @@
 import 'package:pharmapp_shared/config/build_flags.dart';
 import 'courier_journey_controls.dart';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
@@ -12,10 +13,12 @@ import 'delivery_camera_screen.dart';
 
 class ActiveDeliveryScreen extends StatefulWidget {
   final Delivery delivery;
+  final Stream<Map<String, dynamic>?>? deliveryStream;
 
   const ActiveDeliveryScreen({
     super.key,
     required this.delivery,
+    this.deliveryStream,
   });
 
   @override
@@ -24,19 +27,43 @@ class ActiveDeliveryScreen extends StatefulWidget {
 
 class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
   StreamSubscription<Position>? _locationSubscription;
+  StreamSubscription<Map<String, dynamic>?>? _deliverySubscription;
+  late DeliveryStatus _currentStatus;
+  bool _deliveryLoaded = false;
+  bool _physicalExchange = false;
   Position? _currentPosition;
   bool _isTrackingLocation = false;
   Timer? _updateTimer;
-  
+
   @override
   void initState() {
     super.initState();
-    _startLocationTracking();
+    _currentStatus = widget.delivery.status;
+    final deliveryStream = widget.deliveryStream ??
+        FirebaseFirestore.instance
+            .collection('deliveries')
+            .doc(widget.delivery.id)
+            .snapshots()
+            .map((snapshot) => snapshot.data());
+    _deliverySubscription = deliveryStream.listen((data) {
+      if (!mounted) return;
+      final rawStatus = data?['status'];
+      setState(() {
+        _deliveryLoaded = true;
+        _physicalExchange = data?['stockTransit'] is Map &&
+            (data!['stockTransit'] as Map)['version'] == 1;
+        if (rawStatus is String) {
+          _currentStatus = Delivery.statusFromBackend(rawStatus);
+        }
+      });
+    });
+    if (widget.deliveryStream == null) _startLocationTracking();
   }
 
   @override
   void dispose() {
-    _stopLocationTracking();
+    _deliverySubscription?.cancel();
+    if (widget.deliveryStream == null) _stopLocationTracking();
     _updateTimer?.cancel();
     super.dispose();
   }
@@ -46,7 +73,8 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
       if (!mounted) return;
       setState(() => _isTrackingLocation = true);
 
-      final locationStream = await CourierLocationService.startLocationTracking();
+      final locationStream =
+          await CourierLocationService.startLocationTracking();
       if (locationStream != null) {
         _locationSubscription = locationStream.listen((position) {
           if (!mounted) return;
@@ -131,30 +159,33 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
           children: [
             // Location tracking status
             _buildLocationTrackingCard(),
-            
+
             const SizedBox(height: 16),
-            
+
             // Current delivery status
             _buildDeliveryStatusCard(),
-            
+
             const SizedBox(height: 16),
-            
+
             // Progress indicators
-            _buildProgressCard(),
+            if (!_physicalExchange) _buildProgressCard(),
             // Staging only: tappable steps so a demo can advance the delivery
             // without GPS or QR. Tree-shaken out of prod builds.
             if (kUseStaging) ...[
               const SizedBox(height: 16),
-              CourierJourneyControls(deliveryId: widget.delivery.id),
+              CourierJourneyControls(
+                deliveryId: widget.delivery.id,
+                deliveryStream: widget.deliveryStream,
+              ),
             ],
-            
+
             const SizedBox(height: 16),
-            
+
             // Navigation shortcuts
             _buildNavigationCard(),
-            
+
             const SizedBox(height: 24),
-            
+
             // Status update buttons
             _buildStatusUpdateButtons(),
           ],
@@ -166,7 +197,9 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
   Widget _buildLocationTrackingCard() {
     return Card(
       elevation: 2,
-      color: _isTrackingLocation ? const Color(0xFFF1F8E9) : const Color(0xFFFFF3E0),
+      color: _isTrackingLocation
+          ? const Color(0xFFF1F8E9)
+          : const Color(0xFFFFF3E0),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -175,7 +208,9 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
               children: [
                 Icon(
                   _isTrackingLocation ? Icons.gps_fixed : Icons.gps_not_fixed,
-                  color: _isTrackingLocation ? const Color(0xFF4CAF50) : Colors.orange,
+                  color: _isTrackingLocation
+                      ? const Color(0xFF4CAF50)
+                      : Colors.orange,
                   size: 24,
                 ),
                 const SizedBox(width: 12),
@@ -184,18 +219,22 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _isTrackingLocation ? 'GPS Tracking Active' : 'GPS Tracking Inactive',
+                        _isTrackingLocation
+                            ? 'GPS Tracking Active'
+                            : 'GPS Tracking Inactive',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
-                          color: _isTrackingLocation ? const Color(0xFF4CAF50) : Colors.orange,
+                          color: _isTrackingLocation
+                              ? const Color(0xFF4CAF50)
+                              : Colors.orange,
                         ),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        _isTrackingLocation 
-                          ? 'Your location is being shared for real-time tracking'
-                          : 'Enable location tracking for better delivery experience',
+                        _isTrackingLocation
+                            ? 'Your location is being shared for real-time tracking'
+                            : 'Enable location tracking for better delivery experience',
                         style: TextStyle(
                           fontSize: 14,
                           color: Colors.grey[600],
@@ -254,7 +293,8 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
           children: [
             Row(
               children: [
-                const Icon(Icons.local_shipping, color: Color(0xFF4CAF50), size: 24),
+                const Icon(Icons.local_shipping,
+                    color: Color(0xFF4CAF50), size: 24),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
@@ -266,16 +306,18 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: _getStatusColor(widget.delivery.status).withValues(alpha: 0.1),
+                    color:
+                        _getStatusColor(_currentStatus).withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: _getStatusColor(widget.delivery.status)),
+                    border: Border.all(color: _getStatusColor(_currentStatus)),
                   ),
                   child: Text(
-                    _getStatusText(widget.delivery.status),
+                    _getStatusText(_currentStatus),
                     style: TextStyle(
-                      color: _getStatusColor(widget.delivery.status),
+                      color: _getStatusColor(_currentStatus),
                       fontWeight: FontWeight.bold,
                       fontSize: 12,
                     ),
@@ -312,7 +354,7 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
 
   Widget _buildProgressCard() {
     final currentStep = _getCurrentStep();
-    
+
     return Card(
       elevation: 2,
       child: Padding(
@@ -334,23 +376,24 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
               ],
             ),
             const SizedBox(height: 20),
-            _buildProgressStep('En Route to Pickup', 0, currentStep >= 0, 
-              subtitle: widget.delivery.pickup.pharmacyName),
+            _buildProgressStep('En Route to Pickup', 0, currentStep >= 0,
+                subtitle: widget.delivery.pickup.pharmacyName),
             _buildProgressStep('Arrived at Pickup', 1, currentStep >= 1,
-              subtitle: 'Collect items from pharmacy'),
+                subtitle: 'Collect items from pharmacy'),
             _buildProgressStep('En Route to Delivery', 2, currentStep >= 2,
-              subtitle: widget.delivery.delivery.pharmacyName),
+                subtitle: widget.delivery.delivery.pharmacyName),
             _buildProgressStep('Delivered', 3, currentStep >= 3,
-              subtitle: 'Items delivered successfully'),
+                subtitle: 'Items delivered successfully'),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildProgressStep(String title, int stepIndex, bool isCompleted, {String? subtitle}) {
+  Widget _buildProgressStep(String title, int stepIndex, bool isCompleted,
+      {String? subtitle}) {
     final isActive = _getCurrentStep() == stepIndex;
-    
+
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       child: Row(
@@ -360,11 +403,11 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
             height: 24,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: isCompleted 
-                ? const Color(0xFF4CAF50) 
-                : isActive 
-                  ? Colors.orange 
-                  : Colors.grey[300],
+              color: isCompleted
+                  ? const Color(0xFF4CAF50)
+                  : isActive
+                      ? Colors.orange
+                      : Colors.grey[300],
             ),
             child: Icon(
               isCompleted ? Icons.check : Icons.radio_button_unchecked,
@@ -382,11 +425,11 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
-                    color: isCompleted 
-                      ? const Color(0xFF4CAF50)
-                      : isActive 
-                        ? Colors.orange
-                        : Colors.grey[600],
+                    color: isCompleted
+                        ? const Color(0xFF4CAF50)
+                        : isActive
+                            ? Colors.orange
+                            : Colors.grey[600],
                   ),
                 ),
                 if (subtitle != null)
@@ -452,7 +495,8 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
     );
   }
 
-  Widget _buildNavigationButton(String text, IconData icon, VoidCallback onPressed) {
+  Widget _buildNavigationButton(
+      String text, IconData icon, VoidCallback onPressed) {
     return ElevatedButton.icon(
       onPressed: onPressed,
       icon: Icon(icon, size: 18),
@@ -470,11 +514,12 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
 
   Widget _buildStatusUpdateButtons() {
     final currentStep = _getCurrentStep();
-    
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (currentStep == 0) // En route to pickup
+        if (!(kUseStaging && (!_deliveryLoaded || _physicalExchange)) &&
+            currentStep == 0) // En route to pickup
           Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -505,7 +550,8 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: () => _updateDeliveryStatus(DeliveryStatus.pickedUp),
+                      onPressed: () =>
+                          _updateDeliveryStatus(DeliveryStatus.pickedUp),
                       icon: const Icon(Icons.check_box_outline_blank),
                       label: const Text('Manual'),
                       style: OutlinedButton.styleFrom(
@@ -518,8 +564,9 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
               ),
             ],
           ),
-        
-        if (currentStep == 2) // En route to delivery
+
+        if (!(kUseStaging && (!_deliveryLoaded || _physicalExchange)) &&
+            currentStep == 2) // En route to delivery
           Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -550,7 +597,8 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: () => _updateDeliveryStatus(DeliveryStatus.delivered),
+                      onPressed: () =>
+                          _updateDeliveryStatus(DeliveryStatus.delivered),
                       icon: const Icon(Icons.check_circle_outline),
                       label: const Text('Manual'),
                       style: OutlinedButton.styleFrom(
@@ -563,9 +611,9 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
               ),
             ],
           ),
-        
+
         const SizedBox(height: 12),
-        
+
         // Emergency/issue button
         ElevatedButton.icon(
           onPressed: _reportIssue,
@@ -582,12 +630,12 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
   }
 
   int _getCurrentStep() {
-    switch (widget.delivery.status) {
+    switch (_currentStatus) {
       case DeliveryStatus.accepted:
       case DeliveryStatus.enRoute:
         return 0; // En route to pickup
       case DeliveryStatus.pickedUp:
-        return 2; // En route to delivery  
+        return 2; // En route to delivery
       case DeliveryStatus.delivered:
         return 3; // Completed
       default:
@@ -635,8 +683,9 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
   Future<void> _updateDeliveryStatus(DeliveryStatus status) async {
     try {
       await DeliveryService.updateDeliveryStatus(widget.delivery.id, status);
-      
+
       if (mounted) {
+        setState(() => _currentStatus = status);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Status updated to ${_getStatusText(status)}'),
@@ -645,7 +694,7 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
         );
 
         // If delivered, stop location tracking and go back
-        if (status == DeliveryStatus.delivered) {
+        if (status == DeliveryStatus.delivered && !kUseStaging) {
           _stopLocationTracking();
           Navigator.pop(context);
         }
@@ -766,9 +815,9 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              final status = proofType == 'pickup' 
-                ? DeliveryStatus.pickedUp 
-                : DeliveryStatus.delivered;
+              final status = proofType == 'pickup'
+                  ? DeliveryStatus.pickedUp
+                  : DeliveryStatus.delivered;
               _updateDeliveryStatus(status);
             },
             style: ElevatedButton.styleFrom(
@@ -843,16 +892,16 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
               const Text('What kind of issue are you experiencing?'),
               const SizedBox(height: 16),
               ...issueTypes.map((issue) => RadioListTile<String>(
-                title: Text(issue),
-                value: issue,
-                groupValue: selectedIssue,
-                onChanged: (value) {
-                  setState(() {
-                    selectedIssue = value;
-                  });
-                },
-                contentPadding: EdgeInsets.zero,
-              )),
+                    title: Text(issue),
+                    value: issue,
+                    groupValue: selectedIssue,
+                    onChanged: (value) {
+                      setState(() {
+                        selectedIssue = value;
+                      });
+                    },
+                    contentPadding: EdgeInsets.zero,
+                  )),
             ],
           ),
           actions: [
@@ -862,11 +911,11 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
             ),
             TextButton(
               onPressed: selectedIssue == null
-                ? null
-                : () async {
-                    Navigator.pop(context);
-                    await _submitIssueReport(selectedIssue!);
-                  },
+                  ? null
+                  : () async {
+                      Navigator.pop(context);
+                      await _submitIssueReport(selectedIssue!);
+                    },
               child: const Text('Report'),
             ),
           ],

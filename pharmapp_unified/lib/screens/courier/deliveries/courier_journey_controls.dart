@@ -11,9 +11,7 @@ import '../../../models/delivery_journey.dart';
 /// (`DemoDeliveryActions`) did that first; this puts the same progression
 /// where it belongs — with the courier actually performing the delivery.
 ///
-/// Deliberately ADDITIVE: it sits below the existing read-only
-/// `Delivery Progress` card rather than replacing it, so the normal courier
-/// flow (QR scan, photo proof) is untouched. It is rendered under
+/// It is rendered under
 /// `if (kUseStaging)`, so the whole subtree tree-shakes out of a prod build.
 ///
 /// The state machine comes from `delivery_journey.dart`, shared with the
@@ -94,11 +92,29 @@ class CourierJourneyControlsState extends State<CourierJourneyControls> {
         final data = snapshot.data!;
         final status = (data['status'] ?? 'pending').toString();
         final journey = data['sandboxJourney'] as Map<String, dynamic>?;
-        final steps = outboundJourneySteps(
-          outboundPhase: outboundPhaseFor(journey, status),
-          returnRequired: journey?['returnRequired'] == true,
-          returnPhase: (journey?['returnPhase'] ?? 'not_required').toString(),
-        );
+        final transit = data['stockTransit'];
+        final physicalExchange = data['proposalType'] == 'exchange' &&
+            transit is Map &&
+            transit['version'] == 1;
+        final returnItem = physicalExchange ? transit['return'] : null;
+        final outboundPhase = outboundPhaseFor(journey, status);
+        final returnRequired = journey?['returnRequired'] == true;
+        final returnPhase =
+            (journey?['returnPhase'] ?? 'not_required').toString();
+        final steps = [
+          ...outboundJourneySteps(
+            outboundPhase: outboundPhase,
+            returnRequired: returnRequired,
+            returnPhase: returnPhase,
+          ),
+          if (physicalExchange)
+            ...returnJourneySteps(
+              outboundPhase: outboundPhase,
+              returnRequired: returnRequired,
+              returnPhase: returnPhase,
+              canonicalStatus: status,
+            ),
+        ];
 
         return Card(
           elevation: 2,
@@ -126,6 +142,13 @@ class CourierJourneyControlsState extends State<CourierJourneyControls> {
                   style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                 ),
                 const SizedBox(height: 12),
+                if (returnItem is Map) ...[
+                  Text(
+                    'Return: ${returnItem['quantity']} × ${returnItem['medicineName']}',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 for (final step in steps) _buildRow(step),
               ],
             ),
@@ -185,11 +208,13 @@ class CourierJourneyControlsState extends State<CourierJourneyControls> {
                       height: 14,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        valueColor:
-                            AlwaysStoppedAnimation<Color>(Colors.white),
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                       ),
                     )
-                  : Text(kJourneyActionLabels[step.action] ?? step.action!),
+                  : Text(step.action == 'confirm_return_delivered' &&
+                          step.fromPhase == 'return_delivered'
+                      ? 'Retry finalization'
+                      : kJourneyActionLabels[step.action] ?? step.action!),
             ),
         ],
       ),

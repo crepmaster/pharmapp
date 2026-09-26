@@ -18,7 +18,8 @@ void main() {
         );
 
     test('renders the five outbound phases in order', () {
-      expect(steps('assigned').map((s) => s.fromPhase).toList(), kOutboundPhases);
+      expect(
+          steps('assigned').map((s) => s.fromPhase).toList(), kOutboundPhases);
     });
 
     test('exactly ONE step is actionable at any phase', () {
@@ -43,7 +44,8 @@ void main() {
       );
     });
 
-    test('past steps are done, future ones are neither done nor actionable', () {
+    test('past steps are done, future ones are neither done nor actionable',
+        () {
       final s = steps('picked_up');
       expect(s[0].done, isTrue); // assigned
       expect(s[2].done, isTrue); // picked_up (current)
@@ -60,10 +62,46 @@ void main() {
     });
   });
 
-  Widget host(Widget child) => MaterialApp(home: Scaffold(body: child));
+  group('returnJourneySteps (pure)', () {
+    test('offers exactly the next return action after outbound delivery', () {
+      for (var i = 0; i < kReturnPhases.length; i++) {
+        final steps = returnJourneySteps(
+          outboundPhase: 'delivered',
+          returnRequired: true,
+          returnPhase: kReturnPhases[i],
+        );
+        expect(steps.map((s) => s.fromPhase).toList(), kReturnPhases);
+        final actionable = steps.where((s) => s.actionable).toList();
+        expect(actionable.length, i == kReturnPhases.length - 1 ? 0 : 1);
+      }
+    });
+
+    test('does not offer return before outbound delivery or for a sale', () {
+      expect(
+          returnJourneySteps(
+            outboundPhase: 'picked_up',
+            returnRequired: true,
+            returnPhase: 'awaiting_return',
+          ),
+          isEmpty);
+      expect(
+          returnJourneySteps(
+            outboundPhase: 'delivered',
+            returnRequired: false,
+            returnPhase: 'not_required',
+          ),
+          isEmpty);
+    });
+  });
+
+  Widget host(Widget child) => MaterialApp(
+        home: Scaffold(body: SingleChildScrollView(child: child)),
+      );
 
   CourierJourneyControls widget({
     String status = 'pending',
+    String proposalType = 'purchase',
+    Map<String, dynamic>? stockTransit,
     Map<String, dynamic>? journey,
     Future<void> Function(String action)? runner,
   }) =>
@@ -72,6 +110,8 @@ void main() {
         actionRunner: runner ?? (_) async {},
         deliveryStream: Stream.value({
           'status': status,
+          'proposalType': proposalType,
+          if (stockTransit != null) 'stockTransit': stockTransit,
           if (journey != null) 'sandboxJourney': journey,
         }),
       );
@@ -104,6 +144,73 @@ void main() {
       )));
       await tester.pump();
       expect(find.byType(ElevatedButton), findsNothing);
+    });
+
+    testWidgets('exchange return is actionable on the courier screen',
+        (tester) async {
+      final actions = <String>[];
+      await tester.pumpWidget(host(widget(
+        status: 'picked_up',
+        proposalType: 'exchange',
+        stockTransit: {
+          'version': 1,
+          'return': {'quantity': 5, 'medicineName': 'Medicine Y'},
+        },
+        journey: {
+          'outboundPhase': 'delivered',
+          'returnRequired': true,
+          'returnPhase': 'awaiting_return',
+        },
+        runner: (action) async => actions.add(action),
+      )));
+      await tester.pump();
+      final button = find.byKey(const Key('courier-step-start_return_pickup'));
+      expect(button, findsOneWidget);
+      await tester.ensureVisible(button);
+      await tester.tap(button);
+      await tester.pump();
+      expect(actions, ['start_return_pickup']);
+      expect(find.text('Return: 5 × Medicine Y'), findsOneWidget);
+    });
+
+    testWidgets('final receipt can retry settlement after server refusal',
+        (tester) async {
+      final actions = <String>[];
+      await tester.pumpWidget(host(widget(
+        status: 'picked_up',
+        proposalType: 'exchange',
+        stockTransit: {
+          'version': 1,
+          'return': {'quantity': 5, 'medicineName': 'Medicine Y'},
+        },
+        journey: {
+          'outboundPhase': 'delivered',
+          'returnRequired': true,
+          'returnPhase': 'return_delivered',
+        },
+        runner: (action) async => actions.add(action),
+      )));
+      await tester.pump();
+      expect(find.text('Retry finalization'), findsOneWidget);
+      await tester.ensureVisible(find.text('Retry finalization'));
+      await tester.tap(find.text('Retry finalization'));
+      await tester.pump();
+      expect(actions, ['confirm_return_delivered']);
+    });
+
+    testWidgets('purchase never exposes return controls', (tester) async {
+      await tester.pumpWidget(host(widget(
+        status: 'delivered',
+        proposalType: 'purchase',
+        journey: {
+          'outboundPhase': 'delivered',
+          'returnRequired': true,
+          'returnPhase': 'awaiting_return',
+        },
+      )));
+      await tester.pump();
+      expect(find.byKey(const Key('courier-step-start_return_pickup')),
+          findsNothing);
     });
 
     testWidgets('button shows a spinner and is disabled during the call',

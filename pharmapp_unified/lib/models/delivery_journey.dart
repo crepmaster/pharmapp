@@ -20,6 +20,15 @@ const List<String> kOutboundPhases = [
   'delivered',
 ];
 
+/// Ordered return phases, shown only for reciprocal exchanges.
+const List<String> kReturnPhases = [
+  'awaiting_return',
+  'en_route_to_return_pickup',
+  'return_picked_up',
+  'en_route_to_return_dropoff',
+  'return_delivered',
+];
+
 /// Human labels for a journey action (also drives the button text).
 const Map<String, String> kJourneyActionLabels = {
   'start_pickup': 'Start pickup',
@@ -129,8 +138,6 @@ class JourneyStep {
 /// skip ahead or step back: the backend refuses it, and the UI does not even
 /// offer it.
 ///
-/// The return leg is intentionally absent: it has no canonical delivery model
-/// and is driven from the pharmacy panel only.
 List<JourneyStep> outboundJourneySteps({
   required String outboundPhase,
   required bool returnRequired,
@@ -166,5 +173,48 @@ List<JourneyStep> outboundJourneySteps({
           actionable: action != null && action == next,
         );
       }(),
+  ];
+}
+
+/// Renders the return progression on the courier screen. For a physical
+/// exchange, the last step can be retried if receipt was saved but settlement
+/// was refused; the canonical status changes to delivered only after settlement.
+List<JourneyStep> returnJourneySteps({
+  required String outboundPhase,
+  required bool returnRequired,
+  required String returnPhase,
+  String canonicalStatus = 'delivered',
+}) {
+  if (!returnRequired || outboundPhase != 'delivered') return [];
+
+  final next = nextJourneyAction(
+    outboundPhase: outboundPhase,
+    returnRequired: returnRequired,
+    returnPhase: returnPhase,
+  );
+  final currentRank = kReturnPhases.indexOf(returnPhase);
+  final settlementPending =
+      returnPhase == 'return_delivered' && canonicalStatus != 'delivered';
+  const actions = [
+    null,
+    'start_return_pickup',
+    'confirm_return_pickup',
+    'start_return_delivery',
+    'confirm_return_delivered',
+  ];
+
+  return [
+    for (var i = 0; i < kReturnPhases.length; i++)
+      JourneyStep(
+        fromPhase: kReturnPhases[i],
+        action: actions[i],
+        label: kJourneyPhaseLabels[kReturnPhases[i]] ?? kReturnPhases[i],
+        done: currentRank >= 0 &&
+            i <= currentRank &&
+            !(settlementPending && i == kReturnPhases.length - 1),
+        actionable: actions[i] != null &&
+            (actions[i] == next ||
+                (settlementPending && i == kReturnPhases.length - 1)),
+      ),
   ];
 }

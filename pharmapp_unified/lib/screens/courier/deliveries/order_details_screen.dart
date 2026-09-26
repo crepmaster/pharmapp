@@ -2,14 +2,25 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../models/delivery.dart';
 import '../../../services/courier_location_service.dart';
+import '../../../services/delivery_service.dart';
 
-class OrderDetailsScreen extends StatelessWidget {
+class OrderDetailsScreen extends StatefulWidget {
   final Delivery delivery;
+  final Future<void> Function(String deliveryId)? acceptRunner;
 
   const OrderDetailsScreen({
     super.key,
     required this.delivery,
+    this.acceptRunner,
   });
+
+  @override
+  State<OrderDetailsScreen> createState() => _OrderDetailsScreenState();
+}
+
+class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
+  Delivery get delivery => widget.delivery;
+  bool _isAccepting = false;
 
   @override
   Widget build(BuildContext context) {
@@ -34,9 +45,9 @@ class OrderDetailsScreen extends StatelessWidget {
           children: [
             // Status and Earnings Card
             _buildHeaderCard(),
-            
+
             const SizedBox(height: 16),
-            
+
             // Pickup Location Card
             _buildLocationCard(
               title: 'Pickup Location',
@@ -44,9 +55,9 @@ class OrderDetailsScreen extends StatelessWidget {
               color: const Color(0xFF4CAF50),
               icon: Icons.store,
             ),
-            
+
             const SizedBox(height: 16),
-            
+
             // Delivery Location Card
             _buildLocationCard(
               title: 'Delivery Location',
@@ -54,19 +65,19 @@ class OrderDetailsScreen extends StatelessWidget {
               color: Colors.orange,
               icon: Icons.local_hospital,
             ),
-            
+
             const SizedBox(height: 16),
-            
+
             // Items Card
             _buildItemsCard(),
-            
+
             const SizedBox(height: 16),
-            
+
             // Distance and Time Card
             _buildDistanceCard(),
-            
+
             const SizedBox(height: 24),
-            
+
             // Action Buttons
             if (delivery.isPending) _buildAcceptButton(context),
           ],
@@ -156,7 +167,7 @@ class OrderDetailsScreen extends StatelessWidget {
     final currentPosition = CourierLocationService.lastKnownPosition;
     double? distance;
     Duration? estimatedTime;
-    
+
     if (currentPosition != null && location.hasGPSLocation) {
       distance = CourierLocationService.calculateDistance(
         currentPosition.latitude,
@@ -164,7 +175,8 @@ class OrderDetailsScreen extends StatelessWidget {
         location.latitude!,
         location.longitude!,
       );
-      estimatedTime = CourierLocationService.calculateEstimatedDeliveryTime(distance);
+      estimatedTime =
+          CourierLocationService.calculateEstimatedDeliveryTime(distance);
     }
 
     return Card(
@@ -206,9 +218,7 @@ class OrderDetailsScreen extends StatelessWidget {
                   ),
               ],
             ),
-            
             const SizedBox(height: 12),
-            
             Text(
               location.pharmacyName,
               style: const TextStyle(
@@ -216,9 +226,7 @@ class OrderDetailsScreen extends StatelessWidget {
                 fontWeight: FontWeight.w600,
               ),
             ),
-            
             const SizedBox(height: 4),
-            
             Text(
               location.address,
               style: TextStyle(
@@ -226,7 +234,6 @@ class OrderDetailsScreen extends StatelessWidget {
                 color: Colors.grey[600],
               ),
             ),
-            
             if (location.phoneNumber != null) ...[
               const SizedBox(height: 8),
               InkWell(
@@ -251,7 +258,6 @@ class OrderDetailsScreen extends StatelessWidget {
                 ),
               ),
             ],
-            
             if (location.contactPerson != null) ...[
               const SizedBox(height: 4),
               Row(
@@ -272,7 +278,6 @@ class OrderDetailsScreen extends StatelessWidget {
                 ],
               ),
             ],
-            
             if (distance != null && estimatedTime != null) ...[
               const SizedBox(height: 12),
               Container(
@@ -333,9 +338,7 @@ class OrderDetailsScreen extends StatelessWidget {
                 ),
               ],
             ),
-            
             const SizedBox(height: 16),
-            
             ...delivery.items.map((item) => _buildItemRow(item)),
           ],
         ),
@@ -367,9 +370,7 @@ class OrderDetailsScreen extends StatelessWidget {
               size: 20,
             ),
           ),
-          
           const SizedBox(width: 12),
-          
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -402,7 +403,6 @@ class OrderDetailsScreen extends StatelessWidget {
               ],
             ),
           ),
-          
           if (item.pricePerUnit != null)
             Text(
               Delivery.formatAmount(item.totalPrice, delivery.currency),
@@ -418,8 +418,10 @@ class OrderDetailsScreen extends StatelessWidget {
 
   Widget _buildDistanceCard() {
     final currentPosition = CourierLocationService.lastKnownPosition;
-    
-    if (currentPosition == null || !delivery.pickup.hasGPSLocation || !delivery.delivery.hasGPSLocation) {
+
+    if (currentPosition == null ||
+        !delivery.pickup.hasGPSLocation ||
+        !delivery.delivery.hasGPSLocation) {
       return Container();
     }
 
@@ -465,9 +467,7 @@ class OrderDetailsScreen extends StatelessWidget {
                 ),
               ],
             ),
-            
             const SizedBox(height: 16),
-            
             Row(
               children: [
                 Expanded(
@@ -475,7 +475,8 @@ class OrderDetailsScreen extends StatelessWidget {
                     'To Pickup',
                     CourierLocationService.formatDistance(distanceToPickup),
                     CourierLocationService.formatDuration(
-                      CourierLocationService.calculateEstimatedDeliveryTime(distanceToPickup),
+                      CourierLocationService.calculateEstimatedDeliveryTime(
+                          distanceToPickup),
                     ),
                   ),
                 ),
@@ -490,21 +491,21 @@ class OrderDetailsScreen extends StatelessWidget {
                     'Pickup to Delivery',
                     CourierLocationService.formatDistance(totalDistance),
                     CourierLocationService.formatDuration(
-                      CourierLocationService.calculateEstimatedDeliveryTime(totalDistance),
+                      CourierLocationService.calculateEstimatedDeliveryTime(
+                          totalDistance),
                     ),
                   ),
                 ),
               ],
             ),
-            
             const SizedBox(height: 16),
-            
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: const Color(0xFF4CAF50).withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFF4CAF50).withValues(alpha: 0.3)),
+                border: Border.all(
+                    color: const Color(0xFF4CAF50).withValues(alpha: 0.3)),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -568,7 +569,7 @@ class OrderDetailsScreen extends StatelessWidget {
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton(
-        onPressed: () => _acceptDelivery(context),
+        onPressed: _isAccepting ? null : _acceptDelivery,
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color(0xFF4CAF50),
           foregroundColor: Colors.white,
@@ -577,13 +578,19 @@ class OrderDetailsScreen extends StatelessWidget {
             borderRadius: BorderRadius.circular(8),
           ),
         ),
-        child: const Text(
-          'Accept This Delivery',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+        child: _isAccepting
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Text(
+                'Accept This Delivery',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
       ),
     );
   }
@@ -591,7 +598,7 @@ class OrderDetailsScreen extends StatelessWidget {
   String _formatTime(DateTime dateTime) {
     final now = DateTime.now();
     final difference = now.difference(dateTime);
-    
+
     if (difference.inMinutes < 60) {
       return '${difference.inMinutes} min ago';
     } else if (difference.inHours < 24) {
@@ -613,13 +620,13 @@ class OrderDetailsScreen extends StatelessWidget {
 
   void _openLocationNavigation(DeliveryLocation location) {
     if (!location.hasGPSLocation) return;
-    
+
     final url = CourierLocationService.generateNavigationUrl(
       location.latitude!,
       location.longitude!,
       label: location.pharmacyName,
     );
-    
+
     _launchURL(url);
   }
 
@@ -639,9 +646,13 @@ class OrderDetailsScreen extends StatelessWidget {
     }
   }
 
-  void _acceptDelivery(BuildContext context) async {
+  Future<void> _acceptDelivery() async {
+    if (_isAccepting) return;
+    setState(() => _isAccepting = true);
     try {
-      // TODO: Implement accept delivery logic
+      await (widget.acceptRunner ??
+          DeliveryService.acceptDelivery)(delivery.id);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Delivery accepted successfully!'),
@@ -650,12 +661,15 @@ class OrderDetailsScreen extends StatelessWidget {
       );
       Navigator.pop(context);
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to accept delivery: $e'),
           backgroundColor: Colors.red,
         ),
       );
+    } finally {
+      if (mounted) setState(() => _isAccepting = false);
     }
   }
 }
