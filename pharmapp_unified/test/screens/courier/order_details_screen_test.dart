@@ -28,7 +28,11 @@ void main() {
     createdAt: DateTime(2026, 9, 26),
   );
 
-  Widget host(Future<void> Function(String) runner) => MaterialApp(
+  Widget host(
+    Future<void> Function(String) runner, {
+    Map<String, dynamic>? deliveryData,
+  }) =>
+      MaterialApp(
         home: Builder(builder: (context) {
           return Scaffold(
             body: ElevatedButton(
@@ -38,6 +42,7 @@ void main() {
                   builder: (_) => OrderDetailsScreen(
                     delivery: delivery,
                     acceptRunner: runner,
+                    transportPlanStream: Stream.value(deliveryData),
                   ),
                 ),
               ),
@@ -94,5 +99,49 @@ void main() {
     await tester.pump();
     expect(find.textContaining('already assigned'), findsOneWidget);
     expect(find.text('Order Details'), findsOneWidget);
+  });
+
+  testWidgets('shows both medicine legs before accepting an exchange',
+      (tester) async {
+    await tester.pumpWidget(host((_) async {}, deliveryData: {
+      'stockTransit': {
+        'version': 1,
+        'outbound': {
+          'fromPharmacyId': 'seller',
+          'toPharmacyId': 'buyer',
+          'medicineName': 'Medicine X',
+          'quantity': 5,
+          'lotNumber': 'LOT-X',
+        },
+        'return': {
+          'fromPharmacyId': 'buyer',
+          'toPharmacyId': 'seller',
+          'medicineName': 'Medicine Y',
+          'quantity': 4,
+          'lotNumber': 'LOT-Y',
+        },
+      },
+    }));
+    await tester.tap(find.text('Open order'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Transport plan · 2 legs'), findsOneWidget);
+    expect(find.text('Outbound: Seller Pharmacy → Buyer Pharmacy'),
+        findsOneWidget);
+    expect(find.text('Medicine X · 5 units · Lot LOT-X'), findsOneWidget);
+    expect(
+        find.text('Return: Buyer Pharmacy → Seller Pharmacy'), findsOneWidget);
+    expect(find.text('Medicine Y · 4 units · Lot LOT-Y'), findsOneWidget);
+    expect(find.text('Accept This Delivery'), findsOneWidget);
+  });
+
+  testWidgets('sale does not show a return transport plan', (tester) async {
+    await tester.pumpWidget(host((_) async {}, deliveryData: {
+      'proposalType': 'purchase',
+    }));
+    await tester.tap(find.text('Open order'));
+    await tester.pumpAndSettle();
+    expect(find.text('Transport plan · 2 legs'), findsNothing);
+    expect(find.text('Accept This Delivery'), findsOneWidget);
   });
 }

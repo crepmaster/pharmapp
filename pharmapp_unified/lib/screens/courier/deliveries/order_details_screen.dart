@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../models/delivery.dart';
@@ -7,11 +8,13 @@ import '../../../services/delivery_service.dart';
 class OrderDetailsScreen extends StatefulWidget {
   final Delivery delivery;
   final Future<void> Function(String deliveryId)? acceptRunner;
+  final Stream<Map<String, dynamic>?>? transportPlanStream;
 
   const OrderDetailsScreen({
     super.key,
     required this.delivery,
     this.acceptRunner,
+    this.transportPlanStream,
   });
 
   @override
@@ -21,6 +24,18 @@ class OrderDetailsScreen extends StatefulWidget {
 class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
   Delivery get delivery => widget.delivery;
   bool _isAccepting = false;
+  late final Stream<Map<String, dynamic>?> _transportPlanStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _transportPlanStream = widget.transportPlanStream ??
+        FirebaseFirestore.instance
+            .collection('deliveries')
+            .doc(delivery.id)
+            .snapshots()
+            .map((snapshot) => snapshot.data());
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -68,6 +83,8 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
 
             const SizedBox(height: 16),
 
+            _buildTransportPlan(),
+
             // Items Card
             _buildItemsCard(),
 
@@ -84,6 +101,84 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildTransportPlan() {
+    return StreamBuilder<Map<String, dynamic>?>(
+      stream: _transportPlanStream,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const Card(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('Transport plan unavailable. Please retry.'),
+            ),
+          );
+        }
+        final transit = snapshot.data?['stockTransit'];
+        if (transit is! Map || transit['version'] != 1) {
+          return const SizedBox.shrink();
+        }
+        final outbound = transit['outbound'];
+        final returnLeg = transit['return'];
+        if (outbound is! Map || returnLeg is! Map) {
+          return const Card(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('Transport plan is incomplete.'),
+            ),
+          );
+        }
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Transport plan · 2 legs',
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  _buildTransportLeg('Outbound', outbound),
+                  const Divider(height: 24),
+                  _buildTransportLeg('Return', returnLeg),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildTransportLeg(String label, Map leg) {
+    final from = _pharmacyName(leg['fromPharmacyId']);
+    final to = _pharmacyName(leg['toPharmacyId']);
+    final medicine = (leg['medicineName'] ?? '').toString();
+    final quantity = leg['quantity']?.toString() ?? '?';
+    final lot = (leg['lotNumber'] ?? '').toString();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('$label: $from → $to',
+            style: const TextStyle(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 4),
+        Text(
+            '$medicine · $quantity units · Lot ${lot.isEmpty ? 'not recorded' : lot}'),
+      ],
+    );
+  }
+
+  String _pharmacyName(Object? pharmacyId) {
+    if (pharmacyId == delivery.pickup.pharmacyId) {
+      return delivery.pickup.pharmacyName;
+    }
+    if (pharmacyId == delivery.delivery.pharmacyId) {
+      return delivery.delivery.pharmacyName;
+    }
+    return pharmacyId?.toString() ?? 'Unknown pharmacy';
   }
 
   Widget _buildHeaderCard() {
