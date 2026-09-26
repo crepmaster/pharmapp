@@ -119,6 +119,7 @@ firebase-export-*/
 
 # Local deployment state (manifests, lock) — never shared
 /.deploy/
+/functions/.demo-backups/
 
 # Deployment tooling install (REQ-DEP-ISO-02). Ignored, never tracked:
 # committing it would put the delivery tool's whole tree in every review diff.
