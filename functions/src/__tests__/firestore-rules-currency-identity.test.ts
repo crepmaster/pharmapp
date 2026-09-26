@@ -7,14 +7,12 @@
  *   users/{uid}.role|userType  → which profile collection to read
  *   couriers/{uid}.countryCode → which country, hence which currency
  *
- * Both were freely writable by their owner. A modified client could
- * therefore have chosen the currency its own wallet is created in. These
- * tests pin the hardening that closes that boundary BEFORE the resolver is
- * wired into getWallet.
+ * Courier registration is now backend-owned. These tests pin the client
+ * boundary: no direct courier create/delete, and no country change after
+ * registration. User role fields remain immutable client-side.
  *
- * Scope note: the rules validate SHAPE only (ISO 3166-1 alpha-2 uppercase).
- * Membership in `system_config.countries` is a backend check, so onboarding
- * a country stays a pure config change with no rules redeploy.
+ * Scope note: the rules validate the shape of courier updates. Country
+ * membership and wallet currency are checked by createCourierRegistration.
  *
  * Runs only via `npm run test:rules` (needs Java + the Firestore emulator).
  */
@@ -26,7 +24,7 @@ import {
   assertFails,
   assertSucceeds,
 } from "@firebase/rules-unit-testing";
-import { deleteField, doc, setDoc, updateDoc } from "firebase/firestore";
+import { deleteDoc, deleteField, doc, setDoc, updateDoc } from "firebase/firestore";
 
 let testEnv: RulesTestEnvironment;
 
@@ -34,7 +32,7 @@ const COURIER_UID = "courier-c1";
 const USER_UID = "user-c1";
 const OTHER_UID = "other-c1";
 
-/** Matches what the registration form actually submits (commonData). */
+/** Existing backend-created courier profile. */
 const VALID_COURIER = Object.freeze({
   email: "courier@example.test",
   fullName: "Kwame Courier",
@@ -92,55 +90,37 @@ async function seedUser(data: Record<string, unknown> = VALID_USER) {
   });
 }
 
-describe("C1 — couriers.countryCode is mandatory at creation", () => {
-  test("REQ-C1-001: create WITHOUT countryCode → DENIED", async () => {
+describe("C1 — courier profiles are backend-owned", () => {
+  test("REQ-C1-001: owner cannot directly create a courier profile", async () => {
     const courier = testEnv.authenticatedContext(COURIER_UID);
-    const { countryCode, ...withoutCountry } = VALID_COURIER;
-    void countryCode;
     await assertFails(
-      setDoc(doc(courier.firestore(), `couriers/${COURIER_UID}`), withoutCountry)
-    );
-  });
-
-  test("REQ-C1-002: create WITH a valid ISO countryCode → ALLOWED", async () => {
-    // Positive control: proves the deny above is about the field, not a
-    // broken payload. This is exactly what the registration form submits.
-    const courier = testEnv.authenticatedContext(COURIER_UID);
-    await assertSucceeds(
       setDoc(doc(courier.firestore(), `couriers/${COURIER_UID}`), VALID_COURIER)
     );
   });
-});
 
-describe("C1 — couriers.countryCode must be ISO 3166-1 alpha-2 uppercase", () => {
-  const MALFORMED = [
-    ["lowercase", "gh"],
-    ["mixed case", "Gh"],
-    ["three letters", "GHA"],
-    ["one letter", "G"],
-    ["empty", ""],
-    ["digits", "12"],
-    ["padded", " GH"],
-  ] as const;
-
-  test.each(MALFORMED)("REQ-C1-003: create with %s countryCode → DENIED", async (_label, value) => {
+  test("REQ-C1-002: owner cannot directly delete a courier profile", async () => {
+    await seedCourier();
     const courier = testEnv.authenticatedContext(COURIER_UID);
     await assertFails(
-      setDoc(doc(courier.firestore(), `couriers/${COURIER_UID}`), {
-        ...VALID_COURIER,
-        countryCode: value,
-      })
+      deleteDoc(doc(courier.firestore(), `couriers/${COURIER_UID}`))
     );
   });
 
-  test("REQ-C1-004: non-string countryCode → DENIED", async () => {
-    const courier = testEnv.authenticatedContext(COURIER_UID);
-    await assertFails(
-      setDoc(doc(courier.firestore(), `couriers/${COURIER_UID}`), {
-        ...VALID_COURIER,
-        countryCode: 233,
-      })
-    );
+  test("REQ-C1-003: backend can create a courier profile", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await assertSucceeds(
+        setDoc(doc(ctx.firestore(), `couriers/${COURIER_UID}`), VALID_COURIER)
+      );
+    });
+  });
+
+  test("REQ-C1-004: backend can delete a courier profile", async () => {
+    await seedCourier();
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await assertSucceeds(
+        deleteDoc(doc(ctx.firestore(), `couriers/${COURIER_UID}`))
+      );
+    });
   });
 });
 

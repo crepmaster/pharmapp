@@ -309,25 +309,16 @@ service cloud.firestore {
              address.displayText is string;
     }
 
-    // Currency sprint (C1) — `countryCode` is the sole input from which the
-    // backend derives a courier's operating currency
-    // (lib/walletOwnerCurrency.ts). It was previously absent from
-    // isValidCourierData entirely: optional at creation, unvalidated, and
-    // freely rewritable afterwards — which would have let a modified client
-    // choose the currency its wallet is created in. Now mandatory, shaped,
-    // and immutable client-side.
-    //
-    // Server-side validation against system_config.countries stays in the
-    // backend (rules cannot reasonably read config on every write). The
-    // target remains a backend-owned `createCourierRegistration`, mirroring
-    // createPharmacyRegistration; this is the intermediate checkpoint.
+    // Courier registration is backend-owned by createCourierRegistration,
+    // which validates the country and derives the wallet currency. Clients
+    // may update an existing profile, but cannot create or delete one.
+    // countryCode remains mandatory, shaped, and immutable on client updates.
     match /couriers/{userId} {
       allow read: if isAuthenticated(); // Pharmacies can read courier profiles
-      allow create: if isOwner(userId) && isValidCourierData(request.resource.data);
+      allow create, delete: if false;
       allow update: if isOwner(userId)
                     && isValidCourierData(request.resource.data)
                     && courierCountryCodeUnchanged(resource.data, request.resource.data);
-      allow delete: if isOwner(userId);
     }
 
     // Currency sprint (C1) — countryCode may never change or disappear via a
