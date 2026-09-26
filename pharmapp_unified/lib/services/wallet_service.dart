@@ -7,6 +7,34 @@ import 'package:pharmapp_shared/pharmapp_shared.dart';
 class WalletService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  /// Pharmacy wallets use the legacy major × 100 storage convention for
+  /// every currency, including zero-decimal XAF. Null means the balance
+  /// could not be trusted; the server remains the purchase authority.
+  static double? pharmacyBalanceMajorFromWalletUnits(Object? available) {
+    if (available is! num || !available.isFinite || available < 0) return null;
+    return available.toDouble() / 100;
+  }
+
+  static bool pharmacyBalanceIsInsufficient(double availableMajor, double requiredMajor) {
+    return (availableMajor * 100).round() < (requiredMajor * 100).round();
+  }
+
+  static Future<double?> getPharmacyBalanceMajor(
+    String userId, {
+    required String currencyCode,
+  }) async {
+    try {
+      final walletDoc = await _firestore.collection('wallets').doc(userId).get();
+      if (!walletDoc.exists) return null;
+      final data = walletDoc.data();
+      if (data?['currency'] != currencyCode) return null;
+      return pharmacyBalanceMajorFromWalletUnits(data?['available']);
+    } catch (e) {
+      debugPrint('WalletService.getPharmacyBalanceMajor: $e');
+      return null;
+    }
+  }
+
   /// Gets the available balance for a user
   ///
   /// Returns 0 if wallet doesn't exist or has no balance

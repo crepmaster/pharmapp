@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -38,6 +40,8 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
   // as a suffix on the price field. Loading placeholder is empty string so
   // the UI doesn't flash a wrong value before master data resolves.
   String selectedCurrency = '';
+  int _currencyDecimals = 2;
+  MasterDataSnapshot? _masterData;
   ProposalType proposalType = ProposalType.exchange; // Exchange is PRIMARY
   PharmacyInventoryItem? selectedMyInventory;
   List<PharmacyInventoryItem> myInventoryList = [];
@@ -77,7 +81,7 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
           if (countryCode != null && countryCode.isNotEmpty) {
             final country = snapshot.countries[countryCode];
             final code = country?.defaultCurrencyCode;
-            if (code != null && code.isNotEmpty) {
+            if (code != null && code.isNotEmpty && snapshot.getCurrency(code)?.enabled == true) {
               resolvedCurrency = code;
             }
           }
@@ -90,21 +94,13 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
       // Non-blocking — fee hint and currency lookup are best-effort.
     }
 
-    // Last-resort fallback : first enabled currency of the master snapshot.
-    // Reaches only if the pharmacy's countryCode is missing or unknown to
-    // master data — a data-quality bug that should be surfaced elsewhere,
-    // not silently blocking proposal creation.
-    if (resolvedCurrency == null) {
-      final enabled = snapshot.currencies.values
-          .where((c) => c.enabled)
-          .toList()
-        ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
-      if (enabled.isNotEmpty) resolvedCurrency = enabled.first.code;
-    }
-
     if (!mounted) return;
     setState(() {
-      if (resolvedCurrency != null) selectedCurrency = resolvedCurrency;
+      _masterData = snapshot;
+      if (resolvedCurrency != null) {
+        selectedCurrency = resolvedCurrency;
+        _currencyDecimals = snapshot.getCurrency(resolvedCurrency)?.decimals ?? 2;
+      }
       _estimatedDeliveryFee = estimatedFee;
     });
   }
@@ -638,11 +634,15 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
                                       return 'Price is required';
                                     }
                                     final price = double.tryParse(value);
-                                    if (price == null || price <= 0) {
+                                    if (price == null || !price.isFinite || price <= 0) {
                                       return 'Enter a valid price';
                                     }
                                     if (selectedCurrency.isEmpty) {
                                       return 'Currency not resolved yet — please wait';
+                                    }
+                                    final factor = math.pow(10, _currencyDecimals).toDouble();
+                                    if (((price * factor) - (price * factor).round()).abs() > 1e-7) {
+                                      return 'Use at most $_currencyDecimals decimal places for $selectedCurrency';
                                     }
                                   }
                                   return null;
@@ -736,10 +736,10 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
                               fontSize: 13,
                             ),
                           ),
-                          if (_estimatedDeliveryFee != null) ...[
+                          if (_estimatedDeliveryFee != null && selectedCurrency.isNotEmpty) ...[
                             const SizedBox(height: 8),
                             Text(
-                              '• Estimated delivery fee: ${_estimatedDeliveryFee!.toStringAsFixed(0)} $selectedCurrency (set by courier at acceptance)',
+                              '• Estimated delivery fee: ${MoneyFormatter.formatMajor(_estimatedDeliveryFee!, currencyCode: selectedCurrency, master: _masterData)} (set by courier at acceptance)',
                               style: TextStyle(
                                 color: Colors.blue.shade700,
                                 fontSize: 13,
@@ -813,7 +813,7 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
     final quantity = int.tryParse(quantityController.text) ?? 0;
     final price = double.tryParse(priceController.text) ?? 0.0;
     final total = quantity * price;
-    return total.toStringAsFixed(2);
+    return total.toStringAsFixed(_currencyDecimals);
   }
 
   Future<void> _submitProposal() async {
@@ -925,19 +925,22 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
         final pricePerUnit = double.parse(priceController.text);
         final totalCost = quantity * pricePerUnit;
 
-        // FIX #3: Check wallet balance for purchase proposals
-        final hasSufficientBalance = await WalletService.hasSufficientBalance(
+        // Pharmacy wallet storage is legacy major × 100 in every currency.
+        // If the read fails or wallet currency differs, let the server report
+        // the authoritative reason instead of showing a false balance alert.
+        final currentBalance = await WalletService.getPharmacyBalanceMajor(
           currentUser.uid,
-          totalCost,
+          currencyCode: selectedCurrency,
         );
+        if (!mounted) return;
 
-        if (!hasSufficientBalance) {
-          final currentBalance = await WalletService.getBalance(currentUser.uid);
+        if (currentBalance != null &&
+            WalletService.pharmacyBalanceIsInsufficient(currentBalance, totalCost)) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
-                  '❌ Insufficient balance. Required: ${totalCost.toStringAsFixed(2)} $selectedCurrency, Available: ${currentBalance.toStringAsFixed(2)} $selectedCurrency',
+                  '❌ Insufficient balance. Required: ${MoneyFormatter.formatMajor(totalCost, currencyCode: selectedCurrency, master: _masterData)}, Available: ${MoneyFormatter.formatMajor(currentBalance, currencyCode: selectedCurrency, master: _masterData)}',
                 ),
                 backgroundColor: Colors.red,
                 duration: const Duration(seconds: 6),
