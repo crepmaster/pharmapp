@@ -108,6 +108,14 @@ async function publishViaClientRules(token) {
     throw new Error("Publication did not persist through client Rules.");
   }
 }
+async function verifyMarketplaceRead(token) {
+  const url = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents/pharmacy_inventory/${sellerLot}`;
+  const item = await request(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (item.fields?.pharmacyId?.stringValue !== uids.seller ||
+      item.fields?.availabilitySettings?.mapValue?.fields?.availableForExchange?.booleanValue !== true) {
+    throw new Error("Buyer cannot read the published seller lot through client Rules.");
+  }
+}
 async function verifyTrade(proposalId, deliveryId, type) {
   const [proposal, delivery, entries] = await Promise.all([
     db.doc(`exchange_proposals/${proposalId}`).get(),
@@ -254,7 +262,8 @@ try {
     [role, await signIn(role)])));
   await save("three dedicated users authenticated");
   await publishViaClientRules(tokens.seller);
-  await save("seller lot published through client Rules");
+  await verifyMarketplaceRead(tokens.buyer);
+  await save("seller lot published and buyer can read it through client Rules");
   await runTrade("purchase", tokens);
   await runTrade("exchange", tokens);
   await fs.writeFile(receiptPath, JSON.stringify({
