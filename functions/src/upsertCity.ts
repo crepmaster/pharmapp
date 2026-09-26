@@ -153,8 +153,14 @@ export const upsertCity = onCall<UpsertCityData>(
         `Country '${data.countryCode}' not found in system config.`
       );
     }
-    const expectedCurrency = country.defaultCurrencyCode as string;
-    if (expectedCurrency && data.currencyCode !== expectedCurrency) {
+    const expectedCurrency = country.defaultCurrencyCode;
+    if (typeof expectedCurrency !== "string" || !/^[A-Z]{3}$/.test(expectedCurrency)) {
+      throw new HttpsError(
+        "failed-precondition",
+        `Country '${data.countryCode}' has no valid operating currency.`
+      );
+    }
+    if (data.currencyCode !== expectedCurrency) {
       throw new HttpsError(
         "invalid-argument",
         `currencyCode must match country default '${expectedCurrency}'.`

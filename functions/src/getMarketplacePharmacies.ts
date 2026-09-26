@@ -9,8 +9,8 @@
  * `/pharmacies` so a modified client cannot bypass the filter.
  *
  * Authorization :
- *   - caller must be authenticated (no role required ; any pharmacy or
- *     courier user may discover other pharmacies in their country).
+ *   - caller must be an authenticated pharmacy or courier, and the requested
+ *     country must match their server-stored country.
  *
  * Input :
  *   - `countryCode` (required, ISO 3166-1 alpha-2 uppercase).
@@ -160,6 +160,20 @@ export const getMarketplacePharmacies = onCall<GetMarketplacePharmaciesInput>(
     const { countryCode } = input;
     const cityCode = input.cityCode;
     const legacyCityName = input.legacyCityName;
+
+    // A caller-supplied country is only a filter, never an authority to browse
+    // another market. The registration-owned profile anchors the territory.
+    const callerPharmacy = await db.collection("pharmacies").doc(request.auth.uid).get();
+    const callerProfile = callerPharmacy.exists
+      ? callerPharmacy
+      : await db.collection("couriers").doc(request.auth.uid).get();
+    const callerCountry = callerProfile.data()?.countryCode;
+    if (!callerProfile.exists || callerCountry !== countryCode) {
+      throw new HttpsError(
+        "permission-denied",
+        "Marketplace country must match the caller's registered country."
+      );
+    }
 
     // Load system_config/main.countries once for fail-closed gate evaluation.
     const sysConfigSnap = await db

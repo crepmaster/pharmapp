@@ -31,6 +31,12 @@ type QueryFilter = { field: string; value: unknown };
 class FakeQuery {
   filters: QueryFilter[] = [];
   constructor(private readonly source: FakeQueryProvider) {}
+  doc(uid: string): { get: () => Promise<{ exists: boolean; data: () => Record<string, unknown> }> } {
+    return { get: async () => ({
+      exists: uid === "caller-uid" && callerCountry !== null,
+      data: () => ({ countryCode: callerCountry }),
+    }) };
+  }
   where(field: string, _op: string, value: unknown): FakeQuery {
     this.filters.push({ field, value });
     return this;
@@ -54,6 +60,7 @@ const sysConfigGet =
     exists: boolean;
     data: () => unknown;
   }>>;
+let callerCountry: string | null = "GH";
 const pharmaciesProvider = {
   docs: [] as PharmacyFixture[],
   docsMatching(filters: QueryFilter[]): FakeDocSnap[] {
@@ -98,6 +105,9 @@ jest.mock("firebase-admin/firestore", () => ({
       if (name === "pharmacies") {
         return new FakeQuery(pharmaciesProvider);
       }
+      if (name === "couriers") {
+        return { doc: jest.fn(() => ({ get: async () => ({ exists: false, data: () => ({}) }) })) };
+      }
       throw new Error(`Unexpected collection: ${name}`);
     }),
   })),
@@ -132,6 +142,7 @@ beforeEach(() => {
   sysConfigGet.mockReset();
   loggerWarn.mockReset();
   pharmaciesProvider.docs = [];
+  callerCountry = "GH";
 });
 
 // ---------------------------------------------------------------------------
@@ -344,6 +355,7 @@ describe("getMarketplacePharmacies — license gate matrix", () => {
   });
 
   test("(6) country non mandatory → ALL pharmacies visible regardless of licenseStatus", async () => {
+    callerCountry = "CM";
     setSystemConfigCountries(nonMandatoryCountries);
     setPharmacies([
       {
@@ -370,6 +382,7 @@ describe("getMarketplacePharmacies — license gate matrix", () => {
   });
 
   test("(7) unknown country → zero results + structured logger.warn", async () => {
+    callerCountry = "ZZ";
     setSystemConfigCountries(mandatoryCountries); // GH only
     setPharmacies([
       {
@@ -556,6 +569,20 @@ describe("getMarketplacePharmacies — dual-mode legacy city support", () => {
     ).rejects.toMatchObject({
       code: expect.stringMatching(/invalid-argument/i),
     });
+  });
+
+  test("caller cannot list pharmacies in another country", async () => {
+    setSystemConfigCountries(mandatoryCountries);
+    callerCountry = "CM";
+    await expect(wrapped(authedReq({ countryCode: "GH" }) as any))
+      .rejects.toMatchObject({ code: expect.stringMatching(/permission-denied/i) });
+  });
+
+  test("caller without a registered territory cannot browse the marketplace", async () => {
+    setSystemConfigCountries(mandatoryCountries);
+    callerCountry = null;
+    await expect(wrapped(authedReq({ countryCode: "GH" }) as any))
+      .rejects.toMatchObject({ code: expect.stringMatching(/permission-denied/i) });
   });
 
   test("(16) callable without any city filter returns every eligible pharmacy in country", async () => {
