@@ -79,7 +79,7 @@ jest.mock("firebase-admin/auth", () => ({
   })),
 }));
 
-import { topupIntent, createExchangeHold } from "../index.js";
+import { topupIntent, createExchangeHold, exchangeCapture, momoWebhook, orangeWebhook } from "../index.js";
 
 const SYSCONFIG = {
   currencies: {
@@ -159,6 +159,22 @@ function noMoneyWasMoved() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+});
+
+test("staging retires all five legacy money routes before any write", async () => {
+  const previous = process.env.GCLOUD_PROJECT;
+  process.env.GCLOUD_PROJECT = "mediexchange-staging";
+  try {
+    for (const endpoint of [topupIntent, createExchangeHold, exchangeCapture, momoWebhook, orangeWebhook]) {
+      const res = mockRes();
+      await (endpoint as never as (q: unknown, s: unknown) => Promise<void>)(mockReq({}), res);
+      expect(res.statusCode).toBe(410);
+    }
+    noMoneyWasMoved();
+  } finally {
+    if (previous === undefined) delete process.env.GCLOUD_PROJECT;
+    else process.env.GCLOUD_PROJECT = previous;
+  }
 });
 
 describe("topupIntent — semantic currency gate", () => {

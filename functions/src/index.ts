@@ -18,6 +18,7 @@ import {
   walletOwnerRefusalHttpStatus,
 } from "./lib/walletOwnerCurrency.js";
 import { majorToWalletUnits, type WalletOwnerKind } from "./lib/moneyUnits.js";
+import { resolveProjectId } from "./lib/sandboxGate.js";
 // 👉 expose aussi la tâche planifiée
 export { expireExchangeHolds } from "./scheduled.js";
 
@@ -117,6 +118,16 @@ const db = getFirestore();
 // --------- Secrets ---------
 const MOMO_TOKEN   = defineSecret("MOMO_CALLBACK_TOKEN");
 const ORANGE_TOKEN = defineSecret("ORANGE_CALLBACK_TOKEN");
+
+// These pre-canonical HTTP routes do not bind currency to the owner's country.
+// Retire them on the demo project without changing production's legacy clients.
+// The current app uses the country-guarded callables exported above instead.
+function retireLegacyOnStaging(res: any, endpoint: string): boolean {
+  if (resolveProjectId() !== "mediexchange-staging") return false;
+  logger.warn("legacy money endpoint retired on staging", { endpoint });
+  res.status(410).json({ error: "ENDPOINT_RETIRED", endpoint });
+  return true;
+}
 
 // --------- Utils ---------
 function requireJson(req: any, res: any): boolean {
@@ -233,6 +244,7 @@ export const getWallet = onRequest({ region: "europe-west1", cors: true }, async
 
 // ---------- Create Top-up Intent ----------
 export const topupIntent = onRequest({ region: "europe-west1", cors: true }, async (req, res) => {
+  if (retireLegacyOnStaging(res, "topupIntent")) return;
   try {
     if (requireJson(req, res)) return;
     const { userId, method, amount, currency = "XAF", msisdn = null } = req.body ?? {};
@@ -426,6 +438,7 @@ async function handleWebhook(opts: {
 export const momoWebhook = onRequest(
   { region: "europe-west1", secrets: [MOMO_TOKEN] },
   async (req, res) => {
+    if (retireLegacyOnStaging(res, "momoWebhook")) return;
     try {
       logger.info("momo webhook received", { headers: req.headers });
       await handleWebhook({
@@ -459,6 +472,7 @@ export const momoWebhook = onRequest(
 export const orangeWebhook = onRequest(
   { region: "europe-west1", secrets: [ORANGE_TOKEN] },
   async (req, res) => {
+    if (retireLegacyOnStaging(res, "orangeWebhook")) return;
     try {
       logger.info("orange webhook received", { headers: req.headers });
       await handleWebhook({
@@ -492,11 +506,11 @@ export const orangeWebhook = onRequest(
 
 // 1) HOLD 50/50
 export const createExchangeHold = onRequest({ region: "europe-west1" }, async (req, res) => {
+  if (retireLegacyOnStaging(res, "createExchangeHold")) return;
   // Sprint 5 optimisation #9 — deprecation marker. The canonical path is the
   // `createExchangeProposal` / `acceptExchangeProposal` callables (Sprint 4).
-  // This legacy REST endpoint stays live until ops confirm 0 traffic on a
-  // ~30-day window (TD-LEGACY-PHARMACY-HTTP-RETIREMENT). The structured warn
-  // lets the monitoring runbook count hits per UA/uid and trigger removal.
+  // Production retains this route until its own traffic/callback audit.
+  // Staging returns 410 above; its 30-day request-log review found no use.
   logger.warn("legacy exchange endpoint hit", {
     endpoint: "createExchangeHold",
     userAgent: req.get("user-agent") ?? null,
@@ -643,6 +657,7 @@ export const createExchangeHold = onRequest({ region: "europe-west1" }, async (r
 
 // 2) CAPTURE (payer le coursier)
 export const exchangeCapture = onRequest({ region: "europe-west1" }, async (req, res) => {
+  if (retireLegacyOnStaging(res, "exchangeCapture")) return;
   // Sprint 5 optimisation #9 — deprecation marker. Canonical path:
   // `completeExchangeDelivery` callable.
   logger.warn("legacy exchange endpoint hit", {
