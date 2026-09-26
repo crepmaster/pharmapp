@@ -313,6 +313,26 @@ describe("REQ-C-FB-01 — the preflight installs, verifies and runs Rules, in th
   });
 });
 
+describe("staging phase ordering", () => {
+  const source = () => fs.readFileSync(path.join(HERE, "deploy-staging.mjs"), "utf8");
+  test("expand mutates indexes, then Functions, then both Hosting sites before recording proof", () => {
+    const body = source().slice(source().indexOf('if (phase === "expand") {', source().indexOf("async function firebaseMutation")));
+    const index = body.indexOf('firebaseMutation("Firestore indexes"');
+    const functions = body.indexOf('firebaseMutation("Functions"');
+    const hosting = body.indexOf('firebaseMutation(`${site.name} Hosting`');
+    const proof = body.indexOf("await proofRef.set({");
+    assert.ok(index >= 0 && index < functions && functions < hosting && hosting < proof);
+    assert.ok(body.indexOf("await remoteInventory()") < proof);
+    assert.ok(body.indexOf("await remoteHealth()") < proof);
+    assert.ok(body.indexOf("await remoteHosting(site, site.indexHash)") < proof);
+  });
+  test("contract reads matching remote proof before restrictive Rules", () => {
+    const body = source().slice(source().indexOf("} else {\n    const proof = await remoteProof();"));
+    assert.ok(body.indexOf("await remoteProof()") < body.indexOf('firebaseMutation("Firestore Rules"'));
+    assert.ok(body.indexOf('must(checkContractPrerequisite({ phase: "contract", proof') < body.indexOf('firebaseMutation("Firestore Rules"'));
+  });
+});
+
 describe("REQ-MSG — no executable script claims the CLI comes from functions", () => {
   // A guard that DISCOVERS its inputs, not a fixed list — the earlier version
   // named six files and so would have missed a seventh added tomorrow, which

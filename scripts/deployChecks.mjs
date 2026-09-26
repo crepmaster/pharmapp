@@ -400,39 +400,83 @@ export function combineFailureWithRelease(original, release) {
   };
 }
 
-export function checkContractPrerequisite({ phase }) {
+export function checkContractPrerequisite({ phase, proof, gitSha, functionsArtifactHash }) {
   if (phase !== "contract") return accept();
-  return refuse(
-    "CONTRACT_NEEDS_REMOTE_PROOF",
-    "The 'contract' phase tightens rules and removes old paths. Authorising " +
-      "it requires proof that a matching 'expand' really shipped and was " +
-      "verified — and the local .deploy/ manifest cannot provide that: it is " +
-      "machine-local, gitignored, and writable by hand.\n" +
-      "Choose an authoritative store (staging document, CI artefact, release) " +
-      "before this phase is enabled."
-  );
+  if (!proof || proof.project !== ALLOWED_PROJECT || proof.phase !== "expand" ||
+      proof.status !== "verified" || proof.gitSha !== gitSha ||
+      proof.functionsArtifactHash !== functionsArtifactHash ||
+      !/^sha256:[0-9a-f]{64}$/.test(String(proof.hostingArtifactHashes?.app ?? "")) ||
+      !/^sha256:[0-9a-f]{64}$/.test(String(proof.hostingArtifactHashes?.admin ?? "")) ||
+      !/^sha256:[0-9a-f]{64}$/.test(String(functionsArtifactHash ?? "")) ||
+      !Number.isFinite(Date.parse(proof.verifiedAt ?? ""))) {
+    return refuse(
+      "CONTRACT_NEEDS_REMOTE_PROOF",
+      "The 'contract' phase requires a matching, verified expand proof read " +
+        "from staging Firestore. A local .deploy/ manifest is writable by hand " +
+        "and cannot authorise restrictive Rules."
+    );
+  }
+  return accept({ gitSha, functionsArtifactHash });
 }
 
-/**
- * The refusal returned for a phase that performs mutations and is not wired.
- *
- * A pure function rather than an inline string because this exact wording has
- * already been "corrected" twice without the change reaching the file: a
- * silent no-op in an editing step left the message recommending the very
- * bypass it must forbid. Visual review missed it both times. Extracted so a
- * test can assert what it must NOT say.
- */
-export function phaseNotImplementedVerdict(phase) {
-  return refuse(
-    "PHASE_NOT_IMPLEMENTED",
-    `Phase '${phase}' performs mutations and is intentionally not wired yet.\n` +
-      `Every gate above passed, so the commit is admissible — but mutations ` +
-      `stay CLOSED until this entry point has been reviewed.\n\n` +
-      `Do not route around this gate. Bypassing it is what put restrictive ` +
-      `rules live while the callable replacing the forbidden write had not ` +
-      `shipped. An exceptional deployment requires the manual procedure, run ` +
-      `by someone who has audited it, and recorded afterwards.`
-  );
+/** Fail closed when the remote Functions inventory is incomplete or malformed. */
+export function checkRemoteFunctions({ response, expectedNames }) {
+  const rows = Array.isArray(response?.result) ? response.result : null;
+  if (!rows || !Array.isArray(expectedNames) || expectedNames.length === 0) {
+    return refuse("FUNCTIONS_REMOTE_UNREADABLE", "The remote Functions inventory is unreadable.");
+  }
+  const actual = new Set(rows.map((row) => {
+    const raw = row?.id ?? row?.name;
+    return typeof raw === "string" ? raw.split("/").at(-1) : null;
+  }).filter(Boolean));
+  const missing = expectedNames.filter((name) => !actual.has(name));
+  if (missing.length) {
+    return refuse("FUNCTIONS_REMOTE_MISSING", `Staging is missing ${missing.length} expected Function(s): ${missing.join(", ")}.`);
+  }
+  return accept({ observed: actual.size, expected: expectedNames.length });
+}
+
+/** Ensure each web build uses configuration issued by the staging project. */
+export function checkWebSdkConfig({ response, apiKey, appId, senderId }) {
+  const file = response?.result?.fileContents;
+  if (typeof file !== "string") {
+    return refuse("WEB_SDK_CONFIG_UNREADABLE", "Staging Firebase Web SDK configuration is unreadable.");
+  }
+  let config;
+  try {
+    const first = file.indexOf("{");
+    const last = file.lastIndexOf("}");
+    config = JSON.parse(file.slice(first, last + 1));
+  } catch {
+    return refuse("WEB_SDK_CONFIG_UNREADABLE", "Staging Firebase Web SDK configuration is not JSON.");
+  }
+  if (config.projectId !== ALLOWED_PROJECT || config.apiKey !== apiKey ||
+      config.appId !== appId || String(config.messagingSenderId) !== String(senderId)) {
+    return refuse("WEB_SDK_CONFIG_MISMATCH", "Web build configuration does not match the Firebase app registered on staging.");
+  }
+  return accept();
+}
+
+export function checkStagingHostingTargets(rc, config) {
+  const targets = rc?.targets?.[ALLOWED_PROJECT]?.hosting;
+  const hosted = config?.hosting;
+  if (!Array.isArray(hosted) || hosted.length !== 2 ||
+      hosted[0]?.target !== "admin" || hosted[0]?.public !== "admin_panel/build/web" ||
+      hosted[1]?.target !== "app" || hosted[1]?.public !== "pharmapp_unified/build/web" ||
+      JSON.stringify(targets?.admin) !== JSON.stringify(["mediexchange-staging-admin"]) ||
+      JSON.stringify(targets?.app) !== JSON.stringify(["mediexchange-staging"])) {
+    return refuse("HOSTING_TARGET_MISMATCH", "Staging Hosting target mappings or build directories differ from the reviewed configuration.");
+  }
+  return accept();
+}
+
+export function checkContractRecord({ proof, gitSha, rulesHash }) {
+  if (proof?.contract?.gitSha !== gitSha || proof?.contract?.rulesHash !== rulesHash ||
+      !/^sha256:[0-9a-f]{64}$/.test(String(rulesHash ?? "")) ||
+      !Number.isFinite(Date.parse(proof?.contract?.verifiedAt ?? ""))) {
+    return refuse("RULES_CONTRACT_UNVERIFIED", "No matching remote record confirms that staging Rules were deployed for this commit.");
+  }
+  return accept();
 }
 
 /**
@@ -491,9 +535,11 @@ export function checkNoConcurrentRun(lock, nowMs) {
  */
 export const PHASE_REQUIRED_TOOLS = Object.freeze({
   preflight: ["node", "npm", "java"],
-  expand: ["node", "npm", "flutter"],
-  contract: ["node", "npm"],
-  verify: ["node", "npm"],
+  // Every phase repeats the Rules emulator gate. Expand also builds both web
+  // targets before any remote mutation.
+  expand: ["node", "npm", "java", "flutter"],
+  contract: ["node", "npm", "java"],
+  verify: ["node", "npm", "java"],
 });
 
 /**

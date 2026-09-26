@@ -43,12 +43,14 @@ L'alias `staging` → `mediexchange-staging` est **déjà présent** dans `.fire
 
 ## 2. Deploy initial backend
 
-> ⛔ **Le déploiement direct est interdit.** Seul le preflight local est disponible :
+> ⛔ **Le déploiement direct est interdit.** Le point d'entrée commence par :
 > `npm run deploy:staging -- preflight --project=mediexchange-staging`
 >
-> Les phases `expand`, `contract` et `verify` **ne sont pas implémentées**. Aucune
-> commande de déploiement Firebase ou GCloud ne doit être exécutée directement.
-> L'ordre-cible ci-dessous est **descriptif et non exécutable**.
+> Les phases `expand`, `contract` et `verify` sont décrites dans
+> [STAGING_WORKFLOW.md](STAGING_WORKFLOW.md). Leur première exécution distante
+> reste à valider. Aucune commande de déploiement Firebase ou GCloud ne doit
+> être exécutée directement. Le reste de ce document conserve le contexte
+> historique du setup initial ; suivre le workflow pour l'ordre actuel.
 
 ### 2.1 Ordre-cible du déploiement backend (NON EXÉCUTABLE)
 

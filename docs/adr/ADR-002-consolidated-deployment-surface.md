@@ -1,5 +1,13 @@
 # ADR-002 — Consolidated deployment surface
 
+> **Addendum candidat du 2026-09-26.** Le script contrôlé comprend maintenant
+> `expand` (indexes, Functions, deux sites Hosting), `contract` (Rules après
+> preuve distante Firestore) et `verify` (lecture distante). Les sections
+> historiques ci-dessous qui disent « seul preflight » décrivent l'état
+> antérieur. Aucune de ces trois phases n'a encore été exécutée sur staging ;
+> la revue architecte et la première validation réelle restent dues. Les
+> interdictions de déploiement direct et de cible implicite demeurent.
+
 - **Statut** : ACCEPTÉ. Décision `ADR-DEC-002-01` (§6) prise et implémentée le 2026-07-21.
 - **Date** : 2026-07-21
 - **Remplace** : les consignes successives données en conversation entre le 2026-07-21 et ce jour. **Ce document est désormais la seule référence** ; aucune modification ne doit être entreprise sur la base d'un message de conversation.

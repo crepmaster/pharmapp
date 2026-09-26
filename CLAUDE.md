@@ -310,15 +310,17 @@ cd functions && npm run serve      # emulator (functions only)
 
 ### Deploy
 
-**Le déploiement direct est interdit.** Seul le preflight local est disponible :
+**Le déploiement direct est interdit.** Le point d'entrée contrôlé est :
 
 ```bash
 npm run deploy:staging -- preflight --project=mediexchange-staging
 ```
 
-Les phases `expand`, `contract` et `verify` ne sont pas implémentées. Aucune
-commande de déploiement Firebase ou GCloud ne doit être exécutée directement
-(voir [docs/adr/ADR-002-consolidated-deployment-surface.md](docs/adr/ADR-002-consolidated-deployment-surface.md)).
+Les phases `expand`, `contract` et `verify` sont décrites dans
+[STAGING_WORKFLOW.md](docs/release/STAGING_WORKFLOW.md). Elles exigent le même
+préflight local et, pour `contract`, une preuve distante de l'`expand`.
+Aucune commande de déploiement Firebase ou GCloud ne doit être exécutée
+directement (voir [ADR-002](docs/adr/ADR-002-consolidated-deployment-surface.md)).
 
 ### Audit drift remote vs local
 

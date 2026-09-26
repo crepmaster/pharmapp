@@ -102,6 +102,8 @@ describe("REQ-B-EXEC-01 — CLIs run under Node, never through a Windows shim", 
       '"java"',
       "npmCli",
       "firebaseCli",
+      "firebase.firebaseCli", // runFirebase wraps this JS entry under Node
+      "runtime.dart", // Flutter's SDK Dart executable, never flutter.bat
     ]);
     const offenders = [];
     for (const f of DEPLOY_SOURCES) {

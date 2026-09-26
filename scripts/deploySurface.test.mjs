@@ -360,7 +360,7 @@ describe("REQ-PROJECT-EXPLICIT-01 — every quoted preflight names its project",
     );
   });
 
-  test("each invocation is preflight, with exactly one --project, staging only", () => {
+  test("each invocation names a supported phase and exactly one staging project", () => {
     const offenders = [];
     for (const { file, args } of invocations()) {
       // A bare `npm run deploy:staging` with no arguments at all is a
@@ -368,20 +368,16 @@ describe("REQ-PROJECT-EXPLICIT-01 — every quoted preflight names its project",
       if (args === "" || args.startsWith("`")) continue;
 
       const projects = [...args.matchAll(/--project=([\w-]+)/g)].map((m) => m[1]);
-      if (!/(^|\s)--\s+preflight(\s|$)/.test(args)) {
-        offenders.push(`${file}: phase is not exactly 'preflight' → "${args}"`);
+      if (!/(^|\s)--\s+(?:preflight|expand|contract|verify)(\s|$)/.test(args)) {
+        offenders.push(`${file}: phase is not supported → "${args}"`);
       }
       if (projects.length !== 1) {
         offenders.push(`${file}: expected exactly one --project, got ${projects.length} → "${args}"`);
       } else if (projects[0] !== "mediexchange-staging") {
         offenders.push(`${file}: targets ${projects[0]}, not mediexchange-staging`);
       }
-      // No argument may smuggle in a phase that is not implemented.
-      for (const closed of ["expand", "contract", "verify"]) {
-        if (new RegExp(String.raw`(^|\s)${closed}(\s|$)`).test(args)) {
-          offenders.push(`${file}: names the closed phase '${closed}' → "${args}"`);
-        }
-      }
+      const phases = [...args.matchAll(/(?:^|\s)(preflight|expand|contract|verify)(?=\s|$)/g)];
+      if (phases.length !== 1) offenders.push(`${file}: expected exactly one phase → "${args}"`);
     }
     assert.deepEqual(offenders, [], "a documented preflight invocation is unsafe");
   });

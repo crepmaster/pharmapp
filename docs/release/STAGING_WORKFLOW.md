@@ -25,25 +25,52 @@ Region functions partout : `europe-west1`. Firestore staging : Native,
 
 ## 2. Déployer une nouveauté sur STAGING
 
-> ⛔ **Le déploiement direct est interdit.** Seul le preflight local est disponible :
-> `npm run deploy:staging -- preflight --project=mediexchange-staging`
->
-> Les phases `expand`, `contract` et `verify` **ne sont pas implémentées**. Aucune
-> commande de déploiement Firebase ou GCloud ne doit être exécutée directement.
-> La séquence ci-dessous décrit l'état-cible **non exécutable** ; elle documente
-> ce que les phases mutantes automatiseront, pas une procédure à copier.
+> ⛔ **Le déploiement direct est interdit.** Les quatre phases passent par
+> `scripts/deploy-staging.mjs` et ciblent uniquement `mediexchange-staging`.
+> Cette implémentation est candidate : elle n'a pas encore été exercée sur le
+> projet distant. Une revue du diff et un préflight depuis un commit poussé
+> doivent précéder le premier `expand`.
 
-Pré-requis : code committé sur `main`, tests verts (`npm test`, `npm run test:rules`),
-`npm run deploy:staging -- preflight --project=mediexchange-staging` **PASS**.
+Pré-requis : worktree propre, commit poussé sur sa branche et visible par
+`git ls-remote origin`, Java, ADC pour écrire/lire la preuve Firestore et
+identité Firebase CLI autorisée à déployer sur staging. Le script réinstalle
+les dépendances verrouillées, reconstruit et teste Functions et Rules à
+chaque phase. `expand` reconstruit aussi les deux sites web. Aucune phase
+ne cible la production.
 
-État-cible des phases mutantes (NON EXÉCUTABLE tant qu'`expand`/`contract` ne sont
-pas livrées) :
+Pour `expand`, définir `FLUTTER_ROOT` vers le SDK Flutter (le script invoque
+son binaire Dart natif, sans `flutter.bat`) et fournir les fichiers locaux
+ignorés `pharmapp_unified/lib/firebase_options.dart` et
+`admin_panel/lib/firebase_options.dart`, ainsi que les dossiers d'assets
+déclarés dans leurs `pubspec.yaml`. Définir, pour **chaque** site, les trois
+variables `STAGING_APP_API_KEY`, `STAGING_APP_APP_ID`,
+`STAGING_APP_SENDER_ID`, puis les mêmes avec le préfixe `STAGING_ADMIN`.
+Le script confirme auprès de Firebase que ces valeurs appartiennent aux apps
+Web du projet staging avant de construire quoi que ce soit.
 
-| Phase future | Portée | Cible |
+Séquence contrôlée, à exécuter depuis la racine d'un checkout propre :
+
+```text
+npm run deploy:staging -- preflight --project=mediexchange-staging
+npm run deploy:staging -- expand --project=mediexchange-staging
+npm run deploy:staging -- contract --project=mediexchange-staging
+npm run deploy:staging -- verify --project=mediexchange-staging
+```
+
+Portée réelle :
+
+| Phase | Portée | Cible |
 |---|---|---|
-| `expand` | indexes Firestore, puis functions | `mediexchange-staging` |
-| `expand` | hosting app + admin (après `flutter build web --release --dart-define=USE_STAGING=true …`) | `mediexchange-staging` |
-| `contract` | rules Firestore (après `npm run test:rules` PASS) | `mediexchange-staging` |
+| `preflight` | installation, build, tests, hash, anti-dérive ; aucune mutation distante | local |
+| `expand` | indexes, Functions, Hosting app puis admin ; inventaire Functions, health et empreinte des deux pages ; preuve d'expand écrite dans Firestore staging après succès | staging |
+| `contract` | Rules uniquement, après relecture de la preuve distante liée au commit et à l'empreinte Functions | staging |
+| `verify` | relit les preuves `expand` et `contract`, l'inventaire Functions, health et les deux pages ; aucune mutation distante | staging |
+
+Un échec après un déploiement partiel **ne** produit **pas** de preuve de
+succès. Les Rules ne peuvent donc pas être durcies par `contract` tant que
+`expand` n'a pas été relancé et vérifié entièrement. Le document
+`deployment_proofs/staging-functions-expand` est la preuve distante ; le
+manifeste local `.deploy/` n'autorise jamais `contract`.
 
 Les clés staging passent par `--dart-define` (jamais committées ; config via
 `firebase apps:sdkconfig web`). `USE_STAGING` est géré dans `pharmapp_unified/lib/main.dart`,

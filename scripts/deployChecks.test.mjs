@@ -20,6 +20,10 @@ import {
   checkFunctionsIgnore,
   checkPredeployHook,
   checkContractPrerequisite,
+  checkRemoteFunctions,
+  checkWebSdkConfig,
+  checkStagingHostingTargets,
+  checkContractRecord,
   checkNoConcurrentRun,
   checkRequiredTools,
   checkFirebaseRuntime,
@@ -34,7 +38,6 @@ import {
   checkFunctionsSource,
   checkFunctionsMain,
   parseJsonOrRefuse,
-  phaseNotImplementedVerdict,
   normaliseToolVersion,
   buildManifest,
   redactSecrets,
@@ -299,6 +302,83 @@ describe("contract — a local manifest is never proof", () => {
     });
     assert.equal(r.code, "CONTRACT_NEEDS_REMOTE_PROOF");
     assert.match(r.message, /writable by hand/);
+  });
+
+  test("matching staging Firestore proof authorises the exact tested payload", () => {
+    const hash = `sha256:${"a".repeat(64)}`;
+    const proof = {
+      project: "mediexchange-staging", phase: "expand", status: "verified",
+      gitSha: "abc123", functionsArtifactHash: hash,
+      hostingArtifactHashes: { app: hash, admin: hash },
+      verifiedAt: "2026-09-26T14:00:00.000Z",
+    };
+    assert.equal(checkContractPrerequisite({ phase: "contract", proof, gitSha: "abc123", functionsArtifactHash: hash }).ok, true);
+    for (const altered of [
+      { ...proof, project: "mediexchange" },
+      { ...proof, status: "pending" },
+      { ...proof, gitSha: "other" },
+      { ...proof, functionsArtifactHash: `sha256:${"b".repeat(64)}` },
+      { ...proof, verifiedAt: "invalid" },
+    ]) {
+      assert.equal(checkContractPrerequisite({ phase: "contract", proof: altered, gitSha: "abc123", functionsArtifactHash: hash }).code, "CONTRACT_NEEDS_REMOTE_PROOF");
+    }
+  });
+});
+
+describe("remote Functions inventory", () => {
+  const expectedNames = ["health", "createExchangeProposal"];
+  test("accepts the expected exported functions", () => {
+    assert.equal(checkRemoteFunctions({
+      response: { status: "success", result: [{ id: "health" }, { id: "createExchangeProposal" }] },
+      expectedNames,
+    }).ok, true);
+  });
+  test("refuses a missing new callable or unreadable output", () => {
+    assert.equal(checkRemoteFunctions({ response: { result: [{ id: "health" }] }, expectedNames }).code, "FUNCTIONS_REMOTE_MISSING");
+    assert.equal(checkRemoteFunctions({ response: {}, expectedNames }).code, "FUNCTIONS_REMOTE_UNREADABLE");
+  });
+});
+
+describe("staging Web SDK configuration", () => {
+  const config = { projectId: "mediexchange-staging", apiKey: "test-key", appId: "1:123:web:abc", messagingSenderId: "123" };
+  const response = { result: { fileContents: `firebase.initializeApp(${JSON.stringify(config)});` } };
+  test("accepts configuration issued for the selected staging app", () => {
+    assert.equal(checkWebSdkConfig({ response, apiKey: "test-key", appId: "1:123:web:abc", senderId: "123" }).ok, true);
+  });
+  test("refuses a production project or mismatched key without disclosing it", () => {
+    const wrong = checkWebSdkConfig({ response, apiKey: "wrong", appId: "1:123:web:abc", senderId: "123" });
+    assert.equal(wrong.code, "WEB_SDK_CONFIG_MISMATCH");
+    assert.equal(wrong.message.includes("test-key"), false);
+    assert.equal(checkWebSdkConfig({ response: { result: { fileContents: "invalid" } }, apiKey: "test-key", appId: "1:123:web:abc", senderId: "123" }).code, "WEB_SDK_CONFIG_UNREADABLE");
+  });
+});
+
+describe("staging Hosting target mapping", () => {
+  const rc = { targets: { "mediexchange-staging": { hosting: {
+    admin: ["mediexchange-staging-admin"], app: ["mediexchange-staging"],
+  } } } };
+  const config = { hosting: [
+    { target: "admin", public: "admin_panel/build/web" },
+    { target: "app", public: "pharmapp_unified/build/web" },
+  ] };
+  test("accepts both reviewed sites and build directories", () => {
+    assert.equal(checkStagingHostingTargets(rc, config).ok, true);
+  });
+  test("refuses a production site or swapped build", () => {
+    assert.equal(checkStagingHostingTargets({ targets: { "mediexchange-staging": { hosting: { ...rc.targets["mediexchange-staging"].hosting, app: ["app-mediexchange"] } } } }, config).code, "HOSTING_TARGET_MISMATCH");
+    assert.equal(checkStagingHostingTargets(rc, { hosting: [...config.hosting].reverse() }).code, "HOSTING_TARGET_MISMATCH");
+  });
+});
+
+describe("remote Rules contract record", () => {
+  const hash = `sha256:${"c".repeat(64)}`;
+  const proof = { contract: { gitSha: "abc123", rulesHash: hash, verifiedAt: "2026-09-26T15:00:00Z" } };
+  test("accepts the Rules record for this commit and content", () => {
+    assert.equal(checkContractRecord({ proof, gitSha: "abc123", rulesHash: hash }).ok, true);
+  });
+  test("refuses a record from a different Rules file or missing contract", () => {
+    assert.equal(checkContractRecord({ proof, gitSha: "abc123", rulesHash: `sha256:${"d".repeat(64)}` }).code, "RULES_CONTRACT_UNVERIFIED");
+    assert.equal(checkContractRecord({ proof: {}, gitSha: "abc123", rulesHash: hash }).code, "RULES_CONTRACT_UNVERIFIED");
   });
 });
 
@@ -782,45 +862,12 @@ describe("REQ-A-06 — required tools are per phase", () => {
     // that can legitimately run this phase.
     assert.equal(checkRequiredTools("preflight", { node: "1", npm: "1", java: "1" }).ok, true);
   });
-  test("expand still requires flutter", () => {
-    assert.match(checkRequiredTools("expand", { node: "1", npm: "1" }).message, /flutter/);
-  });
-});
-
-describe("REQ-A-07 — a closed phase must never advertise a bypass", () => {
-  const verdict = phaseNotImplementedVerdict("expand");
-
-  test("carries the stable refusal code", () => {
-    assert.equal(verdict.code, "PHASE_NOT_IMPLEMENTED");
-    assert.equal(verdict.ok, false);
-  });
-
-  test("states that the phase is closed", () => {
-    assert.match(verdict.message, /CLOSED/);
-    assert.match(verdict.message, /not wired yet/);
-  });
-
-  test("names no tool the operator could reach for instead", () => {
-    // The whole point. Two earlier attempts to remove this recommendation
-    // never reached the file, and a visual review passed both times.
-    for (const forbidden of [/firebase deploy/i, /Firebase CLI/i, /gcloud/i]) {
-      assert.equal(forbidden.test(verdict.message), false, `mentions ${forbidden}`);
+  test("remote phases repeat Rules, and expand requires a web build tool", () => {
+    for (const phase of ["contract", "verify"]) {
+      assert.match(checkRequiredTools(phase, { node: "1", npm: "1" }).message, /java/);
+      assert.equal(checkRequiredTools(phase, { node: "1", npm: "1", java: "1" }).ok, true);
     }
-  });
-
-  test("suggests no workaround phrasing", () => {
-    for (const forbidden of [/meanwhile/i, /instead/i, /in the meantime/i,
-                             /you can still/i, /workaround/i]) {
-      assert.equal(forbidden.test(verdict.message), false, `suggests ${forbidden}`);
-    }
-  });
-
-  test("points at the audited manual procedure", () => {
-    assert.match(verdict.message, /manual procedure/);
-    assert.match(verdict.message, /audited/);
-  });
-
-  test("names the phase it refused", () => {
-    assert.match(phaseNotImplementedVerdict("contract").message, /'contract'/);
+    assert.match(checkRequiredTools("expand", { node: "1", npm: "1", java: "1" }).message, /flutter/);
+    assert.equal(checkRequiredTools("expand", { node: "1", npm: "1", java: "1", flutter: "1" }).ok, true);
   });
 });

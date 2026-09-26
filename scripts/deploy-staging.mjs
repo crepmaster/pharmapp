@@ -22,9 +22,9 @@
  *   contract   restrictive: Rules only, once a matching expand is PROVEN
  *   verify     post-deployment checks, no mutation
  *
- * Only `preflight` is implemented. The mutating phases stay closed until this
- * entry point has been reviewed: a half-trusted deployment tool is worse than
- * none, because people believe it.
+ * Expand builds and publishes Functions plus both staging web targets before
+ * contract can tighten Rules. Missing web configuration refuses before the
+ * first remote mutation.
  *
  * This file is orchestration only. Verdicts live in `deployChecks.mjs`,
  * subprocess handling in `deployRunner.mjs`, mutual exclusion in
@@ -32,8 +32,10 @@
  */
 
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -45,6 +47,10 @@ import {
   checkFunctionsIgnore,
   checkPredeployHook,
   checkContractPrerequisite,
+  checkRemoteFunctions,
+  checkWebSdkConfig,
+  checkStagingHostingTargets,
+  checkContractRecord,
   checkNoConcurrentRun,
   checkRequiredTools,
   checkFirebaseRuntime,
@@ -57,7 +63,6 @@ import {
   checkFunctionsSource,
   checkFunctionsMain,
   parseJsonOrRefuse,
-  phaseNotImplementedVerdict,
   buildManifest,
   redactSecrets,
 } from "./deployChecks.mjs";
@@ -70,15 +75,46 @@ import {
 import {
   runCommand,
   runNpm,
+  runFirebase,
   probeTool,
   resolveNpmRuntime,
   resolveFirebaseCli,
 } from "./deployRunner.mjs";
 import { hashFunctionsArtifact, functionsIgnoreGlobs, SYMLINK_CYCLE_CODE } from "./deployArtifact.mjs";
+import { exportedNames } from "../functions/scripts/verifyExports.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const STATE_DIR = path.join(ROOT, ".deploy");
 const LOCK = path.join(STATE_DIR, "lock.json");
+
+function flutterRuntime() {
+  const root = process.env.FLUTTER_ROOT;
+  if (!root || !path.isAbsolute(root)) return null;
+  const dart = path.join(root, "bin", "cache", "dart-sdk", "bin", process.platform === "win32" ? "dart.exe" : "dart");
+  const snapshot = path.join(root, "bin", "cache", "flutter_tools.snapshot");
+  const packages = path.join(root, "packages", "flutter_tools", ".dart_tool", "package_config.json");
+  return [dart, snapshot, packages].every(fs.existsSync) ? { root, dart, snapshot, packages } : null;
+}
+
+function hashDirectory(dir) {
+  const hash = createHash("sha256");
+  let count = 0;
+  function walk(base, rel = "") {
+    for (const entry of fs.readdirSync(base, { withFileTypes: true }).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)) {
+      const name = path.posix.join(rel, entry.name);
+      const full = path.join(base, entry.name);
+      if (entry.isSymbolicLink()) throw new Error(`Hosting symlink refused: ${name}`);
+      if (entry.isDirectory()) walk(full, name);
+      else if (entry.isFile()) {
+        hash.update(name).update("\0").update(fs.readFileSync(full)).update("\0");
+        count += 1;
+      }
+    }
+  }
+  walk(dir);
+  if (count === 0) throw new Error(`Empty Hosting build: ${dir}`);
+  return `sha256:${hash.digest("hex")}`;
+}
 
 // ---------------------------------------------------------------------------
 
@@ -141,8 +177,7 @@ function detectBootstrapTools(npmCli) {
     // Java backs the Firestore Rules emulator, which preflight runs. It
     // prints its version on stderr, which is why probeTool reads both.
     java: probeTool("java", ["-version"], { cwd: ROOT, redact: redactSecrets }),
-    // Flutter is deliberately NOT probed: preflight builds no Hosting, so
-    // requiring it would fail machines that can legitimately run this phase.
+    flutter: flutterRuntime()?.root ?? null,
   };
 }
 
@@ -202,6 +237,8 @@ const firebaseConfig = must(
 must(checkFunctionsSource(firebaseConfig));
 must(checkFunctionsIgnore(firebaseConfig));
 must(checkPredeployHook(firebaseConfig));
+const firebaseRc = must(parseJsonOrRefuse(readText(path.join(ROOT, ".firebaserc")), ".firebaserc")).value;
+must(checkStagingHostingTargets(firebaseRc, firebaseConfig));
 say("  ✓ firebase.json packages and verifies the right artefact");
 
 const functionsPkg = must(
@@ -213,15 +250,15 @@ const functionsPkg = must(
 must(checkFunctionsMain(functionsPkg));
 say("  ✓ package main points at the verified entry point");
 
-must(checkContractPrerequisite({ phase }));
-
 // ---- phase bodies ----------------------------------------------------------
 
-if (phase !== "preflight") die(phaseNotImplementedVerdict(phase));
+if (phase !== "preflight" && process.env.FIRESTORE_EMULATOR_HOST) {
+  die({ code: "EMULATOR_FORBIDDEN", message: "Remote staging phases refuse FIRESTORE_EMULATOR_HOST." });
+}
 
 const acquired = must(
   acquireLock(LOCK, {
-    phase: "preflight",
+    phase,
     pid: process.pid,
     hostname: os.hostname(),
     gitSha: localSha,
@@ -311,6 +348,64 @@ await gate("deploy gate self-test", ["run", "test:deploy"], 300_000);
 // Firebase state.
 await gate("firestore rules suite", ["--prefix", "functions", "run", "test:rules"], 900_000);
 
+let hosting = null;
+if (phase === "expand") {
+  const runtime = flutterRuntime();
+  if (!runtime) die({ code: "FLUTTER_RUNTIME_MISSING", message: "Set FLUTTER_ROOT to an installed Flutter SDK with its cached Dart tool." });
+  const sites = [
+    { name: "app", dir: "pharmapp_unified", prefix: "STAGING_APP", url: "https://mediexchange-staging.web.app/" },
+    { name: "admin", dir: "admin_panel", prefix: "STAGING_ADMIN", url: "https://mediexchange-staging-admin.web.app/" },
+  ];
+  hosting = [];
+  for (const site of sites) {
+    const configFile = path.join(ROOT, site.dir, "lib", "firebase_options.dart");
+    if (!fs.existsSync(configFile)) die({ code: "WEB_CONFIG_MISSING", message: `${site.dir}/lib/firebase_options.dart is required for a staging web build.` });
+    const values = ["API_KEY", "APP_ID", "SENDER_ID"].map((key) => process.env[`${site.prefix}_${key}`]);
+    if (values.some((value) => !value || !String(value).trim())) {
+      die({ code: "WEB_STAGING_CONFIG_MISSING", message: `${site.prefix}_API_KEY, _APP_ID and _SENDER_ID must be set.` });
+    }
+    if (!/^1:\d+:web:[a-fA-F0-9]+$/.test(values[1]) || !/^\d+$/.test(values[2]) ||
+        values[1].split(":")[1] !== values[2]) {
+      die({ code: "WEB_STAGING_CONFIG_INVALID", message: `${site.prefix} App ID and sender ID do not agree.` });
+    }
+    const sdk = await runFirebase(firebase.firebaseCli,
+      ["apps:sdkconfig", "web", values[1], "--project", ALLOWED_PROJECT, "--json"],
+      // Keep the API key in memory for comparison, but never surface the
+      // command's output on failure or in a manifest.
+      { cwd: ROOT, timeoutMs: 120_000, redact: (value) => value });
+    if (!sdk.ok) die({ code: sdk.code, message: `${site.name} staging SDK config could not be read.` });
+    must(checkWebSdkConfig({
+      response: must(parseJsonOrRefuse(sdk.stdout, `${site.name} staging SDK config`)).value,
+      apiKey: values[0], appId: values[1], senderId: values[2],
+    }));
+    for (const assets of site.name === "app" ? ["assets/images", "assets/icons"] : ["assets/images"]) {
+      if (!fs.existsSync(path.join(ROOT, site.dir, assets))) {
+        die({ code: "WEB_ASSET_MISSING", message: `${site.dir}/${assets} is required by pubspec.yaml.` });
+      }
+    }
+    const cwd = path.join(ROOT, site.dir);
+    const flutterArgs = [
+      `--packages=${runtime.packages}`, runtime.snapshot,
+    ];
+    const env = { ...process.env, FLUTTER_ROOT: runtime.root };
+    const pub = await runCommand(runtime.dart, [...flutterArgs, "pub", "get"], { cwd, env, timeoutMs: 900_000, redact: redactSecrets });
+    if (!pub.ok) die({ code: pub.code, message: `${site.name} pub get: ${pub.message}` });
+    const build = await runCommand(runtime.dart, [...flutterArgs, "build", "web", "--release",
+      "--dart-define=USE_STAGING=true",
+      `--dart-define=STAGING_API_KEY=${values[0]}`,
+      `--dart-define=STAGING_APP_ID=${values[1]}`,
+      `--dart-define=STAGING_SENDER_ID=${values[2]}`,
+      `--dart-define=STAGING_PROJECT_ID=${ALLOWED_PROJECT}`,
+    ], { cwd, env, timeoutMs: 1_200_000, redact: redactSecrets });
+    if (!build.ok) die({ code: build.code, message: `${site.name} web build: ${build.message}` });
+    const outDir = path.join(cwd, "build", "web");
+    const index = path.join(outDir, "index.html");
+    if (!fs.existsSync(index)) die({ code: "WEB_BUILD_EMPTY", message: `${site.name} build produced no index.html.` });
+    hosting.push({ ...site, outDir, artifactHash: hashDirectory(outDir), indexHash: createHash("sha256").update(fs.readFileSync(index)).digest("hex") });
+    say(`  ✓ ${site.name} web build hashed`);
+  }
+}
+
 // --- artefact identity ------------------------------------------------------
 // Computed AFTER the last build and every test, over exactly the file set
 // Firebase would package (its own ignore rules, read from source). This is the
@@ -352,6 +447,141 @@ must(
   })
 );
 say("  ✓ no Git drift — tree, HEAD, branch and remote unchanged since the start");
+
+if (phase !== "preflight") {
+  const rulesHash = `sha256:${createHash("sha256").update(fs.readFileSync(path.join(ROOT, "firestore.rules"))).digest("hex")}`;
+  const expectedNames = [...exportedNames(readText(path.join(ROOT, "functions", "lib", "index.js")) ?? "")].sort();
+  if (expectedNames.length === 0) die({ code: "FUNCTIONS_EXPORTS_EMPTY", message: "No compiled Functions exports found." });
+
+  // Admin SDK is resolved from the separately installed Functions tree. A
+  // machine-local manifest is never used to authorise contract: the record
+  // is read from the real staging project under ADC, never an emulator.
+  const fromFunctions = createRequire(path.join(ROOT, "functions", "package.json"));
+  const { initializeApp, applicationDefault, getApps } = fromFunctions("firebase-admin/app");
+  const { getFirestore, FieldValue } = fromFunctions("firebase-admin/firestore");
+  if (getApps().length === 0) initializeApp({ credential: applicationDefault(), projectId: ALLOWED_PROJECT });
+  const proofRef = getFirestore().collection("deployment_proofs").doc("staging-functions-expand");
+
+  async function remoteInventory() {
+    const r = await runFirebase(firebase.firebaseCli, ["functions:list", "--project", ALLOWED_PROJECT, "--json"], {
+      cwd: ROOT, timeoutMs: 120_000, redact: redactSecrets,
+    });
+    if (!r.ok) die({ code: r.code, message: `remote Functions inventory: ${r.message}` });
+    const parsed = must(parseJsonOrRefuse(r.stdout, "remote Functions inventory")).value;
+    must(checkRemoteFunctions({ response: parsed, expectedNames }));
+    return parsed;
+  }
+
+  async function remoteHealth() {
+    const endpoint = `https://europe-west1-${ALLOWED_PROJECT}.cloudfunctions.net/health`;
+    let response;
+    try { response = await fetch(endpoint, { signal: AbortSignal.timeout(20_000) }); }
+    catch (e) { die({ code: "HEALTH_UNREACHABLE", message: `Staging health is unreachable: ${e.message}` }); }
+    if (!response.ok || (await response.text()).trim() !== "ok") {
+      die({ code: "HEALTH_FAILED", message: `Staging health returned HTTP ${response.status} or an unexpected body.` });
+    }
+  }
+
+  async function remoteHosting(site, expectedIndexHash) {
+    let response;
+    try { response = await fetch(site.url, { signal: AbortSignal.timeout(20_000), cache: "no-store" }); }
+    catch (e) { die({ code: "HOSTING_UNREACHABLE", message: `${site.name} Hosting is unreachable: ${e.message}` }); }
+    if (!response.ok) die({ code: "HOSTING_FAILED", message: `${site.name} Hosting returned HTTP ${response.status}.` });
+    const actual = createHash("sha256").update(Buffer.from(await response.arrayBuffer())).digest("hex");
+    if (actual !== expectedIndexHash) {
+      die({ code: "HOSTING_MISMATCH", message: `${site.name} remote index.html differs from the staging build.` });
+    }
+  }
+
+  async function remoteProof() {
+    let snap;
+    try { snap = await proofRef.get(); }
+    catch (e) { die({ code: "REMOTE_PROOF_UNREADABLE", message: `Cannot read staging proof: ${e.message}` }); }
+    return snap.exists ? snap.data() : null;
+  }
+
+  async function firebaseMutation(label, only) {
+    // All arguments are fixed, versioned and explicitly target staging. The
+    // pinned local CLI runs under Node, with no shell or global Firebase shim.
+    const r = await runFirebase(firebase.firebaseCli,
+      ["deploy", "--only", only, "--project", ALLOWED_PROJECT, "--non-interactive"],
+      { cwd: ROOT, timeoutMs: 1_800_000, redact: redactSecrets });
+    if (!r.ok) die({ code: r.code, message: `${label}: ${r.message}` });
+    say(`  ✓ ${label}`);
+  }
+
+  if (phase === "expand") {
+    // Index creation can precede Functions safely; a failure stops before
+    // the callable deployment and no contract proof is written.
+    await firebaseMutation("Firestore indexes", "firestore:indexes");
+    await firebaseMutation("Functions", "functions");
+    // The Firebase predeploy hook rebuilds. Ensure the payload after it is
+    // byte-for-byte the one whose tests and hash passed above.
+    const shippedHash = hashFunctionsArtifact(path.join(ROOT, "functions"), functionsIgnoreGlobs(firebaseConfig)).hash;
+    if (shippedHash !== artefact.hash) die({ code: "ARTIFACT_DRIFT", message: "Functions payload changed during deployment; no expand proof written." });
+    await remoteInventory();
+    await remoteHealth();
+    for (const site of hosting) {
+      if (hashDirectory(site.outDir) !== site.artifactHash) {
+        die({ code: "HOSTING_ARTIFACT_DRIFT", message: `${site.name} build changed before deployment.` });
+      }
+      await firebaseMutation(`${site.name} Hosting`, `hosting:${site.name}`);
+      await remoteHosting(site, site.indexHash);
+    }
+    must(checkNoGitDrift({
+      initialSha: localSha, initialBranch: branch, initialRemoteSha: remoteSha,
+      finalStatus: await git(["status", "--porcelain", "--untracked-files=all"]),
+      finalSha: await git(["rev-parse", "HEAD"]),
+      finalBranch: await git(["rev-parse", "--abbrev-ref", "HEAD"]),
+      finalRemoteSha: (await git(["ls-remote", "origin", `refs/heads/${branch}`], { tolerant: true }))?.split(/\s+/)[0] ?? null,
+      finalRemoteSource: "ls-remote",
+    }));
+    try {
+      await proofRef.set({
+        project: ALLOWED_PROJECT, phase: "expand", status: "verified",
+        gitSha: localSha, branch, functionsArtifactHash: artefact.hash,
+        hostingArtifactHashes: Object.fromEntries(hosting.map((site) => [site.name, site.artifactHash])),
+        hostingIndexHashes: Object.fromEntries(hosting.map((site) => [site.name, site.indexHash])),
+        functionNames: expectedNames, verifiedAt: new Date().toISOString(),
+        writtenAt: FieldValue.serverTimestamp(),
+      });
+    } catch (e) { die({ code: "REMOTE_PROOF_WRITE_FAILED", message: `Functions expanded, but staging proof could not be written: ${e.message}` }); }
+    must(checkContractPrerequisite({ phase: "contract", proof: await remoteProof(), gitSha: localSha, functionsArtifactHash: artefact.hash }));
+    say("  ✓ authoritative expand proof recorded in staging Firestore");
+  } else {
+    const proof = await remoteProof();
+    must(checkContractPrerequisite({ phase: "contract", proof, gitSha: localSha, functionsArtifactHash: artefact.hash }));
+    await remoteInventory();
+    await remoteHealth();
+    for (const site of [
+      { name: "app", url: "https://mediexchange-staging.web.app/" },
+      { name: "admin", url: "https://mediexchange-staging-admin.web.app/" },
+    ]) {
+      const indexHash = proof?.hostingIndexHashes?.[site.name];
+      if (!/^[0-9a-f]{64}$/.test(String(indexHash ?? ""))) {
+        die({ code: "HOSTING_PROOF_INCOMPLETE", message: `${site.name} Hosting index hash absent from remote expand proof.` });
+      }
+      await remoteHosting(site, indexHash);
+    }
+    if (phase === "contract") {
+      await firebaseMutation("Firestore Rules", "firestore:rules");
+      try {
+        await proofRef.update({
+          contract: { gitSha: localSha, rulesHash, verifiedAt: new Date().toISOString() },
+          contractedAt: FieldValue.serverTimestamp(),
+        });
+      } catch (e) { die({ code: "CONTRACT_PROOF_WRITE_FAILED", message: `Rules deployed, but the staging contract record could not be written: ${e.message}` }); }
+    } else {
+      must(checkContractRecord({ proof, gitSha: localSha, rulesHash }));
+    }
+  }
+
+  const release = releaseOwnLock(LOCK, ownedLockUuid);
+  ownedLockUuid = null;
+  must(concludeRelease(release));
+  say(`\n✅ ${phase} passed — ${localSha.slice(0, 8)} on ${ALLOWED_PROJECT}.`);
+  process.exit(0);
+}
 
 // --- manifest ---------------------------------------------------------------
 // Written ONLY now: neither the hash step nor the drift check has died, so the
