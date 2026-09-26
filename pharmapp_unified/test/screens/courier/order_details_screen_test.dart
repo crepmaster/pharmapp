@@ -31,6 +31,7 @@ void main() {
   Widget host(
     Future<void> Function(String) runner, {
     Map<String, dynamic>? deliveryData,
+    Stream<Map<String, dynamic>?>? planStream,
   }) =>
       MaterialApp(
         home: Builder(builder: (context) {
@@ -42,7 +43,9 @@ void main() {
                   builder: (_) => OrderDetailsScreen(
                     delivery: delivery,
                     acceptRunner: runner,
-                    transportPlanStream: Stream.value(deliveryData),
+                    transportPlanStream: planStream ??
+                        Stream.value(
+                            deliveryData ?? {'proposalType': 'purchase'}),
                   ),
                 ),
               ),
@@ -143,5 +146,48 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Transport plan · 2 legs'), findsNothing);
     expect(find.text('Accept This Delivery'), findsOneWidget);
+  });
+
+  testWidgets('cannot accept before both exchange legs are visible',
+      (tester) async {
+    final plans = StreamController<Map<String, dynamic>?>();
+    addTearDown(plans.close);
+    await tester.pumpWidget(host((_) async {}, planStream: plans.stream));
+    await tester.tap(find.text('Open order'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Accept This Delivery'));
+
+    ElevatedButton acceptButton() => tester.widget<ElevatedButton>(
+        find.widgetWithText(ElevatedButton, 'Accept This Delivery'));
+    expect(acceptButton().onPressed, isNull);
+
+    plans.add({
+      'stockTransit': {
+        'version': 1,
+        'outbound': {'medicineName': 'Medicine X'},
+      },
+    });
+    await tester.pump();
+    expect(acceptButton().onPressed, isNull);
+
+    plans.add({
+      'stockTransit': {
+        'version': 1,
+        'outbound': {
+          'fromPharmacyId': 'seller',
+          'toPharmacyId': 'buyer',
+          'medicineName': 'Medicine X',
+          'quantity': 5,
+        },
+        'return': {
+          'fromPharmacyId': 'buyer',
+          'toPharmacyId': 'seller',
+          'medicineName': 'Medicine Y',
+          'quantity': 4,
+        },
+      },
+    });
+    await tester.pump();
+    expect(acceptButton().onPressed, isNotNull);
   });
 }

@@ -53,103 +53,122 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
             ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Status and Earnings Card
-            _buildHeaderCard(),
+      body: StreamBuilder<Map<String, dynamic>?>(
+        stream: _transportPlanStream,
+        builder: (context, planSnapshot) => SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Status and Earnings Card
+              _buildHeaderCard(),
 
-            const SizedBox(height: 16),
+              const SizedBox(height: 16),
 
-            // Pickup Location Card
-            _buildLocationCard(
-              title: 'Pickup Location',
-              location: delivery.pickup,
-              color: const Color(0xFF4CAF50),
-              icon: Icons.store,
-            ),
+              // Pickup Location Card
+              _buildLocationCard(
+                title: 'Pickup Location',
+                location: delivery.pickup,
+                color: const Color(0xFF4CAF50),
+                icon: Icons.store,
+              ),
 
-            const SizedBox(height: 16),
+              const SizedBox(height: 16),
 
-            // Delivery Location Card
-            _buildLocationCard(
-              title: 'Delivery Location',
-              location: delivery.delivery,
-              color: Colors.orange,
-              icon: Icons.local_hospital,
-            ),
+              // Delivery Location Card
+              _buildLocationCard(
+                title: 'Delivery Location',
+                location: delivery.delivery,
+                color: Colors.orange,
+                icon: Icons.local_hospital,
+              ),
 
-            const SizedBox(height: 16),
+              const SizedBox(height: 16),
 
-            _buildTransportPlan(),
+              _buildTransportPlan(planSnapshot),
 
-            // Items Card
-            _buildItemsCard(),
+              // Items Card
+              _buildItemsCard(),
 
-            const SizedBox(height: 16),
+              const SizedBox(height: 16),
 
-            // Distance and Time Card
-            _buildDistanceCard(),
+              // Distance and Time Card
+              _buildDistanceCard(),
 
-            const SizedBox(height: 24),
+              const SizedBox(height: 24),
 
-            // Action Buttons
-            if (delivery.isPending) _buildAcceptButton(context),
-          ],
+              // Action Buttons
+              if (delivery.isPending)
+                _buildAcceptButton(context,
+                    planReady: _isPlanReady(planSnapshot)),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildTransportPlan() {
-    return StreamBuilder<Map<String, dynamic>?>(
-      stream: _transportPlanStream,
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return const Card(
-            child: Padding(
+  bool _isPlanReady(AsyncSnapshot<Map<String, dynamic>?> snapshot) {
+    if (!snapshot.hasData || snapshot.hasError) return false;
+    final transit = snapshot.data?['stockTransit'];
+    if (transit is! Map || transit['version'] != 1) return true;
+    bool legReady(Object? value) =>
+        value is Map &&
+        (value['fromPharmacyId']?.toString().isNotEmpty ?? false) &&
+        (value['toPharmacyId']?.toString().isNotEmpty ?? false) &&
+        (value['medicineName']?.toString().isNotEmpty ?? false) &&
+        value['quantity'] is num &&
+        (value['quantity'] as num) > 0;
+    return legReady(transit['outbound']) && legReady(transit['return']);
+  }
+
+  Widget _buildTransportPlan(AsyncSnapshot<Map<String, dynamic>?> snapshot) {
+    if (snapshot.hasError) {
+      return const Card(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Text('Transport plan unavailable. Please retry.'),
+        ),
+      );
+    }
+    final transit = snapshot.data?['stockTransit'];
+    if (transit is! Map || transit['version'] != 1) {
+      return snapshot.hasData
+          ? const SizedBox.shrink()
+          : const Card(
+              child: Padding(
               padding: EdgeInsets.all(16),
-              child: Text('Transport plan unavailable. Please retry.'),
-            ),
-          );
-        }
-        final transit = snapshot.data?['stockTransit'];
-        if (transit is! Map || transit['version'] != 1) {
-          return const SizedBox.shrink();
-        }
-        final outbound = transit['outbound'];
-        final returnLeg = transit['return'];
-        if (outbound is! Map || returnLeg is! Map) {
-          return const Card(
-            child: Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('Transport plan is incomplete.'),
-            ),
-          );
-        }
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 16),
-          child: Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Transport plan · 2 legs',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 12),
-                  _buildTransportLeg('Outbound', outbound),
-                  const Divider(height: 24),
-                  _buildTransportLeg('Return', returnLeg),
-                ],
-              ),
-            ),
+              child: Text('Loading transport plan…'),
+            ));
+    }
+    final outbound = transit['outbound'];
+    final returnLeg = transit['return'];
+    if (outbound is! Map || returnLeg is! Map || !_isPlanReady(snapshot)) {
+      return const Card(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Text('Transport plan is incomplete.'),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Transport plan · 2 legs',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              _buildTransportLeg('Outbound', outbound),
+              const Divider(height: 24),
+              _buildTransportLeg('Return', returnLeg),
+            ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
@@ -660,11 +679,11 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
     );
   }
 
-  Widget _buildAcceptButton(BuildContext context) {
+  Widget _buildAcceptButton(BuildContext context, {required bool planReady}) {
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton(
-        onPressed: _isAccepting ? null : _acceptDelivery,
+        onPressed: _isAccepting || !planReady ? null : _acceptDelivery,
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color(0xFF4CAF50),
           foregroundColor: Colors.white,
