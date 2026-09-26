@@ -46,7 +46,11 @@ déclarés dans leurs `pubspec.yaml`. Définir, pour **chaque** site, les trois
 variables `STAGING_APP_API_KEY`, `STAGING_APP_APP_ID`,
 `STAGING_APP_SENDER_ID`, puis les mêmes avec le préfixe `STAGING_ADMIN`.
 Le script confirme auprès de Firebase que ces valeurs appartiennent aux apps
-Web du projet staging avant de construire quoi que ce soit.
+Web du projet staging avant de construire quoi que ce soit. Ces sept valeurs
+peuvent être placées dans `.deploy/staging-web.env.json` (ignoré Git). Le
+fichier `functions/.env.mediexchange-staging`, ignoré Git, doit contenir
+`SANDBOX_ENABLED=true` ; un `functions/.env` générique qui définit ce flag
+est refusé.
 
 Séquence contrôlée, à exécuter depuis la racine d'un checkout propre :
 
@@ -62,15 +66,35 @@ Portée réelle :
 | Phase | Portée | Cible |
 |---|---|---|
 | `preflight` | installation, build, tests, hash, anti-dérive ; aucune mutation distante | local |
-| `expand` | indexes, Functions, Hosting app puis admin ; inventaire Functions, health et empreinte des deux pages ; preuve d'expand écrite dans Firestore staging après succès | staging |
-| `contract` | Rules uniquement, après relecture de la preuve distante liée au commit et à l'empreinte Functions | staging |
-| `verify` | relit les preuves `expand` et `contract`, l'inventaire Functions, health et les deux pages ; aucune mutation distante | staging |
+| `expand` | Snapshot distant préalable, indexes, Functions, Hosting app puis admin ; comparaison des archives source de toutes les Functions et des fichiers complets des deux versions Hosting ; preuve d'expand écrite dans Firestore staging après succès | staging |
+| `contract` | Rules uniquement, après relecture des artefacts distants et d'un reçu de recette vente + échange vérifié dans Firestore ; comparaison du ruleset actif au fichier local après publication | staging |
+| `verify` | relit les preuves `expand` et `contract`, les sources Functions, les versions Hosting et le contenu Rules actif ; aucune mutation distante | staging |
 
 Un échec après un déploiement partiel **ne** produit **pas** de preuve de
 succès. Les Rules ne peuvent donc pas être durcies par `contract` tant que
 `expand` n'a pas été relancé et vérifié entièrement. Le document
 `deployment_proofs/staging-functions-expand` est la preuve distante ; le
 manifeste local `.deploy/` n'autorise jamais `contract`.
+
+Avant la première mutation, `expand` écrit un snapshot ignoré dans
+`.deploy/rollback-before-<sha8>-<horodatage>/` : manifeste, archives source
+des Functions, versions Hosting app/admin et ruleset actif. Il refuse si les
+anciennes générations du bucket source Functions ne sont pas conservées. La
+procédure de restauration ciblée est dans
+[STAGING_ROLLBACK.md](STAGING_ROLLBACK.md). Conserver ce dossier hors Git.
+
+Après `expand`, réaliser les deux parcours sur staging. Créer
+`.deploy/recette-<sha8>.json` avec les ID des propositions réellement créées :
+
+```json
+{"saleProposalId":"ID_PROPOSITION_VENTE","exchangeProposalId":"ID_PROPOSITION_ECHANGE"}
+```
+
+`contract` relit lui-même les propositions et livraisons staging. La vente
+doit être `completed`/`delivered`. L'échange doit l'être aussi, avec les
+réceptions des stocks transitaires aller et retour (`received_pending`) et
+`sandboxJourney.returnPhase=return_delivered`. Les ID seuls ne suffisent pas.
+Les montants et écritures du ledger sont encore un contrôle de recette séparé.
 
 Les clés staging passent par `--dart-define` (jamais committées ; config via
 `firebase apps:sdkconfig web`). `USE_STAGING` est géré dans `pharmapp_unified/lib/main.dart`,

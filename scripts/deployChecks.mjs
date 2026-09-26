@@ -408,6 +408,13 @@ export function checkContractPrerequisite({ phase, proof, gitSha, functionsArtif
       !/^sha256:[0-9a-f]{64}$/.test(String(proof.hostingArtifactHashes?.app ?? "")) ||
       !/^sha256:[0-9a-f]{64}$/.test(String(proof.hostingArtifactHashes?.admin ?? "")) ||
       !/^sha256:[0-9a-f]{64}$/.test(String(functionsArtifactHash ?? "")) ||
+      !Array.isArray(proof.remoteFunctions) || proof.remoteFunctions.length === 0 ||
+      proof.remoteFunctions.length !== proof.functionNames?.length ||
+      proof.remoteFunctions.some((fn) => fn.artifactHash !== functionsArtifactHash || !fn.revision || !fn.uri) ||
+      !/^sha256:[0-9a-f]{64}$/.test(String(proof.remoteHosting?.app?.artifactHash ?? "")) ||
+      !/^sha256:[0-9a-f]{64}$/.test(String(proof.remoteHosting?.admin?.artifactHash ?? "")) ||
+      !proof.remoteHosting?.app?.version || !proof.remoteHosting?.admin?.version ||
+      !/^\.deploy[\\/]rollback-before-/.test(String(proof.rollbackSnapshot ?? "")) ||
       !Number.isFinite(Date.parse(proof.verifiedAt ?? ""))) {
     return refuse(
       "CONTRACT_NEEDS_REMOTE_PROOF",
@@ -427,6 +434,8 @@ export function checkRemoteFunctions({ response, expectedNames }) {
   }
   const actual = new Set(rows.map((row) => {
     const raw = row?.id ?? row?.name;
+    if (row?.region !== "europe-west1" || row?.runtime !== "nodejs22" ||
+        row?.platform !== "gcfv2" || row?.state !== "ACTIVE") return null;
     return typeof raw === "string" ? raw.split("/").at(-1) : null;
   }).filter(Boolean));
   const missing = expectedNames.filter((name) => !actual.has(name));
@@ -470,13 +479,47 @@ export function checkStagingHostingTargets(rc, config) {
   return accept();
 }
 
+export function checkStagingRuntimeEnv({ staging, generic }) {
+  const hasFlag = (text, value) => new RegExp(`^\\s*SANDBOX_ENABLED\\s*=\\s*${value}\\s*$`, "m").test(String(text ?? ""));
+  if (!hasFlag(staging, "true")) {
+    return refuse("STAGING_ENV_MISSING", "functions/.env.mediexchange-staging must set SANDBOX_ENABLED=true for the demo runtime.");
+  }
+  if (/^\s*SANDBOX_ENABLED\s*=/m.test(String(generic ?? ""))) {
+    return refuse("GENERIC_SANDBOX_ENV_FORBIDDEN", "functions/.env sets SANDBOX_ENABLED without a project suffix; remove the ambiguity before staging deployment.");
+  }
+  return accept();
+}
+
 export function checkContractRecord({ proof, gitSha, rulesHash }) {
   if (proof?.contract?.gitSha !== gitSha || proof?.contract?.rulesHash !== rulesHash ||
+      !/^projects\/mediexchange-staging\/rulesets\/[^/]+$/.test(String(proof?.contract?.ruleset ?? "")) ||
       !/^sha256:[0-9a-f]{64}$/.test(String(rulesHash ?? "")) ||
       !Number.isFinite(Date.parse(proof?.contract?.verifiedAt ?? ""))) {
     return refuse("RULES_CONTRACT_UNVERIFIED", "No matching remote record confirms that staging Rules were deployed for this commit.");
   }
   return accept();
+}
+
+/** Manual demo IDs are evidence only when Firestore confirms both completed flows. */
+export function checkDemoRecette({ receipt, saleProposal, saleDelivery, exchangeProposal, exchangeDelivery }) {
+  const ids = [receipt?.saleProposalId, receipt?.exchangeProposalId];
+  if (ids.some((id) => typeof id !== "string" || !/^[A-Za-z0-9_-]{4,}$/.test(id)) || ids[0] === ids[1]) {
+    return refuse("DEMO_RECETTE_MISSING", "Contract requires distinct sale and exchange proposal IDs in the local demo receipt.");
+  }
+  const linked = (proposal, delivery, proposalId) =>
+    proposal?.status === "completed" && delivery?.status === "delivered" &&
+    typeof proposal?.deliveryId === "string" && proposal.deliveryId === delivery?.id &&
+    delivery?.proposalId === proposalId;
+  if (!linked(saleProposal, saleDelivery, ids[0]) || saleProposal?.details?.type !== "purchase") {
+    return refuse("SALE_RECETTE_INCOMPLETE", "The sale proposal and its linked delivery are not both completed on staging.");
+  }
+  if (!linked(exchangeProposal, exchangeDelivery, ids[1]) || exchangeProposal?.details?.type !== "exchange" ||
+      exchangeDelivery?.stockTransit?.outbound?.state !== "received_pending" ||
+      exchangeDelivery?.stockTransit?.return?.state !== "received_pending" ||
+      exchangeDelivery?.sandboxJourney?.returnPhase !== "return_delivered") {
+    return refuse("EXCHANGE_RECETTE_INCOMPLETE", "The exchange has no confirmed outbound and return receipts in staging.");
+  }
+  return accept({ saleProposalId: ids[0], exchangeProposalId: ids[1] });
 }
 
 /**

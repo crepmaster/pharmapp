@@ -23,7 +23,9 @@ import {
   checkRemoteFunctions,
   checkWebSdkConfig,
   checkStagingHostingTargets,
+  checkStagingRuntimeEnv,
   checkContractRecord,
+  checkDemoRecette,
   checkNoConcurrentRun,
   checkRequiredTools,
   checkFirebaseRuntime,
@@ -310,6 +312,13 @@ describe("contract — a local manifest is never proof", () => {
       project: "mediexchange-staging", phase: "expand", status: "verified",
       gitSha: "abc123", functionsArtifactHash: hash,
       hostingArtifactHashes: { app: hash, admin: hash },
+      functionNames: ["health"],
+      remoteFunctions: [{ name: "health", artifactHash: hash, revision: "health-00001", uri: "https://example.test" }],
+      remoteHosting: {
+        app: { artifactHash: hash, version: "sites/mediexchange-staging/versions/1" },
+        admin: { artifactHash: hash, version: "sites/mediexchange-staging-admin/versions/1" },
+      },
+      rollbackSnapshot: ".deploy/rollback-before-abc123-1234",
       verifiedAt: "2026-09-26T14:00:00.000Z",
     };
     assert.equal(checkContractPrerequisite({ phase: "contract", proof, gitSha: "abc123", functionsArtifactHash: hash }).ok, true);
@@ -318,6 +327,8 @@ describe("contract — a local manifest is never proof", () => {
       { ...proof, status: "pending" },
       { ...proof, gitSha: "other" },
       { ...proof, functionsArtifactHash: `sha256:${"b".repeat(64)}` },
+      { ...proof, remoteFunctions: [{ ...proof.remoteFunctions[0], artifactHash: `sha256:${"b".repeat(64)}` }] },
+      { ...proof, remoteHosting: { ...proof.remoteHosting, app: { ...proof.remoteHosting.app, artifactHash: "bad" } } },
       { ...proof, verifiedAt: "invalid" },
     ]) {
       assert.equal(checkContractPrerequisite({ phase: "contract", proof: altered, gitSha: "abc123", functionsArtifactHash: hash }).code, "CONTRACT_NEEDS_REMOTE_PROOF");
@@ -327,14 +338,16 @@ describe("contract — a local manifest is never proof", () => {
 
 describe("remote Functions inventory", () => {
   const expectedNames = ["health", "createExchangeProposal"];
+  const row = (id) => ({ id, region: "europe-west1", runtime: "nodejs22", platform: "gcfv2", state: "ACTIVE" });
   test("accepts the expected exported functions", () => {
     assert.equal(checkRemoteFunctions({
-      response: { status: "success", result: [{ id: "health" }, { id: "createExchangeProposal" }] },
+      response: { status: "success", result: [row("health"), row("createExchangeProposal")] },
       expectedNames,
     }).ok, true);
   });
-  test("refuses a missing new callable or unreadable output", () => {
-    assert.equal(checkRemoteFunctions({ response: { result: [{ id: "health" }] }, expectedNames }).code, "FUNCTIONS_REMOTE_MISSING");
+  test("refuses a missing new callable, wrong region, or unreadable output", () => {
+    assert.equal(checkRemoteFunctions({ response: { result: [row("health")] }, expectedNames }).code, "FUNCTIONS_REMOTE_MISSING");
+    assert.equal(checkRemoteFunctions({ response: { result: [row("health"), { ...row("createExchangeProposal"), region: "us-central1" }] }, expectedNames }).code, "FUNCTIONS_REMOTE_MISSING");
     assert.equal(checkRemoteFunctions({ response: {}, expectedNames }).code, "FUNCTIONS_REMOTE_UNREADABLE");
   });
 });
@@ -370,15 +383,48 @@ describe("staging Hosting target mapping", () => {
   });
 });
 
+describe("staging runtime environment", () => {
+  test("requires the project-specific sandbox flag", () => {
+    assert.equal(checkStagingRuntimeEnv({ staging: "SANDBOX_ENABLED=true\n", generic: null }).ok, true);
+    assert.equal(checkStagingRuntimeEnv({ staging: null, generic: null }).code, "STAGING_ENV_MISSING");
+    assert.equal(checkStagingRuntimeEnv({ staging: "SANDBOX_ENABLED=false", generic: null }).code, "STAGING_ENV_MISSING");
+  });
+  test("refuses a competing generic sandbox flag", () => {
+    assert.equal(checkStagingRuntimeEnv({ staging: "SANDBOX_ENABLED=true", generic: "SANDBOX_ENABLED=true" }).code, "GENERIC_SANDBOX_ENV_FORBIDDEN");
+  });
+});
+
 describe("remote Rules contract record", () => {
   const hash = `sha256:${"c".repeat(64)}`;
-  const proof = { contract: { gitSha: "abc123", rulesHash: hash, verifiedAt: "2026-09-26T15:00:00Z" } };
+  const proof = { contract: { gitSha: "abc123", rulesHash: hash,
+    ruleset: "projects/mediexchange-staging/rulesets/older", verifiedAt: "2026-09-26T15:00:00Z" } };
   test("accepts the Rules record for this commit and content", () => {
     assert.equal(checkContractRecord({ proof, gitSha: "abc123", rulesHash: hash }).ok, true);
   });
   test("refuses a record from a different Rules file or missing contract", () => {
     assert.equal(checkContractRecord({ proof, gitSha: "abc123", rulesHash: `sha256:${"d".repeat(64)}` }).code, "RULES_CONTRACT_UNVERIFIED");
     assert.equal(checkContractRecord({ proof: {}, gitSha: "abc123", rulesHash: hash }).code, "RULES_CONTRACT_UNVERIFIED");
+  });
+});
+
+describe("demo recette before restrictive Rules", () => {
+  const receipt = { saleProposalId: "sale_1234", exchangeProposalId: "exchange_1234" };
+  const saleProposal = { status: "completed", deliveryId: "sale_delivery", details: { type: "purchase" } };
+  const saleDelivery = { id: "sale_delivery", proposalId: "sale_1234", status: "delivered" };
+  const exchangeProposal = { status: "completed", deliveryId: "exchange_delivery", details: { type: "exchange" } };
+  const exchangeDelivery = {
+    id: "exchange_delivery", proposalId: "exchange_1234", status: "delivered",
+    stockTransit: { outbound: { state: "received_pending" }, return: { state: "received_pending" } },
+    sandboxJourney: { returnPhase: "return_delivered" },
+  };
+  const base = { receipt, saleProposal, saleDelivery, exchangeProposal, exchangeDelivery };
+  test("accepts linked, completed sale and round-trip exchange", () => {
+    assert.equal(checkDemoRecette(base).ok, true);
+  });
+  test("refuses missing or mismatched IDs and an undelivered return", () => {
+    assert.equal(checkDemoRecette({ ...base, receipt: null }).code, "DEMO_RECETTE_MISSING");
+    assert.equal(checkDemoRecette({ ...base, saleDelivery: { ...saleDelivery, proposalId: "other" } }).code, "SALE_RECETTE_INCOMPLETE");
+    assert.equal(checkDemoRecette({ ...base, exchangeDelivery: { ...exchangeDelivery, stockTransit: { ...exchangeDelivery.stockTransit, return: { state: "in_transit" } } } }).code, "EXCHANGE_RECETTE_INCOMPLETE");
   });
 });
 

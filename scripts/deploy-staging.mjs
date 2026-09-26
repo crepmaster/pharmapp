@@ -50,7 +50,9 @@ import {
   checkRemoteFunctions,
   checkWebSdkConfig,
   checkStagingHostingTargets,
+  checkStagingRuntimeEnv,
   checkContractRecord,
+  checkDemoRecette,
   checkNoConcurrentRun,
   checkRequiredTools,
   checkFirebaseRuntime,
@@ -82,6 +84,7 @@ import {
 } from "./deployRunner.mjs";
 import { hashFunctionsArtifact, functionsIgnoreGlobs, SYMLINK_CYCLE_CODE } from "./deployArtifact.mjs";
 import { exportedNames } from "../functions/scripts/verifyExports.mjs";
+import { remoteClient, inspectFunctionSet, compareFunctionRevisions, inspectHosting, inspectRules } from "./deployRemoteProof.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const STATE_DIR = path.join(ROOT, ".deploy");
@@ -203,6 +206,17 @@ const project = (argv.find((a) => a.startsWith("--project=")) ?? "").split("=")[
 must(checkPhase(phase));
 must(checkProject(project));
 
+if (phase === "expand") {
+  const localConfig = must(parseJsonOrRefuse(
+    readText(path.join(STATE_DIR, "staging-web.env.json")),
+    ".deploy/staging-web.env.json"
+  )).value;
+  for (const name of ["FLUTTER_ROOT", "STAGING_APP_API_KEY", "STAGING_APP_APP_ID", "STAGING_APP_SENDER_ID",
+    "STAGING_ADMIN_API_KEY", "STAGING_ADMIN_APP_ID", "STAGING_ADMIN_SENDER_ID"]) {
+    if (!process.env[name] && typeof localConfig?.[name] === "string") process.env[name] = localConfig[name];
+  }
+}
+
 say(`\n▸ deploy-staging — phase '${phase}' on ${ALLOWED_PROJECT}\n`);
 
 must(checkNoConcurrentRun(readLock(LOCK), Date.now()));
@@ -239,6 +253,10 @@ must(checkFunctionsIgnore(firebaseConfig));
 must(checkPredeployHook(firebaseConfig));
 const firebaseRc = must(parseJsonOrRefuse(readText(path.join(ROOT, ".firebaserc")), ".firebaserc")).value;
 must(checkStagingHostingTargets(firebaseRc, firebaseConfig));
+must(checkStagingRuntimeEnv({
+  staging: readText(path.join(ROOT, "functions", ".env.mediexchange-staging")),
+  generic: readText(path.join(ROOT, "functions", ".env")),
+}));
 say("  ✓ firebase.json packages and verifies the right artefact");
 
 const functionsPkg = must(
@@ -459,16 +477,18 @@ if (phase !== "preflight") {
   const fromFunctions = createRequire(path.join(ROOT, "functions", "package.json"));
   const { initializeApp, applicationDefault, getApps } = fromFunctions("firebase-admin/app");
   const { getFirestore, FieldValue } = fromFunctions("firebase-admin/firestore");
-  if (getApps().length === 0) initializeApp({ credential: applicationDefault(), projectId: ALLOWED_PROJECT });
+  const credential = applicationDefault();
+  if (getApps().length === 0) initializeApp({ credential, projectId: ALLOWED_PROJECT });
   const proofRef = getFirestore().collection("deployment_proofs").doc("staging-functions-expand");
+  const remote = remoteClient(credential);
 
-  async function remoteInventory() {
+  async function remoteInventory(requireExpected = true) {
     const r = await runFirebase(firebase.firebaseCli, ["functions:list", "--project", ALLOWED_PROJECT, "--json"], {
       cwd: ROOT, timeoutMs: 120_000, redact: redactSecrets,
     });
     if (!r.ok) die({ code: r.code, message: `remote Functions inventory: ${r.message}` });
     const parsed = must(parseJsonOrRefuse(r.stdout, "remote Functions inventory")).value;
-    must(checkRemoteFunctions({ response: parsed, expectedNames }));
+    if (requireExpected) must(checkRemoteFunctions({ response: parsed, expectedNames }));
     return parsed;
   }
 
@@ -500,6 +520,30 @@ if (phase !== "preflight") {
     return snap.exists ? snap.data() : null;
   }
 
+  async function demoRecette() {
+    const receipt = must(parseJsonOrRefuse(
+      readText(path.join(STATE_DIR, `recette-${localSha.slice(0, 8)}.json`)),
+      `.deploy/recette-${localSha.slice(0, 8)}.json`
+    )).value;
+    const db = getFirestore();
+    async function proposalWithDelivery(id) {
+      const proposalSnap = await db.collection("exchange_proposals").doc(id).get();
+      const proposal = proposalSnap.exists ? proposalSnap.data() : null;
+      const deliveryId = proposal?.deliveryId;
+      const deliverySnap = typeof deliveryId === "string" ? await db.collection("deliveries").doc(deliveryId).get() : null;
+      return { proposal, delivery: deliverySnap?.exists ? { id: deliverySnap.id, ...deliverySnap.data() } : null };
+    }
+    if (![receipt?.saleProposalId, receipt?.exchangeProposalId]
+      .every((id) => typeof id === "string" && /^[A-Za-z0-9_-]{4,}$/.test(id))) {
+      die({ code: "DEMO_RECETTE_MISSING", message: "The demo receipt must name both proposal IDs." });
+    }
+    const sale = await proposalWithDelivery(receipt.saleProposalId);
+    const exchange = await proposalWithDelivery(receipt.exchangeProposalId);
+    must(checkDemoRecette({ receipt, saleProposal: sale.proposal, saleDelivery: sale.delivery,
+      exchangeProposal: exchange.proposal, exchangeDelivery: exchange.delivery }));
+    say("  ✓ staging sale and round-trip exchange confirmed by Firestore");
+  }
+
   async function firebaseMutation(label, only) {
     // All arguments are fixed, versioned and explicitly target staging. The
     // pinned local CLI runs under Node, with no shell or global Firebase shim.
@@ -511,8 +555,35 @@ if (phase !== "preflight") {
   }
 
   if (phase === "expand") {
+    // Capture immutable remote revisions and the actual old source archives
+    // before the first mutation. If any read or download fails, nothing ships.
+    const beforeInventory = await remoteInventory(false);
+    const previousNames = beforeInventory.result.map((row) => row.id);
+    if (previousNames.length === 0 || previousNames.some((name) => typeof name !== "string")) {
+      die({ code: "ROLLBACK_SNAPSHOT_INCOMPLETE", message: "Cannot enumerate prior staging Functions for rollback." });
+    }
+    const rollbackDir = path.join(STATE_DIR, `rollback-before-${localSha.slice(0, 8)}-${Date.now()}`);
+    fs.mkdirSync(rollbackDir, { recursive: true });
+    let previous;
+    try {
+      previous = {
+        project: ALLOWED_PROJECT, beforeGitSha: localSha, capturedAt: new Date().toISOString(),
+        functions: await inspectFunctionSet(remote, previousNames, null, path.join(rollbackDir, "sources")),
+        hosting: {
+          app: await inspectHosting(remote, "mediexchange-staging"),
+          admin: await inspectHosting(remote, "mediexchange-staging-admin"),
+        },
+        rules: await inspectRules(remote),
+      };
+      for (const bucket of new Set(previous.functions.map((fn) => fn.source.bucket))) {
+        await remote.bucketVersioning(bucket);
+      }
+    } catch (e) { die({ code: "ROLLBACK_SNAPSHOT_INCOMPLETE", message: `No remote mutation performed: ${e.message}` }); }
+    fs.writeFileSync(path.join(rollbackDir, "manifest.json"), JSON.stringify(previous, null, 2) + "\n");
+    say(`  ✓ rollback snapshot captured: ${path.relative(ROOT, rollbackDir)}`);
+
     // Index creation can precede Functions safely; a failure stops before
-    // the callable deployment and no contract proof is written.
+    // the callable deployment and no expand proof is written.
     await firebaseMutation("Firestore indexes", "firestore:indexes");
     await firebaseMutation("Functions", "functions");
     // The Firebase predeploy hook rebuilds. Ensure the payload after it is
@@ -521,12 +592,24 @@ if (phase !== "preflight") {
     if (shippedHash !== artefact.hash) die({ code: "ARTIFACT_DRIFT", message: "Functions payload changed during deployment; no expand proof written." });
     await remoteInventory();
     await remoteHealth();
+    let remoteFunctions;
+    try { remoteFunctions = await inspectFunctionSet(remote, expectedNames, artefact.hash); }
+    catch (e) { die({ code: "FUNCTIONS_SOURCE_MISMATCH", message: e.message }); }
+    const remoteHostingProof = {};
     for (const site of hosting) {
       if (hashDirectory(site.outDir) !== site.artifactHash) {
         die({ code: "HOSTING_ARTIFACT_DRIFT", message: `${site.name} build changed before deployment.` });
       }
       await firebaseMutation(`${site.name} Hosting`, `hosting:${site.name}`);
       await remoteHosting(site, site.indexHash);
+      try {
+        remoteHostingProof[site.name] = await inspectHosting(remote,
+          site.name === "app" ? "mediexchange-staging" : "mediexchange-staging-admin", site.outDir);
+      } catch (e) { die({ code: "HOSTING_BUNDLE_MISMATCH", message: e.message }); }
+    }
+    const currentRules = await inspectRules(remote);
+    if (currentRules.ruleset !== previous.rules.ruleset) {
+      die({ code: "RULES_MOVED_DURING_EXPAND", message: "The active Rules release changed during expand; contract is blocked." });
     }
     must(checkNoGitDrift({
       initialSha: localSha, initialBranch: branch, initialRemoteSha: remoteSha,
@@ -542,6 +625,10 @@ if (phase !== "preflight") {
         gitSha: localSha, branch, functionsArtifactHash: artefact.hash,
         hostingArtifactHashes: Object.fromEntries(hosting.map((site) => [site.name, site.artifactHash])),
         hostingIndexHashes: Object.fromEntries(hosting.map((site) => [site.name, site.indexHash])),
+        remoteFunctions,
+        remoteHosting: remoteHostingProof,
+        rulesBefore: previous.rules,
+        rollbackSnapshot: path.relative(ROOT, rollbackDir),
         functionNames: expectedNames, verifiedAt: new Date().toISOString(),
         writtenAt: FieldValue.serverTimestamp(),
       });
@@ -553,6 +640,11 @@ if (phase !== "preflight") {
     must(checkContractPrerequisite({ phase: "contract", proof, gitSha: localSha, functionsArtifactHash: artefact.hash }));
     await remoteInventory();
     await remoteHealth();
+    try {
+      const liveFunctions = await inspectFunctionSet(remote, expectedNames, artefact.hash);
+      compareFunctionRevisions(proof.remoteFunctions, liveFunctions);
+    }
+    catch (e) { die({ code: "FUNCTIONS_SOURCE_MISMATCH", message: e.message }); }
     for (const site of [
       { name: "app", url: "https://mediexchange-staging.web.app/" },
       { name: "admin", url: "https://mediexchange-staging-admin.web.app/" },
@@ -562,17 +654,37 @@ if (phase !== "preflight") {
         die({ code: "HOSTING_PROOF_INCOMPLETE", message: `${site.name} Hosting index hash absent from remote expand proof.` });
       }
       await remoteHosting(site, indexHash);
+      let live;
+      try { live = await inspectHosting(remote, site.name === "app" ? "mediexchange-staging" : "mediexchange-staging-admin"); }
+      catch (e) { die({ code: "HOSTING_BUNDLE_UNREADABLE", message: e.message }); }
+      if (live.artifactHash !== proof.remoteHosting?.[site.name]?.artifactHash ||
+          live.version !== proof.remoteHosting?.[site.name]?.version) {
+        die({ code: "HOSTING_BUNDLE_MOVED", message: `${site.name} Hosting release differs from the verified expand.` });
+      }
     }
     if (phase === "contract") {
+      await demoRecette();
+      const beforeRules = await inspectRules(remote);
+      if (beforeRules.ruleset !== proof.rulesBefore?.ruleset) {
+        die({ code: "RULES_MOVED_SINCE_EXPAND", message: "Active Rules changed since expand; contract requires a new review." });
+      }
       await firebaseMutation("Firestore Rules", "firestore:rules");
+      let activeRules;
+      try { activeRules = await inspectRules(remote, readText(path.join(ROOT, "firestore.rules"))); }
+      catch (e) { die({ code: "RULES_CONTENT_MISMATCH", message: e.message }); }
       try {
         await proofRef.update({
-          contract: { gitSha: localSha, rulesHash, verifiedAt: new Date().toISOString() },
+          contract: { gitSha: localSha, rulesHash, ruleset: activeRules.ruleset, verifiedAt: new Date().toISOString() },
           contractedAt: FieldValue.serverTimestamp(),
         });
       } catch (e) { die({ code: "CONTRACT_PROOF_WRITE_FAILED", message: `Rules deployed, but the staging contract record could not be written: ${e.message}` }); }
     } else {
       must(checkContractRecord({ proof, gitSha: localSha, rulesHash }));
+      try {
+        const liveRules = await inspectRules(remote, readText(path.join(ROOT, "firestore.rules")));
+        if (liveRules.ruleset !== proof.contract.ruleset) throw new Error("Active Rules release moved since contract");
+      }
+      catch (e) { die({ code: "RULES_CONTENT_MISMATCH", message: e.message }); }
     }
   }
 
