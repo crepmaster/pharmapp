@@ -317,6 +317,72 @@ describe("terminateExchangeDelivery — exchange compensation", () => {
   });
 });
 
+describe("physical exchange termination — no fictional stock rollback", () => {
+  function seedTwoHeldLots() {
+    world = exchangeWorld();
+    const delivery = world.docs.get(`deliveries/${DELIVERY_ID}`)!.data!;
+    delivery.status = "accepted";
+    delivery.courierFee = 0;
+    delivery.stockTransit = {
+      version: 1,
+      outbound: { state: "reserved", quantity: 5 },
+      return: { state: "reserved", quantity: EXCHANGE_QTY },
+    };
+    const proposal = world.docs.get(`exchange_proposals/${PROPOSAL_ID}`)!.data!;
+    proposal.reservations = {
+      walletReserved: null, inventoryReserved: EXCHANGE_QTY,
+      ownerInventoryReserved: 5,
+      buyerCourierFeeReserved: 0, sellerCourierFeeReserved: 0,
+    };
+    const owner = world.docs.get(`pharmacy_inventory/${SELLER_ROOT_ITEM}`)!.data!;
+    owner.availableQuantity = 94;
+    owner.reservedQuantity = 5;
+  }
+
+  test("before pickup, cancellation releases both reserved lots atomically", async () => {
+    seedTwoHeldLots();
+    await call(COURIER);
+    const proposer = writeTo(`pharmacy_inventory/${PROPOSER_HELD_ITEM}`)!;
+    const owner = writeTo(`pharmacy_inventory/${SELLER_ROOT_ITEM}`)!;
+    expect((proposer.payload.reservedQuantity as { n?: number }).n).toBe(-EXCHANGE_QTY);
+    expect((owner.payload.reservedQuantity as { n?: number }).n).toBe(-5);
+    expect((owner.payload.availableQuantity as { n?: number }).n).toBe(5);
+  });
+
+  test("after pickup, cancellation refuses instead of restoring a physically absent lot", async () => {
+    seedTwoHeldLots();
+    const delivery = world.docs.get(`deliveries/${DELIVERY_ID}`)!.data!;
+    delivery.status = "picked_up";
+    (delivery.stockTransit as { outbound: { state: string } }).outbound.state = "in_transit";
+    await expect(call(COURIER)).rejects.toMatchObject({ code: "failed-precondition" });
+    expect(world.txWrites).toHaveLength(0);
+  });
+
+  test("before pickup, cancellation also returns both courier fee holds", async () => {
+    seedTwoHeldLots();
+    world.docs.get(`deliveries/${DELIVERY_ID}`)!.data!.courierFee = 60;
+    const proposal = world.docs.get(`exchange_proposals/${PROPOSAL_ID}`)!.data!;
+    proposal.reservations = {
+      ...(proposal.reservations as Record<string, unknown>),
+      buyerCourierFeeReserved: 30,
+      sellerCourierFeeReserved: 30,
+    };
+    world.docs.set(`wallets/${BUYER}`, {
+      exists: true, data: { held: 3000, available: 0 },
+    });
+    world.docs.set(`wallets/${SELLER}`, {
+      exists: true, data: { held: 3000, available: 0 },
+    });
+    await call(COURIER);
+    const buyerWallet = writeTo(`wallets/${BUYER}`)!;
+    const sellerWallet = writeTo(`wallets/${SELLER}`)!;
+    expect((buyerWallet.payload.held as { n?: number }).n).toBe(-3000);
+    expect((buyerWallet.payload.available as { n?: number }).n).toBe(3000);
+    expect((sellerWallet.payload.held as { n?: number }).n).toBe(-3000);
+    expect((sellerWallet.payload.available as { n?: number }).n).toBe(3000);
+  });
+});
+
 describe("terminateExchangeDelivery — guards, no partial writes", () => {
   test("wallet.deducted below the reserved amount → refused, nothing written", async () => {
     world = purchaseWorld({ walletDeducted: TOTAL_WU - 1 });

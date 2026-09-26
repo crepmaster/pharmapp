@@ -161,7 +161,7 @@ function buildFakeWorld(overrides: {
   sellerEmail?: string;
   courierEmail?: string;
   deliveryStatus?: string;
-  courierId?: string;
+  courierId?: string | null;
   proposalType?: "purchase" | "exchange";
 } = {}): FakeWorld {
   const {
@@ -401,16 +401,16 @@ describe("completeExchangeDelivery — sandbox bypass 4-case matrix (round-4 spe
   });
 
   // -------------------------------------------------------------------------
-  // CASE 2 : trade party + sandbox email + courierId !== caller
+  // CASE 2 : trade party + sandbox email + no assigned courier
   //          (buyer went straight to Delivered without Pickup)
   //          → BYPASS ACTIVE. Preserved from round-3, still must work.
   // -------------------------------------------------------------------------
-  describe("CASE 2: buyer bypasses courier assignment (courierId !== caller)", () => {
+  describe("CASE 2: buyer acts before courier assignment", () => {
     beforeEach(() => {
       process.env.SANDBOX_ENABLED = "true";
       world = buildFakeWorld({
         deliveryStatus: "pending",
-        courierId: "unassigned",
+        courierId: null,
       });
     });
 
@@ -424,6 +424,15 @@ describe("completeExchangeDelivery — sandbox bypass 4-case matrix (round-4 spe
       expect((sellerCredit?.payload.available as { n?: number })?.n).toBe(
         TOTAL_AMOUNT * 100
       );
+    });
+
+    test("buyer cannot bypass an order assigned to a real courier", async () => {
+      world = buildFakeWorld({
+        deliveryStatus: "picked_up",
+        courierId: OUTSIDER_COURIER,
+      });
+      await expect(callAs(BUYER)).rejects.toMatchObject({ code: "permission-denied" });
+      expect(world.txWrites).toHaveLength(0);
     });
   });
 

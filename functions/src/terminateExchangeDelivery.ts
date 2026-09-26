@@ -182,6 +182,8 @@ export const terminateExchangeDelivery = onCall<TerminateDeliveryData>(
       const ledgerSnap = await transaction.get(ledgerRef);
 
       const proposalType = proposal.details?.type;
+      const physicalExchange = proposalType === "exchange" &&
+        delivery.stockTransit?.version === 1;
       if (proposalType !== "purchase" && proposalType !== "exchange") {
         throw new HttpsError(
           "failed-precondition",
@@ -291,6 +293,15 @@ export const terminateExchangeDelivery = onCall<TerminateDeliveryData>(
           `Linked proposal is '${proposal.status}', not 'accepted'.`
         );
       }
+      if (physicalExchange && (
+        delivery.stockTransit?.outbound?.state !== "reserved" ||
+        delivery.stockTransit?.return?.state !== "reserved"
+      )) {
+        throw new HttpsError(
+          "failed-precondition",
+          "A collected exchange lot cannot be restored automatically; incident review required."
+        );
+      }
 
       // ===================================================================
       // PHASE 2: COMPENSATION READS + GUARDS
@@ -300,6 +311,12 @@ export const terminateExchangeDelivery = onCall<TerminateDeliveryData>(
       let reservedWalletUnits = 0;
       let inventoryRef: FirebaseFirestore.DocumentReference | null = null;
       let releaseQuantity = 0;
+      let ownerInventoryRef: FirebaseFirestore.DocumentReference | null = null;
+      let ownerReleaseQuantity = 0;
+      let buyerFeeWalletRef: FirebaseFirestore.DocumentReference | null = null;
+      let sellerFeeWalletRef: FirebaseFirestore.DocumentReference | null = null;
+      let buyerFeeWU = 0;
+      let sellerFeeWU = 0;
 
       if (proposalType === "purchase") {
         if (typeof walletReservedMajor !== "number" || walletReservedMajor <= 0) {
@@ -370,6 +387,44 @@ export const terminateExchangeDelivery = onCall<TerminateDeliveryData>(
             "Inventory does not hold the reserved quantity; refusing to release."
           );
         }
+        if (physicalExchange) {
+          ownerReleaseQuantity = Number(proposal.reservations?.ownerInventoryReserved ?? 0);
+          if (!Number.isSafeInteger(ownerReleaseQuantity) || ownerReleaseQuantity <= 0 ||
+              ownerReleaseQuantity !== delivery.stockTransit?.outbound?.quantity ||
+              !proposal.inventoryItemId) {
+            throw new HttpsError("failed-precondition", "Owner lot reservation is inconsistent.");
+          }
+          ownerInventoryRef = db.collection("pharmacy_inventory").doc(proposal.inventoryItemId);
+          const ownerSnap = await transaction.get(ownerInventoryRef);
+          const ownerReserved = Number(ownerSnap.data()?.reservedQuantity ?? 0);
+          if (!ownerSnap.exists || !Number.isSafeInteger(ownerReserved) ||
+              ownerReserved < ownerReleaseQuantity) {
+            throw new HttpsError("failed-precondition", "Owner lot hold cannot be released safely.");
+          }
+          const buyerFee = Number(proposal.reservations?.buyerCourierFeeReserved);
+          const sellerFee = Number(proposal.reservations?.sellerCourierFeeReserved);
+          if (!Number.isFinite(buyerFee) || buyerFee < 0 ||
+              !Number.isFinite(sellerFee) || sellerFee < 0 ||
+              majorToWalletUnits(buyerFee, "pharmacy") +
+                majorToWalletUnits(sellerFee, "pharmacy") !==
+                majorToWalletUnits(Number(delivery.courierFee ?? 0), "pharmacy")) {
+            throw new HttpsError("failed-precondition", "Courier fee holds are inconsistent.");
+          }
+          buyerFeeWU = majorToWalletUnits(buyerFee, "pharmacy");
+          sellerFeeWU = majorToWalletUnits(sellerFee, "pharmacy");
+          if (buyerFeeWU > 0 || sellerFeeWU > 0) {
+            buyerFeeWalletRef = db.collection("wallets").doc(proposal.fromPharmacyId);
+            sellerFeeWalletRef = db.collection("wallets").doc(proposal.toPharmacyId);
+            const [buyerFeeWallet, sellerFeeWallet] = await Promise.all([
+              transaction.get(buyerFeeWalletRef), transaction.get(sellerFeeWalletRef),
+            ]);
+            if (!buyerFeeWallet.exists || !sellerFeeWallet.exists ||
+                Number(buyerFeeWallet.data()?.held ?? 0) < buyerFeeWU ||
+                Number(sellerFeeWallet.data()?.held ?? 0) < sellerFeeWU) {
+              throw new HttpsError("failed-precondition", "Courier fee holds cannot be released safely.");
+            }
+          }
+        }
       }
 
       // ===================================================================
@@ -390,6 +445,27 @@ export const terminateExchangeDelivery = onCall<TerminateDeliveryData>(
           availableQuantity: FieldValue.increment(releaseQuantity),
           updatedAt: now,
         });
+        if (ownerInventoryRef) {
+          transaction.update(ownerInventoryRef, {
+            reservedQuantity: FieldValue.increment(-ownerReleaseQuantity),
+            availableQuantity: FieldValue.increment(ownerReleaseQuantity),
+            updatedAt: now,
+          });
+        }
+        if (buyerFeeWalletRef && buyerFeeWU > 0) {
+          transaction.update(buyerFeeWalletRef, {
+            held: FieldValue.increment(-buyerFeeWU),
+            available: FieldValue.increment(buyerFeeWU),
+            updatedAt: now,
+          });
+        }
+        if (sellerFeeWalletRef && sellerFeeWU > 0) {
+          transaction.update(sellerFeeWalletRef, {
+            held: FieldValue.increment(-sellerFeeWU),
+            available: FieldValue.increment(sellerFeeWU),
+            updatedAt: now,
+          });
+        }
       }
 
       transaction.update(proposalRef, {
@@ -427,9 +503,12 @@ export const terminateExchangeDelivery = onCall<TerminateDeliveryData>(
         walletUnitsRestored:
           proposalType === "purchase" ? reservedWalletUnits : null,
         amountMajor: proposalType === "purchase" ? walletReservedMajor : null,
-        currency: proposal.details?.currency ?? null,
+        currency: proposal.currencyCode ?? proposal.details?.currency ?? null,
         inventoryQuantityReleased:
           proposalType === "exchange" ? releaseQuantity : null,
+        ownerInventoryQuantityReleased: physicalExchange ? ownerReleaseQuantity : null,
+        buyerCourierFeeWalletUnitsReleased: physicalExchange ? buyerFeeWU : null,
+        sellerCourierFeeWalletUnitsReleased: physicalExchange ? sellerFeeWU : null,
         inventoryItemId:
           proposalType === "exchange"
             ? proposal.details?.exchangeInventoryItemId

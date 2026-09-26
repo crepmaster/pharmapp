@@ -6,13 +6,12 @@
  * are tracked and MUST NOT be conflated:
  *
  *   1. `delivery.status` — the CANONICAL business state (pending → picked_up
- *      → delivered). It remains the ONLY source of authority for pickup,
- *      final delivery, settlement and financial rules. This file never
- *      duplicates settlement logic.
+ *      → delivered). It remains the source of authority for pickup and final
+ *      settlement. This file never duplicates settlement logic.
  *
- *   2. `delivery.sandboxJourney` — a logistics progression used ONLY to
- *      render the staging manual delivery controls. Never a financial
- *      authority.
+ *   2. `delivery.sandboxJourney` — staging logistics progression. For a
+ *      version-1 physical exchange, its completed return phase and both
+ *      `stockTransit` receipts are required before canonical settlement.
  *
  * NOTE: this is a staging manual delivery controller, NOT the definitive
  * courier cockpit, but the assigned courier CAN now drive it from its own
@@ -36,16 +35,11 @@
  * Canonical integration:
  *   - `confirm_pickup`   reuses the canonical pickup transition
  *     (pending → picked_up + courierId), never a copy.
- *   - `confirm_delivered` goes exclusively through `completeDeliveryCore`
- *     (extracted from completeExchangeDelivery), which owns settlement and
- *     is exactly-once via its own delivery-status guard. No financial write
- *     happens in this file.
- *   - `start_*` (outbound) and ALL return actions are journey-only: zero
- *     wallet write, zero ledger, and they never move `delivery.status`.
- *
- * Return leg: no canonical return-delivery model exists in the system, so
- * return actions drive `sandboxJourney.returnPhase` ONLY — never a return
- * settlement, never a wallet write, never a `delivery.status` regression.
+ *   - Purchase/legacy `confirm_delivered` settles through
+ *     `completeDeliveryCore`. For a version-1 physical exchange it records
+ *     the outbound receipt without settling; `confirm_return_delivered`
+ *     records the reciprocal receipt, then calls the same exactly-once core.
+ *   - Other journey actions never move wallets or ledger entries.
  *
  * 🔒 Gated (all required): SANDBOX_ENABLED env, assertSandboxAllowedForProject
  * at module load, authenticated caller, an existing pharmacy OR courier
@@ -107,7 +101,7 @@ const OUTBOUND_JOURNEY_ONLY: Record<string, { from: OutboundPhase; to: OutboundP
   start_delivery: { from: "picked_up", to: "en_route_to_dropoff" },
 };
 
-/** Return transitions — ALL journey-only. */
+/** Return transitions; receipt and settlement are handled at their boundaries. */
 const RETURN_JOURNEY_ONLY: Record<string, { from: ReturnPhase; to: ReturnPhase }> = {
   start_return_pickup: { from: "awaiting_return", to: "en_route_to_return_pickup" },
   confirm_return_pickup: { from: "en_route_to_return_pickup", to: "return_picked_up" },
@@ -135,6 +129,7 @@ interface AdvanceInput {
 
 interface DeliveryData {
   status?: string;
+  proposalType?: string;
   fromPharmacyId?: string;
   toPharmacyId?: string;
   courierId?: string;
@@ -144,6 +139,11 @@ interface DeliveryData {
     outboundPhase?: OutboundPhase;
     returnRequired?: boolean;
     returnPhase?: ReturnPhase;
+  };
+  stockTransit?: {
+    version?: number;
+    outbound?: { state?: string };
+    return?: { state?: string };
   };
 }
 
@@ -247,6 +247,13 @@ export const sandboxDeliveryAdvance = onCall<AdvanceInput>(
         const delivery = (snap.data() ?? {}) as DeliveryData;
         assertCockpitCaller(userId, delivery);
         const currentStatus = delivery.status || "";
+        if (delivery.stockTransit?.version === 1 ||
+            (action === "reset" && delivery.proposalId)) {
+          throw new HttpsError(
+            "failed-precondition",
+            "Legacy pickup/reset cannot change a committed delivery."
+          );
+        }
 
         if (action === "pickup") {
           if (currentStatus !== "pending") {
@@ -302,6 +309,38 @@ export const sandboxDeliveryAdvance = onCall<AdvanceInput>(
       if (!preSnap.exists) throw new HttpsError("not-found", "Delivery not found.");
       const delivery = (preSnap.data() ?? {}) as DeliveryData;
       assertCockpitCaller(userId, delivery);
+      if (delivery.stockTransit?.version === 1) {
+        return db.runTransaction(async (tx) => {
+          const currentSnap = await tx.get(deliveryRef);
+          if (!currentSnap.exists) throw new HttpsError("not-found", "Delivery not found.");
+          const current = (currentSnap.data() ?? {}) as DeliveryData;
+          assertCockpitCaller(userId, current);
+          if (current.proposalType !== "exchange") {
+            throw new HttpsError("failed-precondition", "Physical transit requires an exchange.");
+          }
+          const phase = current.sandboxJourney?.outboundPhase ??
+            outboundFromStatus(current.status || "");
+          if (phase === "delivered" &&
+              current.stockTransit?.outbound?.state === "received_pending") {
+            return { ok: true, deliveryId, outboundPhase: "delivered", returnRequired: true, idempotent: true };
+          }
+          if (phase !== "en_route_to_dropoff" ||
+              current.stockTransit?.outbound?.state !== "in_transit") {
+            throw new HttpsError(
+              "failed-precondition",
+              "The outbound lot must be picked up before delivery can be confirmed."
+            );
+          }
+          tx.set(deliveryRef, {
+            sandboxJourney: journeyDoc("delivered", true, "awaiting_return", userId),
+            stockTransit: {
+              ...current.stockTransit,
+              outbound: { ...current.stockTransit.outbound, state: "received_pending" },
+            },
+          }, { merge: true });
+          return { ok: true, deliveryId, outboundPhase: "delivered", returnRequired: true };
+        });
+      }
       const journey = delivery.sandboxJourney;
       const outbound = journey?.outboundPhase ?? outboundFromStatus(delivery.status || "");
       const returnRequired = journey?.returnRequired ?? false;
@@ -365,6 +404,42 @@ export const sandboxDeliveryAdvance = onCall<AdvanceInput>(
       return { ok: true, deliveryId, outboundPhase: "delivered", returnRequired: resolvedReturnRequired };
     }
 
+    // The final physical return receipt is durable before settlement. If a
+    // wallet guard rejects settlement, the medicines remain shown at their
+    // actual recipient and this same action can be retried after correction.
+    if (action === "confirm_return_delivered") {
+      const preSnap = await deliveryRef.get();
+      if (!preSnap.exists) throw new HttpsError("not-found", "Delivery not found.");
+      const preDelivery = (preSnap.data() ?? {}) as DeliveryData;
+      if (preDelivery.stockTransit?.version === 1) {
+        await db.runTransaction(async (tx) => {
+          const snap = await tx.get(deliveryRef);
+          if (!snap.exists) throw new HttpsError("not-found", "Delivery not found.");
+          const delivery = (snap.data() ?? {}) as DeliveryData;
+          assertCockpitCaller(userId, delivery);
+          if (delivery.proposalType !== "exchange" ||
+              delivery.stockTransit?.outbound?.state !== "received_pending") {
+            throw new HttpsError("failed-precondition", "Outbound exchange lot has not been received.");
+          }
+          const phase = delivery.sandboxJourney?.returnPhase;
+          const state = delivery.stockTransit.return?.state;
+          if (phase === "return_delivered" && state === "received_pending") return;
+          if (phase !== "en_route_to_return_dropoff" || state !== "in_transit") {
+            throw new HttpsError("failed-precondition", "Return lot has not been picked up.");
+          }
+          tx.set(deliveryRef, {
+            sandboxJourney: journeyDoc("delivered", true, "return_delivered", userId),
+            stockTransit: {
+              ...delivery.stockTransit,
+              return: { ...delivery.stockTransit.return, state: "received_pending" },
+            },
+          }, { merge: true });
+        });
+        await completeDeliveryCore({ deliveryId, userId });
+        return { ok: true, deliveryId, returnPhase: "return_delivered", settled: true };
+      }
+    }
+
     // ---- All remaining actions are single-transaction ---------------------
     const result = await db.runTransaction(async (tx) => {
       const snap = await tx.get(deliveryRef);
@@ -395,10 +470,22 @@ export const sandboxDeliveryAdvance = onCall<AdvanceInput>(
         const canonicalUpdate: Record<string, unknown> = {
           sandboxJourney: journeyDoc("picked_up", returnRequired, returnPhase, userId),
         };
+        if (delivery.stockTransit?.version === 1) {
+          const stockState = delivery.stockTransit.outbound?.state;
+          if (stockState !== "reserved" && stockState !== "in_transit") {
+            throw new HttpsError("failed-precondition", "Outbound lot is not reserved for pickup.");
+          }
+          canonicalUpdate.stockTransit = {
+            ...delivery.stockTransit,
+            outbound: { ...delivery.stockTransit.outbound, state: "in_transit" },
+          };
+        }
         // Apply the canonical pickup only if not already done.
-        if (currentStatus === "pending") {
+        if (currentStatus === "pending" || currentStatus === "accepted") {
           canonicalUpdate.status = "picked_up";
-          canonicalUpdate.courierId = userId;
+          // `accepted` already has a backend-assigned courier. Keep that
+          // assignment; the legacy `pending` sandbox path assigns the caller.
+          if (currentStatus === "pending") canonicalUpdate.courierId = userId;
           canonicalUpdate.pickedUpAt = FieldValue.serverTimestamp();
           canonicalUpdate.updatedAt = FieldValue.serverTimestamp();
           canonicalUpdate.sandboxDemoAdvancedBy = userId;
@@ -452,7 +539,24 @@ export const sandboxDeliveryAdvance = onCall<AdvanceInput>(
             `${action} requires return phase '${retSpec.from}' (current '${returnPhase}').`
           );
         }
-        tx.set(deliveryRef, { sandboxJourney: journeyDoc("delivered", returnRequired, retSpec.to, userId) }, { merge: true });
+        const next: Record<string, unknown> = {
+          sandboxJourney: journeyDoc("delivered", returnRequired, retSpec.to, userId),
+        };
+        if (delivery.stockTransit?.version === 1) {
+          if (delivery.stockTransit.outbound?.state !== "received_pending") {
+            throw new HttpsError("failed-precondition", "Outbound lot must be received before return.");
+          }
+          if (action === "confirm_return_pickup") {
+            if (delivery.stockTransit.return?.state !== "reserved") {
+              throw new HttpsError("failed-precondition", "Return lot is not reserved for pickup.");
+            }
+            next.stockTransit = {
+              ...delivery.stockTransit,
+              return: { ...delivery.stockTransit.return, state: "in_transit" },
+            };
+          }
+        }
+        tx.set(deliveryRef, next, { merge: true });
         return { returnPhase: retSpec.to };
       }
 
@@ -477,22 +581,10 @@ export const sandboxDeliveryAdvance = onCall<AdvanceInput>(
  * Manual delivery controls — authorization for who may drive the staging
  * progression.
  *
- * Two authorized roles, DISTINCT and both intentional:
- *   - trade party (buyer or seller) acting as courier — the EXISTING staging
- *     demo mode. On confirm_delivered, completeDeliveryCore takes its sandbox
- *     bypass path (seller receives the full amount, no courier fee). This
- *     financial-mode decision lives in completeDeliveryCore and is NOT changed
- *     here.
- *   - a pharmacy assigned as courier (delivery.courierId === caller) — on
- *     confirm_delivered, completeDeliveryCore takes the NORMAL path (courier
- *     fee split). Also unchanged.
- *
- * Everyone else is refused. IMPORTANT: the email gate above reads
- * `pharmacies/{uid}` only, so real `couriers/{uid}` ACCOUNTS remain refused
- * by construction in this lot — the "assigned courier" here is the trade-
- * party pharmacy that performed the pickup (courierId is set to them). A
- * genuine courier cockpit with courier authentication is a separate,
- * post-demo effort; this lot does NOT relax the gate.
+ * A delivery with an assigned courier is driven only by that courier. Before
+ * assignment, a trade party may drive a legacy staging delivery; version-1
+ * physical exchange requires an assignment before any lot moves. Identity
+ * is resolved from pharmacy or courier profiles above.
  */
 /**
  * Resolves the caller's account email, accepting a pharmacy OR a courier.
@@ -519,11 +611,24 @@ async function resolveSandboxCallerEmail(userId: string): Promise<string | null>
 }
 
 function assertCockpitCaller(userId: string, delivery: DeliveryData): void {
+  if (delivery.stockTransit?.version === 1 && !delivery.courierId) {
+    throw new HttpsError(
+      "failed-precondition",
+      "A courier must be assigned before moving either exchange lot."
+    );
+  }
+  // Once a real courier has accepted the order, a pharmacy must not advance
+  // its physical journey or invoke settlement through the sandbox bypass.
+  if (delivery.courierId) {
+    if (userId === delivery.courierId) return;
+    throw new HttpsError(
+      "permission-denied",
+      "Only the assigned courier can drive this delivery."
+    );
+  }
   const isTradeParty =
     userId === delivery.fromPharmacyId || userId === delivery.toPharmacyId;
-  const isAssignedCourier =
-    !!delivery.courierId && userId === delivery.courierId;
-  if (!isTradeParty && !isAssignedCourier) {
+  if (!isTradeParty) {
     throw new HttpsError(
       "permission-denied",
       "Only a trade party (buyer/seller) or the assigned courier can drive this delivery."
@@ -538,10 +643,8 @@ function highestReturnPhase(a: ReturnPhase | undefined, b: ReturnPhase): ReturnP
 }
 
 /**
- * Resolve whether a return leg is required. Prefers the value already on the
- * journey; otherwise derives it from the linked proposal (exchange = return
- * leg, purchase = none). No return-settlement model exists, so this only
- * drives the staging controls' return buttons.
+ * Resolve whether a return leg is required on a legacy journey. Version-1
+ * physical exchanges persist this requirement at the outbound receipt.
  */
 async function resolveReturnRequired(
   delivery: DeliveryData,

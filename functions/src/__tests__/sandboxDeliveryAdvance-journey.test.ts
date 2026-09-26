@@ -176,6 +176,77 @@ function installStatefulSettlement(): () => number {
   return () => settlements;
 }
 
+function seedPhysicalExchange(
+  outboundState: string,
+  returnState: string,
+  outboundPhase: string,
+  returnPhase: string,
+  status = "picked_up"
+) {
+  const courier = "courier-uid";
+  docs.set(`couriers/${courier}`, { exists: true, data: { email: EMAIL } });
+  const delivery = docs.get(`deliveries/${DELIVERY}`)!.data!;
+  delivery.courierId = courier;
+  delivery.proposalType = "exchange";
+  delivery.status = status;
+  delivery.stockTransit = {
+    version: 1,
+    outbound: { state: outboundState },
+    return: { state: returnState },
+  };
+  delivery.sandboxJourney = {
+    version: 1, outboundPhase, returnRequired: true, returnPhase,
+  };
+  return courier;
+}
+
+describe("physical exchange journey", () => {
+  test("first receipt records custody but does not settle either lot", async () => {
+    const courier = seedPhysicalExchange(
+      "in_transit", "reserved", "en_route_to_dropoff", "not_required"
+    );
+    const result = await call("confirm_delivered", courier);
+    expect(result.outboundPhase).toBe("delivered");
+    expect(result.returnRequired).toBe(true);
+    expect(completeDeliveryCoreMock).not.toHaveBeenCalled();
+    const write = writes.find((w) => w.path === `deliveries/${DELIVERY}`);
+    expect((write?.payload.stockTransit as any)?.outbound.state).toBe("received_pending");
+    expect((write?.payload.sandboxJourney as any)?.returnPhase).toBe("awaiting_return");
+    noFinancialWrites();
+  });
+
+  test("return pickup moves the second lot into transit", async () => {
+    const courier = seedPhysicalExchange(
+      "received_pending", "reserved", "delivered", "en_route_to_return_pickup"
+    );
+    const result = await call("confirm_return_pickup", courier);
+    expect(result.returnPhase).toBe("return_picked_up");
+    const write = writes.find((w) => w.path === `deliveries/${DELIVERY}`);
+    expect((write?.payload.stockTransit as any)?.return.state).toBe("in_transit");
+    noFinancialWrites();
+  });
+
+  test("second receipt settles once and a retry can finish a pending settlement", async () => {
+    const courier = seedPhysicalExchange(
+      "received_pending", "in_transit", "delivered", "en_route_to_return_dropoff"
+    );
+    completeDeliveryCoreMock.mockRejectedValueOnce(
+      new FakeHttpsError("failed-precondition", "fee wallet insufficient") as never
+    );
+    await expect(call("confirm_return_delivered", courier)).rejects.toMatchObject({
+      code: "failed-precondition",
+    });
+    const receipt = writes.find((w) => w.path === `deliveries/${DELIVERY}`);
+    expect((receipt?.payload.stockTransit as any)?.return.state).toBe("received_pending");
+    const delivery = docs.get(`deliveries/${DELIVERY}`)!.data!;
+    delivery.stockTransit = receipt?.payload.stockTransit;
+    delivery.sandboxJourney = receipt?.payload.sandboxJourney;
+    const retry = await call("confirm_return_delivered", courier);
+    expect(retry.settled).toBe(true);
+    expect(completeDeliveryCoreMock).toHaveBeenCalledTimes(2);
+  });
+});
+
 // 1. Each valid outbound transition
 describe("valid outbound transitions", () => {
   test("start_pickup: assigned → en_route_to_pickup (journey only)", async () => {
@@ -192,6 +263,20 @@ describe("valid outbound transitions", () => {
     const w = writes.find((w) => w.path === `deliveries/${DELIVERY}`)!;
     expect(w.payload.status).toBe("picked_up");
     expect(w.payload.courierId).toBe(BUYER);
+    expect(completeDeliveryCoreMock).not.toHaveBeenCalled();
+  });
+
+  test("assigned courier can confirm pickup from accepted without changing assignment", async () => {
+    const courier = "courier-uid";
+    docs.set(`couriers/${courier}`, { exists: true, data: { email: EMAIL } });
+    docs.get(`deliveries/${DELIVERY}`)!.data!.courierId = courier;
+    setJourney("en_route_to_pickup", false, "not_required", "accepted");
+
+    const result = await call("confirm_pickup", courier);
+    expect(result.outboundPhase).toBe("picked_up");
+    const payload = writes.find((w) => w.path === `deliveries/${DELIVERY}`)?.payload;
+    expect(payload?.status).toBe("picked_up");
+    expect(payload?.courierId).toBeUndefined();
     expect(completeDeliveryCoreMock).not.toHaveBeenCalled();
   });
 
@@ -295,6 +380,13 @@ describe("authorization matrix", () => {
     docs.get(`deliveries/${DELIVERY}`)!.data!.courierId = COURIER;
     const r = await call("start_pickup", COURIER);
     expect(r.outboundPhase).toBe("en_route_to_pickup");
+  });
+
+  test("trade parties cannot advance a delivery assigned to a courier", async () => {
+    docs.get(`deliveries/${DELIVERY}`)!.data!.courierId = "courier-uid";
+    await expect(call("start_pickup", BUYER)).rejects.toMatchObject({ code: "permission-denied" });
+    await expect(call("start_pickup", SELLER)).rejects.toMatchObject({ code: "permission-denied" });
+    expect(writes).toHaveLength(0);
   });
 
   test("other pharmacy (neither trade party nor assigned courier) refused", async () => {
@@ -422,6 +514,19 @@ test("missing deliveryId refused", async () => {
 test("reset refused from delivered", async () => {
   docs.get(`deliveries/${DELIVERY}`)!.data!.status = "delivered";
   await expect(call("reset")).rejects.toMatchObject({ code: "failed-precondition" });
+});
+
+test("reset cannot revive a cancelled proposal delivery", async () => {
+  docs.get(`deliveries/${DELIVERY}`)!.data!.status = "cancelled";
+  await expect(call("reset")).rejects.toMatchObject({ code: "failed-precondition" });
+  expect(writes).toHaveLength(0);
+});
+
+test("legacy pickup and reset cannot bypass physical exchange journey", async () => {
+  const courier = seedPhysicalExchange("reserved", "reserved", "awaiting_pickup", "not_started", "pending");
+  await expect(call("pickup", courier)).rejects.toMatchObject({ code: "failed-precondition" });
+  await expect(call("reset", courier)).rejects.toMatchObject({ code: "failed-precondition" });
+  expect(writes).toHaveLength(0);
 });
 
 // Idempotency of journey-only actions

@@ -24,7 +24,7 @@ import * as logger from "firebase-functions/logger";
 import { citySlug } from "./cityUtils.js";
 import { assertLicenseAllowsMarketplace } from "./lib/licenseGate.js";
 import { resolveCourierFee } from "./lib/exchangePipeline.js";
-import { majorToWalletUnits } from "./lib/moneyUnits.js";
+import { fromMinor, majorToWalletUnits, resolveDecimals, toMinor } from "./lib/moneyUnits.js";
 import { assertMatchesSnapshot } from "./lib/tradeCurrencyGuard.js";
 
 const db = getFirestore();
@@ -160,6 +160,48 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
 
       const inventoryData = inventorySnapshot.data();
 
+      // For a physical two-leg exchange, commit the owner's lot as well as
+      // the proposer's lot (already held when the proposal was created).
+      // Without this hold, another accepted proposal can consume the owner's
+      // stock while the first lot is travelling.
+      const isPhysicalExchange = proposal.details?.type === "exchange";
+      const ownerQuantity = Number(proposal.details?.quantity ?? 0);
+      const returnQuantity = Number(proposal.reservations?.inventoryReserved ?? 0);
+      if (isPhysicalExchange) {
+        const ownerAvailable = Number(inventoryData?.availableQuantity ?? 0);
+        const ownerReserved = Number(inventoryData?.reservedQuantity ?? 0);
+        if (
+          !Number.isSafeInteger(ownerQuantity) || ownerQuantity <= 0 ||
+          !Number.isSafeInteger(returnQuantity) || returnQuantity <= 0 ||
+          !Number.isSafeInteger(ownerAvailable) || ownerAvailable < ownerQuantity ||
+          !Number.isSafeInteger(ownerReserved) || ownerReserved < 0 ||
+          inventoryData?.pharmacyId !== proposal.toPharmacyId ||
+          !proposal.details?.exchangeInventoryItemId ||
+          !proposal.details?.exchangeInventorySnapshot
+        ) {
+          throw new HttpsError(
+            "failed-precondition",
+            "Both exchange lots must be valid and available before acceptance."
+          );
+        }
+        const returnRef = db.collection("pharmacy_inventory")
+          .doc(proposal.details.exchangeInventoryItemId);
+        const returnSnap = await transaction.get(returnRef);
+        const returnData = returnSnap.data();
+        const expectedLot = proposal.details.exchangeInventorySnapshot.lotNumber || "";
+        const currentLot = returnData?.batch?.lotNumber || returnData?.batchNumber || "";
+        if (!returnSnap.exists ||
+            returnData?.pharmacyId !== proposal.fromPharmacyId ||
+            returnData?.medicineId !== proposal.details.exchangeInventorySnapshot.medicineId ||
+            currentLot !== expectedLot ||
+            Number(returnData?.reservedQuantity ?? 0) < returnQuantity) {
+          throw new HttpsError(
+            "failed-precondition",
+            "The offered return lot no longer matches its reservation."
+          );
+        }
+      }
+
       // Read pharmacy documents to get location and contact info
       const fromPharmacyRef = db
         .collection("pharmacies")
@@ -240,12 +282,48 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
           ? systemConfigSnapshot.data()
           : undefined,
       });
+      if (isPhysicalExchange &&
+          (typeof courierFee !== "number" || !Number.isFinite(courierFee) || courierFee <= 0)) {
+        throw new HttpsError(
+          "failed-precondition",
+          "An exchange courier fee must be configured for this city."
+        );
+      }
       logger.info("acceptExchangeProposal: resolved courier fee", {
         proposalType,
         deliveryCountry,
         deliveryCity,
         courierFee,
       });
+
+      let exchangeFeeBuyer = 0;
+      let exchangeFeeSeller = 0;
+      if (isPhysicalExchange && courierFee > 0) {
+        const decimals = resolveDecimals(
+          resolvedDeliveryCurrency,
+          systemConfigSnapshot.data()?.currencies?.[resolvedDeliveryCurrency],
+          (reason) => logger.warn(`acceptExchangeProposal: ${reason}`)
+        );
+        const feeMinor = toMinor(courierFee, decimals);
+        if (fromMinor(feeMinor, decimals) !== courierFee) {
+          throw new HttpsError("failed-precondition", "Courier fee precision is invalid for currency.");
+        }
+        exchangeFeeBuyer = fromMinor(Math.floor(feeMinor / 2), decimals);
+        exchangeFeeSeller = fromMinor(feeMinor - Math.floor(feeMinor / 2), decimals);
+        const buyerAvailable = Number(fromWalletSnapshot.data()?.available ?? 0);
+        const sellerAvailable = Number(toWalletSnapshot.data()?.available ?? 0);
+        if (
+          !Number.isFinite(buyerAvailable) ||
+          buyerAvailable < majorToWalletUnits(exchangeFeeBuyer, "pharmacy") ||
+          !Number.isFinite(sellerAvailable) ||
+          sellerAvailable < majorToWalletUnits(exchangeFeeSeller, "pharmacy")
+        ) {
+          throw new HttpsError(
+            "failed-precondition",
+            "Both pharmacies need enough wallet balance to reserve courier fees."
+          );
+        }
+      }
 
       // `resolvedDeliveryCurrency` is the snapshot-confirmed authoritative
       // currency (from the revalidation above) — no XAF fallback, never the
@@ -357,7 +435,7 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
       // Same for both purchase and exchange:
       //   - pickup is always at the inventory owner (proposal.toPharmacyId)
       //   - dropoff is always at the proposer (proposal.fromPharmacyId)
-      // For exchange, the return movement A->B is a back-office stock transfer, not a courier trip
+      // For exchange, the reciprocal lot follows the return segment.
       const pickupPharmacy = toPharmacy;
       const pickupId = proposal.toPharmacyId;
       const dropoffPharmacy = fromPharmacy;
@@ -437,8 +515,84 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
         qrCodeDelivery: `${deliveryRef.id}-delivery`, // QR code for delivery verification
         photoProofUrl: null, // Photo of delivered items
         deliveryNotes: notes || "",
+        ...(isPhysicalExchange ? {
+          stockTransit: {
+            version: 1,
+            outbound: {
+              sourceInventoryId: proposal.inventoryItemId,
+              fromPharmacyId: pickupId,
+              toPharmacyId: dropoffId,
+              medicineId: inventoryData?.medicineId || "",
+              medicineName: resolvedMedicineName,
+              dosage: resolvedDosage,
+              form: resolvedForm,
+              packaging: inventoryData?.packaging || "",
+              quantity: ownerQuantity,
+              lotNumber: inventoryData?.batch?.lotNumber || inventoryData?.batchNumber || "",
+              expirationDate: inventoryData?.batch?.expirationDate || null,
+              state: "reserved",
+            },
+            return: {
+              sourceInventoryId: proposal.details.exchangeInventoryItemId,
+              fromPharmacyId: dropoffId,
+              toPharmacyId: pickupId,
+              medicineId: proposal.details.exchangeInventorySnapshot.medicineId || "",
+              medicineName: proposal.details.exchangeInventorySnapshot.medicineName || "",
+              dosage: proposal.details.exchangeInventorySnapshot.dosage || "",
+              form: proposal.details.exchangeInventorySnapshot.form || "",
+              packaging: proposal.details.exchangeInventorySnapshot.packaging || "",
+              quantity: returnQuantity,
+              lotNumber: proposal.details.exchangeInventorySnapshot.lotNumber || "",
+              expirationDate: proposal.details.exchangeInventorySnapshot.expirationDate || null,
+              state: "reserved",
+            },
+          },
+        } : {}),
       };
 
+      if (isPhysicalExchange) {
+        transaction.update(inventoryRef, {
+          availableQuantity: FieldValue.increment(-ownerQuantity),
+          reservedQuantity: FieldValue.increment(ownerQuantity),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        if (exchangeFeeBuyer > 0) {
+          transaction.update(db.collection("wallets").doc(proposal.fromPharmacyId), {
+            available: FieldValue.increment(-majorToWalletUnits(exchangeFeeBuyer, "pharmacy")),
+            held: FieldValue.increment(majorToWalletUnits(exchangeFeeBuyer, "pharmacy")),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+          transaction.set(db.collection("ledger").doc(), {
+            type: "courier_fee_hold_created",
+            proposalId,
+            deliveryId: deliveryRef.id,
+            userId: proposal.fromPharmacyId,
+            amount: exchangeFeeBuyer,
+            currency: resolvedDeliveryCurrency,
+            from: "available",
+            to: "held",
+            createdAt: FieldValue.serverTimestamp(),
+          });
+        }
+        if (exchangeFeeSeller > 0) {
+          transaction.update(db.collection("wallets").doc(proposal.toPharmacyId), {
+            available: FieldValue.increment(-majorToWalletUnits(exchangeFeeSeller, "pharmacy")),
+            held: FieldValue.increment(majorToWalletUnits(exchangeFeeSeller, "pharmacy")),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+          transaction.set(db.collection("ledger").doc(), {
+            type: "courier_fee_hold_created",
+            proposalId,
+            deliveryId: deliveryRef.id,
+            userId: proposal.toPharmacyId,
+            amount: exchangeFeeSeller,
+            currency: resolvedDeliveryCurrency,
+            from: "available",
+            to: "held",
+            createdAt: FieldValue.serverTimestamp(),
+          });
+        }
+      }
       transaction.set(deliveryRef, deliveryData);
 
       logger.info(
@@ -460,6 +614,11 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
         deliveryId: deliveryRef.id, // Link to delivery order
         updatedAt: FieldValue.serverTimestamp(),
         acceptanceNotes: notes || "",
+        ...(isPhysicalExchange ? {
+          "reservations.ownerInventoryReserved": ownerQuantity,
+          "reservations.buyerCourierFeeReserved": exchangeFeeBuyer,
+          "reservations.sellerCourierFeeReserved": exchangeFeeSeller,
+        } : {}),
       });
 
       logger.info(

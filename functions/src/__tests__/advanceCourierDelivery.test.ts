@@ -83,6 +83,14 @@ describe("advanceCourierDelivery — authorised transitions", () => {
     await call("confirm_pickup");
     expect(dWrite()!.payload).toMatchObject({ status: "picked_up" });
   });
+  test("physical exchange pickup records the outbound lot in transit", async () => {
+    seed("accepted");
+    docs.get(`deliveries/${D}`)!.data!.stockTransit = {
+      version: 1, outbound: { state: "reserved" }, return: { state: "reserved" },
+    };
+    await call("confirm_pickup");
+    expect(dWrite()!.payload["stockTransit.outbound.state"]).toBe("in_transit");
+  });
 });
 
 describe("advanceCourierDelivery — forbidden transitions (zero mutation)", () => {

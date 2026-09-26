@@ -21,7 +21,8 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { assertLicenseAllowsMarketplace } from "./lib/licenseGate.js";
-import { majorToWalletUnits } from "./lib/moneyUnits.js";
+import { majorToWalletUnits, resolveDecimals } from "./lib/moneyUnits.js";
+import { assertPurchasePrice } from "./lib/purchasePriceGuard.js";
 import {
   assertTradeCurrency,
   assertClientCurrencyMatches,
@@ -234,18 +235,24 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
           "createExchangeProposal"
         );
 
+        // The client sends both unit and total prices for compatibility, but
+        // only the server-derived multiplication can reserve and settle money.
+        const purchasePrice = details.type === "purchase"
+          ? assertPurchasePrice(
+              details.quantity,
+              details.pricePerUnit,
+              details.totalPrice,
+              resolveDecimals(
+                currencyCode,
+                sysConfigTxSnap.data()?.currencies?.[currencyCode],
+                (reason) => logger.warn(`createExchangeProposal: ${reason}`)
+              )
+            )
+          : null;
+
         // For PURCHASE proposals: reuse the buyer wallet snapshot read above.
         let walletSnapshot;
         if (details.type === "purchase") {
-          // Currency is server-derived (`currencyCode`) — the client value is
-          // only an assertion, already checked above. Only `totalPrice` is
-          // required from the client here.
-          if (!details.totalPrice) {
-            throw new HttpsError(
-              "invalid-argument",
-              "Purchase proposals require totalPrice."
-            );
-          }
           walletSnapshot = buyerWalletTxSnap;
         }
 
@@ -351,20 +358,20 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
           // units. `totalPrice` is major, so BOTH the balance check and the
           // reservation must convert it — comparing/moving the same unit as
           // the stored balance. The ledger `amount` below stays in major.
-          const reservedWalletUnits = majorToWalletUnits(details.totalPrice!, "pharmacy");
+          const reservedWalletUnits = majorToWalletUnits(purchasePrice!.totalPrice, "pharmacy");
 
           if (availableBalance < reservedWalletUnits) {
             logger.info(
               `createExchangeProposal: Insufficient balance for user ${userId}`,
-              { required: details.totalPrice, available: availableBalance }
+              { required: purchasePrice!.totalPrice, available: availableBalance / 100 }
             );
             throw new HttpsError(
               "failed-precondition",
-              `Insufficient balance. Required: ${details.totalPrice} ${currencyCode}, Available: ${availableBalance} ${currencyCode}`,
+              `Insufficient balance. Required: ${purchasePrice!.totalPrice} ${currencyCode}, Available: ${availableBalance / 100} ${currencyCode}`,
               {
                 code: "INSUFFICIENT_BALANCE",
-                required: details.totalPrice,
-                available: availableBalance,
+                required: purchasePrice!.totalPrice,
+                available: availableBalance / 100,
                 currency: currencyCode,
               }
             );
@@ -379,7 +386,7 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
           });
 
           logger.info(
-            `createExchangeProposal: Reserved ${details.totalPrice} ${currencyCode} from wallet`,
+            `createExchangeProposal: Reserved ${purchasePrice!.totalPrice} ${currencyCode} from wallet`,
             { userId, availableBalance, reservedWalletUnits }
           );
 
@@ -440,8 +447,8 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
           canonicalDetails = {
             type: "purchase",
             quantity: details.quantity,
-            unitPrice: details.pricePerUnit ?? 0,
-            totalPrice: details.totalPrice!,
+            unitPrice: purchasePrice!.unitPrice,
+            totalPrice: purchasePrice!.totalPrice,
             // Legacy mirror of the top-level `currencyCode` — server-derived,
             // never the client value; must never diverge from `currencyCode`.
             currency: currencyCode,
@@ -502,13 +509,13 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
         // Ledger: record the wallet hold event (after proposalRef is available).
         // Currency is the server-derived `currencyCode` (Phase 2), never the
         // client value.
-        if (details.type === "purchase" && details.totalPrice) {
+        if (purchasePrice) {
           const holdLedgerRef = db.collection("ledger").doc();
           transaction.set(holdLedgerRef, {
             type: "proposal_wallet_hold_created",
             proposalId: proposalRef.id,
             userId,
-            amount: details.totalPrice,
+            amount: purchasePrice.totalPrice,
             currency: currencyCode,
             from: "available",
             to: "held",
@@ -523,7 +530,7 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
             type: details.type,
             fromPharmacy: fromPharmacyId,
             toPharmacy: toPharmacyId,
-            walletReserved: details.type === "purchase" ? details.totalPrice : null,
+            walletReserved: purchasePrice?.totalPrice ?? null,
             inventoryReserved: details.type === "exchange" ? details.exchangeQuantity : null,
           }
         );

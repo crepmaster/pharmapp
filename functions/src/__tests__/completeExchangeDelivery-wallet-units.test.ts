@@ -253,6 +253,92 @@ describe("completeExchangeDelivery — courier credit stays raw major (anti-regr
   });
 });
 
+function seedPhysicalExchange() {
+  const delivery = docs.get(`deliveries/${DELIVERY_ID}`)!.data!;
+  delivery.proposalType = "exchange";
+  delivery.stockTransit = {
+    version: 1,
+    outbound: { state: "received_pending", quantity: 5 },
+    return: { state: "received_pending", quantity: 3 },
+  };
+  delivery.sandboxJourney = { returnPhase: "return_delivered" };
+  const proposal = docs.get(`exchange_proposals/${PROPOSAL_ID}`)!.data!;
+  proposal.details = {
+    type: "exchange", quantity: 5, exchangeQuantity: 3,
+    exchangeInventoryItemId: "inv-return", medicineId: "amoxicillin-500mg",
+  };
+  proposal.reservations = {
+    walletReserved: null, inventoryReserved: 3, ownerInventoryReserved: 5,
+    buyerCourierFeeReserved: 30, sellerCourierFeeReserved: 30,
+  };
+  docs.get(`pharmacy_inventory/${INVENTORY_ID}`)!.data!.availableQuantity = 45;
+  docs.get(`pharmacy_inventory/${INVENTORY_ID}`)!.data!.reservedQuantity = 5;
+  docs.set("pharmacy_inventory/inv-return", {
+    exists: true,
+    data: {
+      pharmacyId: BUYER,
+      medicineId: "ibuprofen",
+      medicineName: "Ibuprofen",
+      availableQuantity: 7,
+      reservedQuantity: 3,
+      batch: { lotNumber: "LOT-RETURN", expirationDate: null },
+    },
+  });
+  docs.get(`wallets/${BUYER}`)!.data!.available = 10000;
+  docs.get(`wallets/${SELLER}`)!.data!.available = 10000;
+  docs.get(`wallets/${BUYER}`)!.data!.held = 3000;
+  docs.get(`wallets/${SELLER}`)!.data!.held = 3000;
+}
+
+describe("physical exchange — two receipts before one stock and fee settlement", () => {
+  test("outbound receipt alone cannot transfer stock or pay courier", async () => {
+    seedPhysicalExchange();
+    const delivery = docs.get(`deliveries/${DELIVERY_ID}`)!.data!;
+    (delivery.stockTransit as { return: { state: string } }).return.state = "in_transit";
+    await expect(callAsCourier()).rejects.toMatchObject({ code: "failed-precondition" });
+    expect(txWrites).toHaveLength(0);
+  });
+
+  test("both receipts consume both holds and split the fee in wallet units", async () => {
+    seedPhysicalExchange();
+    await callAsCourier();
+    const buyerHold = txWrites.find((w) => w.path === `wallets/${BUYER}` && w.payload.held);
+    const sellerHold = txWrites.find((w) => w.path === `wallets/${SELLER}` && w.payload.held);
+    expect((buyerHold?.payload.held as { n?: number })?.n).toBe(-3000);
+    expect((sellerHold?.payload.held as { n?: number })?.n).toBe(-3000);
+    expect(incrementOn(`wallets/${COURIER}`)).toBe(60);
+    const ownerWrite = txWrites.find((w) => w.path === `pharmacy_inventory/${INVENTORY_ID}`);
+    const returnWrite = txWrites.find((w) => w.path === "pharmacy_inventory/inv-return");
+    expect((ownerWrite?.payload.reservedQuantity as { n?: number })?.n).toBe(-5);
+    expect((returnWrite?.payload.reservedQuantity as { n?: number })?.n).toBe(-3);
+    expect(txWrites.filter((w) => w.path.startsWith("ledger/") &&
+      w.payload.type === "courier_payment")).toHaveLength(1);
+    expect(txWrites.find((w) => w.path === `deliveries/${DELIVERY_ID}`)?.payload.paymentStatus).toBe("paid");
+  });
+
+  test("missing fee hold preserves both stock holds", async () => {
+    seedPhysicalExchange();
+    docs.get(`wallets/${SELLER}`)!.data!.held = 100;
+    await expect(callAsCourier()).rejects.toMatchObject({ code: "failed-precondition" });
+    expect(txWrites).toHaveLength(0);
+  });
+
+  test("return lot reserve drift cannot mint stock at the destination", async () => {
+    seedPhysicalExchange();
+    docs.get("pharmacy_inventory/inv-return")!.data!.reservedQuantity = 2;
+    await expect(callAsCourier()).rejects.toMatchObject({ code: "failed-precondition" });
+    expect(txWrites).toHaveLength(0);
+  });
+
+  test("transit quantity must equal the committed return quantity", async () => {
+    seedPhysicalExchange();
+    const delivery = docs.get(`deliveries/${DELIVERY_ID}`)!.data!;
+    (delivery.stockTransit as { return: { quantity: number } }).return.quantity = 4;
+    await expect(callAsCourier()).rejects.toMatchObject({ code: "failed-precondition" });
+    expect(txWrites).toHaveLength(0);
+  });
+});
+
 // ===========================================================================
 // Phase 2 — settlement guard refuses with ZERO mutation. Each test starts from
 // a VALID settlement world (GH/accra, GHS wallets, courier GH/accra, config,

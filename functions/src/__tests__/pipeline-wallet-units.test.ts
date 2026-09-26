@@ -241,6 +241,111 @@ describe("acceptExchangeProposal — held → deducted in legacy pharmacy units"
   });
 });
 
+describe("acceptExchangeProposal — reserve both physical exchange lots", () => {
+  const seedExchange = (ownerAvailable: number) => {
+    const p = docs.get(`exchange_proposals/${PROPOSAL_ID}`)!.data!;
+    p.details = {
+      type: "exchange", quantity: 5, exchangeQuantity: 3,
+      exchangeInventoryItemId: "return-inv",
+      exchangeInventorySnapshot: {
+        medicineId: "ibuprofen", medicineName: "Ibuprofen",
+        lotNumber: "RETURN-LOT", expirationDate: null,
+      },
+    };
+    p.reservations = { inventoryReserved: 3, walletReserved: null };
+    docs.get(`pharmacy_inventory/${INVENTORY_ID}`)!.data!.availableQuantity = ownerAvailable;
+    docs.set("pharmacy_inventory/return-inv", {
+      exists: true,
+      data: {
+        pharmacyId: BUYER,
+        medicineId: "ibuprofen",
+        availableQuantity: 2,
+        reservedQuantity: 3,
+        batch: { lotNumber: "RETURN-LOT", expirationDate: null },
+      },
+    });
+    docs.get("system_config/main")!.data!.citiesByCountry = {
+      GH: { accra: { exchangeFee: 60 } },
+    };
+    docs.get(`wallets/${SELLER}`)!.data!.available = 5000;
+  };
+  const callAccept = () => wrappedAccept({
+    data: { proposalId: PROPOSAL_ID },
+    auth: { uid: SELLER, token: {} },
+  } as never);
+
+  test("acceptance holds owner stock and records both lot snapshots", async () => {
+    seedExchange(5);
+    await callAccept();
+    expect(incrementFor(`pharmacy_inventory/${INVENTORY_ID}`, "availableQuantity")).toBe(-5);
+    expect(incrementFor(`pharmacy_inventory/${INVENTORY_ID}`, "reservedQuantity")).toBe(5);
+    const delivery = txWrites.find((w) => w.path.startsWith("deliveries/") && w.op === "set");
+    const transit = delivery?.payload.stockTransit as Record<string, any>;
+    expect(transit.version).toBe(1);
+    expect(transit.outbound.lotNumber).toBe("L1");
+    expect(transit.return.lotNumber).toBe("RETURN-LOT");
+    expect(transit.outbound.state).toBe("reserved");
+    expect(transit.return.state).toBe("reserved");
+    const proposalWrite = txWrites.find((w) => w.path === `exchange_proposals/${PROPOSAL_ID}` && w.op === "update");
+    expect(proposalWrite?.payload["reservations.ownerInventoryReserved"]).toBe(5);
+  });
+
+  test("insufficient owner stock refuses before reserving either lot again", async () => {
+    seedExchange(4);
+    await expect(callAccept()).rejects.toMatchObject({ code: "failed-precondition" });
+    expect(txWrites).toHaveLength(0);
+  });
+
+  test("changed return lot refuses before accepting the exchange", async () => {
+    seedExchange(5);
+    docs.get("pharmacy_inventory/return-inv")!.data!.batch = { lotNumber: "DIFFERENT" };
+    await expect(callAccept()).rejects.toMatchObject({ code: "failed-precondition" });
+    expect(txWrites).toHaveLength(0);
+  });
+
+  test("lost return reservation refuses before accepting the exchange", async () => {
+    seedExchange(5);
+    docs.get("pharmacy_inventory/return-inv")!.data!.reservedQuantity = 2;
+    await expect(callAccept()).rejects.toMatchObject({ code: "failed-precondition" });
+    expect(txWrites).toHaveLength(0);
+  });
+
+  test("exchange courier fee is held 50/50 at acceptance", async () => {
+    seedExchange(5);
+    const config = docs.get("system_config/main")!.data!;
+    config.citiesByCountry = { GH: { accra: { exchangeFee: 60 } } };
+    docs.get(`wallets/${SELLER}`)!.data!.available = 5000;
+    await callAccept();
+    expect(incrementFor(`wallets/${BUYER}`, "available")).toBe(-3000);
+    expect(incrementFor(`wallets/${BUYER}`, "held")).toBe(3000);
+    expect(incrementFor(`wallets/${SELLER}`, "available")).toBe(-3000);
+    expect(incrementFor(`wallets/${SELLER}`, "held")).toBe(3000);
+    const proposalWrite = txWrites.find((w) => w.path === `exchange_proposals/${PROPOSAL_ID}` && w.op === "update");
+    expect(proposalWrite?.payload["reservations.buyerCourierFeeReserved"]).toBe(30);
+    expect(proposalWrite?.payload["reservations.sellerCourierFeeReserved"]).toBe(30);
+    const holds = txWrites.filter((w) => w.path.startsWith("ledger/") && w.payload.type === "courier_fee_hold_created");
+    expect(holds).toHaveLength(2);
+    expect(holds.map((w) => [w.payload.userId, w.payload.amount, w.payload.currency])).toEqual([
+      [BUYER, 30, "GHS"],
+      [SELLER, 30, "GHS"],
+    ]);
+  });
+
+  test("exchange fee cannot be committed against an unfunded pharmacy", async () => {
+    seedExchange(5);
+    docs.get(`wallets/${SELLER}`)!.data!.available = 0;
+    await expect(callAccept()).rejects.toMatchObject({ code: "failed-precondition" });
+    expect(txWrites).toHaveLength(0);
+  });
+
+  test("exchange without a configured courier fee is refused", async () => {
+    seedExchange(5);
+    delete docs.get("system_config/main")!.data!.citiesByCountry;
+    await expect(callAccept()).rejects.toMatchObject({ code: "failed-precondition" });
+    expect(txWrites).toHaveLength(0);
+  });
+});
+
 // ===========================================================================
 // createExchangeProposal — purchase reserve wallet-unit lock
 // ===========================================================================
@@ -302,7 +407,7 @@ function seedReserve(buyerAvailable: number) {
   ]);
 }
 
-function callReserve() {
+function callReserve(pricePerUnit = 10, totalPrice = RESERVE_MAJOR, currency = "GHS") {
   return wrappedReserve({
     data: {
       inventoryItemId: RESV_INV_ID,
@@ -311,9 +416,9 @@ function callReserve() {
       details: {
         type: "purchase",
         quantity: 5,
-        totalPrice: RESERVE_MAJOR,
-        currency: "GHS",
-        pricePerUnit: 10,
+        totalPrice,
+        currency,
+        pricePerUnit,
       },
     },
     auth: { uid: BUYER, token: {} },
@@ -321,6 +426,39 @@ function callReserve() {
 }
 
 describe("createExchangeProposal — purchase reserve wallet-unit lock", () => {
+  test("mismatched GHS total refuses before any wallet or proposal write", async () => {
+    seedReserve(RESERVE_WU);
+    await expect(callReserve(10, 1)).rejects.toMatchObject({ code: "invalid-argument" });
+    expect(txWrites).toHaveLength(0);
+  });
+
+  test("GHS cents are multiplied and reserved as legacy wallet units", async () => {
+    seedReserve(625);
+    await callReserve(1.25, 6.25);
+    expect(incrementFor(`wallets/${BUYER}`, "available")).toBe(-625);
+  });
+
+  test("XAF integer prices use zero decimals but still reserve pharmacy ×100 units", async () => {
+    seedReserve(62500);
+    for (const uid of [BUYER, SELLER]) {
+      const pharmacy = docs.get(`pharmacies/${uid}`)!.data!;
+      pharmacy.countryCode = "CM";
+      pharmacy.cityCode = "douala";
+      pharmacy.city = "Douala";
+      docs.get(`wallets/${uid}`)!.data!.currency = "XAF";
+    }
+    docs.get("system_config/main")!.data = {
+      countries: { CM: { defaultCurrencyCode: "XAF", licenseRequired: false, enabled: true } },
+      currencies: { XAF: { code: "XAF", enabled: true, decimals: 0 } },
+    };
+    await callReserve(125, 625, "XAF");
+    expect(incrementFor(`wallets/${BUYER}`, "available")).toBe(-62500);
+    const proposalWrite = txWrites.find(
+      (w) => w.path.startsWith("exchange_proposals/") && w.op === "set"
+    );
+    expect((proposalWrite!.payload.details as { totalPrice: number }).totalPrice).toBe(625);
+  });
+
   test("insufficient: available 4999 < 5000 WU (50 major × 100) → throws, no reservation", async () => {
     seedReserve(RESERVE_WU - 1);
     await expect(callReserve()).rejects.toMatchObject({ code: "failed-precondition" });

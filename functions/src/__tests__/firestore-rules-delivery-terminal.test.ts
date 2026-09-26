@@ -8,10 +8,8 @@
  * proposal, the wallet and the reserved stock out of sync with a delivery
  * that claimed to be finished.
  *
- * These three statuses now belong exclusively to `completeExchangeDelivery`
- * and `terminateExchangeDelivery`, which run through the Admin SDK and are
- * not subject to these rules. Non-terminal steps stay client-writable so the
- * courier UI keeps working; the full transition matrix is a later lot.
+ * All status and assignment changes now belong to backend callables. Direct
+ * client writes are limited to non-authoritative notes and issue metadata.
  */
 import fs from "fs";
 import path from "path";
@@ -140,13 +138,24 @@ describe("REQ-LOT2 — assigned courier cannot write a TERMINAL status", () => {
   });
 });
 
-describe("REQ-LOT2 — non-terminal steps still work for the courier UI", () => {
-  test("REQ-LOT2-005: status → 'in_transit' ALLOWED", async () => {
-    await assertSucceeds(updateDoc(asCourier(), { status: "in_transit" }));
+describe("REQ-LOT2 — courier status transitions are backend-only", () => {
+  test("REQ-LOT2-004b: direct assignment from pending is denied", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), `deliveries/${DELIVERY_ID}`), {
+        status: "pending", courierId: null,
+      });
+    });
+    await assertFails(updateDoc(asCourier(), {
+      status: "accepted", courierId: COURIER_UID,
+    }));
   });
 
-  test("REQ-LOT2-006: status → 'picked_up' with pickedUpAt ALLOWED", async () => {
-    await assertSucceeds(
+  test("REQ-LOT2-005: status → 'in_transit' DENIED", async () => {
+    await assertFails(updateDoc(asCourier(), { status: "in_transit" }));
+  });
+
+  test("REQ-LOT2-006: status → 'picked_up' with pickedUpAt DENIED", async () => {
+    await assertFails(
       updateDoc(asCourier(), { status: "picked_up", pickedUpAt: new Date() })
     );
   });
@@ -155,6 +164,12 @@ describe("REQ-LOT2 — non-terminal steps still work for the courier UI", () => 
     await assertSucceeds(
       updateDoc(asCourier(), { hasIssue: true, lastIssueReportedAt: new Date() })
     );
+  });
+
+  test("REQ-LOT2-007b: stock transit custody cannot be forged", async () => {
+    await assertFails(updateDoc(asCourier(), {
+      stockTransit: { version: 1, outbound: { state: "received_pending" } },
+    }));
   });
 });
 
@@ -215,13 +230,14 @@ describe("REQ-LOT2 — super_admin client cannot write a terminal status either"
     );
   });
 
-  test("REQ-LOT2-013: super_admin CAN still perform non-terminal repairs", async () => {
-    // The lot restricts the value, not the admin's usefulness.
+  test("REQ-LOT2-013: super_admin can edit notes but cannot repair status directly", async () => {
     await assertSucceeds(
       updateDoc(asSuperAdmin(`deliveries/${DELIVERY_ID}`), {
-        status: "in_transit",
         notes: "admin repair",
       })
+    );
+    await assertFails(
+      updateDoc(asSuperAdmin(`deliveries/${DELIVERY_ID}`), { status: "in_transit" })
     );
   });
 });

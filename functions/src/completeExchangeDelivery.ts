@@ -26,7 +26,7 @@ import {
   isSandboxDemoCaller,
   isSandboxEnabled,
 } from "./lib/sandboxGate.js";
-import { majorToWalletUnits } from "./lib/moneyUnits.js";
+import { fromMinor, majorToWalletUnits, resolveDecimals, toMinor } from "./lib/moneyUnits.js";
 import {
   assertMatchesSnapshot,
   assertCourierMatchesTrade,
@@ -239,7 +239,11 @@ export async function completeDeliveryCore(args: {
       // flag is on AND the caller is one of the trade parties — spares an
       // extra Firestore read in the prod happy path (99.9% of invocations,
       // and prod never has SANDBOX_ENABLED anyway).
-      if (isSandboxEnabled() && callerIsTradeParty) {
+      if (
+        isSandboxEnabled() &&
+        callerIsTradeParty &&
+        (!delivery?.courierId || delivery.courierId === userId)
+      ) {
         const callerPharmacy = await transaction.get(
           db.collection("pharmacies").doc(userId)
         );
@@ -332,7 +336,10 @@ export async function completeDeliveryCore(args: {
         }
 
         const expectedPaymentStatus =
-          settledType === "purchase" ? "paid" : "n/a";
+          settledType === "purchase" ||
+          (settledType === "exchange" && delivery?.stockTransit?.version === 1 &&
+            Number(delivery.courierFee ?? 0) > 0)
+            ? "paid" : "n/a";
         const settlementProven =
           delivery?.completedAt != null &&
           delivery?.paymentStatus === expectedPaymentStatus &&
@@ -416,6 +423,30 @@ export async function completeDeliveryCore(args: {
       }
 
       const proposal = proposalSnapshot.data();
+      const physicalExchange =
+        proposal?.details?.type === "exchange" && delivery?.stockTransit?.version === 1;
+      if (physicalExchange) {
+        if (
+          sandboxDemoActive ||
+          !Number.isSafeInteger(delivery.stockTransit.outbound?.quantity) ||
+          delivery.stockTransit.outbound.quantity <= 0 ||
+          !Number.isSafeInteger(delivery.stockTransit.return?.quantity) ||
+          delivery.stockTransit.return.quantity <= 0 ||
+          delivery.stockTransit.outbound?.state !== "received_pending" ||
+          delivery.stockTransit.return?.state !== "received_pending" ||
+          delivery.sandboxJourney?.returnPhase !== "return_delivered" ||
+          !delivery.courierId || delivery.courierId !== userId ||
+          proposal?.reservations?.ownerInventoryReserved !==
+            delivery.stockTransit.outbound?.quantity ||
+          proposal?.reservations?.inventoryReserved !==
+            delivery.stockTransit.return?.quantity
+        ) {
+          throw new HttpsError(
+            "failed-precondition",
+            "Both exchange lots must be delivered by the assigned courier before settlement."
+          );
+        }
+      }
 
       // ===== FINANCE/STOCK ROLES — always from proposal (source of truth) =====
       // proposal.fromPharmacyId = buyer (the one who created the proposal)
@@ -481,6 +512,26 @@ export async function completeDeliveryCore(args: {
       const sourceInventorySnapshot = sourceInventoryRef ? readResults[readIdx++] : null;
       const exchangeInventorySnapshot = exchangeInventoryRef ? readResults[readIdx++] : null;
 
+      // Validate both committed lots before staging any wallet or inventory
+      // write. A stale/missing reserve must fail closed, never create negative
+      // reservedQuantity while minting a recipient lot.
+      if (physicalExchange) {
+        const ownerReserved = Number(sourceInventorySnapshot?.data()?.reservedQuantity ?? -1);
+        const returnReserved = Number(exchangeInventorySnapshot?.data()?.reservedQuantity ?? -1);
+        if (
+          !sourceInventorySnapshot?.exists || !exchangeInventorySnapshot?.exists ||
+          !Number.isSafeInteger(ownerReserved) ||
+          ownerReserved < delivery.stockTransit.outbound.quantity ||
+          !Number.isSafeInteger(returnReserved) ||
+          returnReserved < delivery.stockTransit.return.quantity
+        ) {
+          throw new HttpsError(
+            "failed-precondition",
+            "Exchange lot reservations no longer cover both delivered quantities."
+          );
+        }
+      }
+
       // ===== PHASE 2: FINALIZE PAYMENT + COURIER FEE =====
       //
       // Business rule (pilot v1):
@@ -491,7 +542,10 @@ export async function completeDeliveryCore(args: {
       //
       // This avoids requiring seller to have pre-existing available balance.
 
-      const courierFee = delivery.courierFee || 0;
+      const courierFee = delivery.courierFee ?? 0;
+      if (typeof courierFee !== "number" || !Number.isFinite(courierFee) || courierFee < 0) {
+        throw new HttpsError("failed-precondition", "Invalid courier fee on delivery.");
+      }
       const halfBuyer = Math.floor(courierFee / 2);
       const halfSeller = courierFee - halfBuyer;
 
@@ -561,11 +615,11 @@ export async function completeDeliveryCore(args: {
           if (buyerAvailable < halfBuyerWU) {
             logger.warn(
               `completeExchangeDelivery: Buyer ${buyerId} has insufficient balance for courier fee share`,
-              { required: halfBuyer, available: buyerAvailable }
+              { required: halfBuyer, available: buyerAvailable / 100 }
             );
             throw new HttpsError(
               "failed-precondition",
-              `Buyer has insufficient balance for courier fee. Required: ${halfBuyer} ${currency}, Available: ${buyerAvailable} ${currency}`
+              `Buyer has insufficient balance for courier fee. Required: ${halfBuyer} ${currency}, Available: ${buyerAvailable / 100} ${currency}`
             );
           }
         }
@@ -647,14 +701,15 @@ export async function completeDeliveryCore(args: {
           sellerId,
           courierId: userId,
           totalAmount,
-          sellerAmount: sellerNetCredit,
-          courierFee,
+          sellerAmount: sandboxDemoActive ? totalAmount : sellerNetCredit,
+          courierFee: sandboxDemoActive ? 0 : courierFee,
+          ...(sandboxDemoActive ? { simulatedCourierFee: courierFee } : {}),
           currency,
           createdAt: FieldValue.serverTimestamp(),
         });
 
         // Record courier fee ledger entries
-        if (courierFee > 0) {
+        if (courierFee > 0 && !sandboxDemoActive) {
           const buyerFeeLedger = db.collection("ledger").doc();
           transaction.set(buyerFeeLedger, {
             type: "courier_fee",
@@ -693,6 +748,89 @@ export async function completeDeliveryCore(args: {
             to: "wallet",
             deliveryId,
             description: "Courier delivery fee",
+            createdAt: FieldValue.serverTimestamp(),
+          });
+        }
+      }
+
+      // Barter has no medicine-price transfer, but both pharmacies owe their
+      // share of the courier fee. This branch runs only for the new physical
+      // two-leg contract, after both lots have reached their recipients.
+      if (physicalExchange && courierFee > 0) {
+        const decimals = resolveDecimals(
+          currency,
+          sysConfigData?.currencies?.[currency],
+          (reason) => logger.warn(`completeExchangeDelivery: ${reason}`)
+        );
+        const feeMinor = toMinor(courierFee, decimals);
+        if (fromMinor(feeMinor, decimals) !== courierFee) {
+          throw new HttpsError("failed-precondition", "Courier fee precision is invalid for currency.");
+        }
+        const buyerShare = Number(proposal?.reservations?.buyerCourierFeeReserved);
+        const sellerShare = Number(proposal?.reservations?.sellerCourierFeeReserved);
+        if (!Number.isFinite(buyerShare) || buyerShare < 0 ||
+            !Number.isFinite(sellerShare) || sellerShare < 0) {
+          throw new HttpsError("failed-precondition", "Courier fee holds are missing.");
+        }
+        const buyerShareMinor = toMinor(buyerShare, decimals);
+        const sellerShareMinor = toMinor(sellerShare, decimals);
+        if (buyerShareMinor + sellerShareMinor !== feeMinor ||
+            fromMinor(buyerShareMinor, decimals) !== buyerShare ||
+            fromMinor(sellerShareMinor, decimals) !== sellerShare) {
+          throw new HttpsError("failed-precondition", "Courier fee holds do not match the agreed fee.");
+        }
+        const buyerShareWU = majorToWalletUnits(buyerShare, "pharmacy");
+        const sellerShareWU = majorToWalletUnits(sellerShare, "pharmacy");
+        const buyerHeld = Number(buyerWalletSnap.data()?.held ?? 0);
+        const sellerHeld = Number(sellerWalletSnap.data()?.held ?? 0);
+        if (
+          !Number.isFinite(buyerHeld) || buyerHeld < buyerShareWU ||
+          !Number.isFinite(sellerHeld) || sellerHeld < sellerShareWU
+        ) {
+          throw new HttpsError(
+            "failed-precondition",
+            "Reserved courier fees are no longer available on both wallets."
+          );
+        }
+        transaction.update(buyerWalletRef, {
+          held: FieldValue.increment(-buyerShareWU),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        transaction.update(sellerWalletRef, {
+          held: FieldValue.increment(-sellerShareWU),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        if (courierWalletSnap.exists) {
+          transaction.update(courierWalletRef, {
+            available: FieldValue.increment(courierFee),
+            currency,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        } else {
+          transaction.set(courierWalletRef, {
+            available: courierFee,
+            held: 0,
+            currency,
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        }
+        const ledgerEntries = [
+          { type: "courier_fee", userId: buyerId, amount: buyerShare,
+            amountMinor: buyerShareMinor, from: "held", to: "courier" },
+          { type: "courier_fee", userId: sellerId, amount: sellerShare,
+            amountMinor: sellerShareMinor, from: "held", to: "courier" },
+          { type: "courier_payment", userId, amount: courierFee,
+            amountMinor: feeMinor, from: "exchange", to: "wallet" },
+        ];
+        for (const entry of ledgerEntries) {
+          transaction.set(db.collection("ledger").doc(), {
+            ...entry,
+            currency,
+            currencyCode: currency,
+            deliveryId,
+            proposalId: delivery.proposalId,
+            courierId: userId,
             createdAt: FieldValue.serverTimestamp(),
           });
         }
@@ -767,18 +905,23 @@ export async function completeDeliveryCore(args: {
           );
         }
 
-        // 3A-exchange-2: Decrement owner B's item Y (availableQuantity only)
+        // 3A-exchange-2: For two physical legs, the owner's lot was reserved
+        // at acceptance. Final settlement consumes that hold, not available
+        // stock a second time. Legacy one-leg exchanges retain their path.
         if (sourceInventoryRef && sourceData) {
-          const ownerAvailable = sourceData.availableQuantity || 0;
-          if (ownerAvailable < receivedQuantity) {
+          const ownerStock = physicalExchange
+            ? Number(sourceData.reservedQuantity ?? 0)
+            : Number(sourceData.availableQuantity ?? 0);
+          if (!Number.isSafeInteger(ownerStock) || ownerStock < receivedQuantity) {
             throw new HttpsError(
               "failed-precondition",
-              `Owner has insufficient stock for exchange. Required: ${receivedQuantity}, Available: ${ownerAvailable}`
+              `Owner has insufficient committed stock for exchange. Required: ${receivedQuantity}, Available: ${ownerStock}`
             );
           }
 
           transaction.update(sourceInventoryRef, {
-            availableQuantity: FieldValue.increment(-receivedQuantity),
+            [physicalExchange ? "reservedQuantity" : "availableQuantity"]:
+              FieldValue.increment(-receivedQuantity),
             updatedAt: FieldValue.serverTimestamp(),
           });
 
@@ -880,7 +1023,8 @@ export async function completeDeliveryCore(args: {
           timestamp: Timestamp.now(),
         } : null,
         updatedAt: FieldValue.serverTimestamp(),
-        paymentStatus: proposal?.details?.type === "purchase" ? "paid" : "n/a",
+        paymentStatus: proposal?.details?.type === "purchase" ||
+          (physicalExchange && courierFee > 0) ? "paid" : "n/a",
       });
 
       // ===== PHASE 5: UPDATE PROPOSAL STATUS =====
@@ -893,6 +1037,11 @@ export async function completeDeliveryCore(args: {
         reservations: {
           walletReserved: null,
           inventoryReserved: null,
+          ...(physicalExchange ? {
+            ownerInventoryReserved: null,
+            buyerCourierFeeReserved: null,
+            sellerCourierFeeReserved: null,
+          } : {}),
         },
       });
 

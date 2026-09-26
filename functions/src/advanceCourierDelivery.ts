@@ -106,6 +106,15 @@ export const advanceCourierDelivery = onCall<AdvanceInput>(
       };
       if (nextStatus === "picked_up") {
         payload.pickedUpAt = FieldValue.serverTimestamp();
+        if (delivery.stockTransit?.version === 1) {
+          if (delivery.stockTransit.outbound?.state !== "reserved") {
+            throw new HttpsError(
+              "failed-precondition",
+              "Outbound exchange lot is not reserved for pickup."
+            );
+          }
+          payload["stockTransit.outbound.state"] = "in_transit";
+        }
       }
       tx.update(deliveryRef, payload);
 
