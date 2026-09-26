@@ -48,6 +48,14 @@ import path from "node:path";
 /** Maximum bytes of captured output surfaced in a failure. */
 export const MAX_OUTPUT_BYTES = 4000;
 
+/**
+ * Maximum stdout returned to a caller, whole. Callers parse it (Functions
+ * inventory, SDK config, git), so a tail would be a corrupt document: past
+ * this bound the command is refused instead. 16 MiB is ~190× the staging
+ * Functions inventory measured on 2026-09-26 (86,016 characters).
+ */
+export const MAX_STDOUT_BYTES = 16 * 1024 * 1024;
+
 /** Trims captured output to the tail, which is where failures explain themselves. */
 export function boundOutput(text, max = MAX_OUTPUT_BYTES) {
   const s = String(text ?? "");
@@ -202,7 +210,14 @@ export function killTree(pid, platform = process.platform, sync = spawnSync) {
 export function runCommand(
   cmd,
   args,
-  { cwd, env, timeoutMs = 300_000, redact = (x) => x, platform = process.platform } = {}
+  {
+    cwd,
+    env,
+    timeoutMs = 300_000,
+    redact = (x) => x,
+    platform = process.platform,
+    maxStdoutBytes = MAX_STDOUT_BYTES,
+  } = {}
 ) {
   if (!Array.isArray(args)) {
     throw new TypeError("runCommand: args must be an array — never a joined string.");
@@ -226,13 +241,30 @@ export function runCommand(
       return resolve(refuse("COMMAND_UNRUNNABLE", `\`${shown}\` could not be started: ${e.message}`));
     }
 
-    // Keep only the tail: a runaway log must not exhaust memory before it
-    // gets the chance to be truncated for display.
+    // Two different jobs, two different buffers. The DISPLAY keeps only a
+    // tail of each stream: a runaway log must not exhaust memory before it
+    // gets the chance to be truncated for display. The RESULT keeps stdout
+    // whole, as raw bytes decoded once at the end (a chunk may split a UTF-8
+    // character), up to `maxStdoutBytes`; past that it is dropped and the
+    // command refused, because a caller would parse a tail as a document.
     const CAP = MAX_OUTPUT_BYTES * 4;
-    let out = "";
+    let outTail = "";
     let err = "";
+    const outChunks = [];
+    let outBytes = 0;
+    let outOverflow = false;
     const keepTail = (s) => (s.length > CAP ? s.slice(-CAP) : s);
-    child.stdout.on("data", (d) => (out = keepTail(out + d)));
+    child.stdout.on("data", (d) => {
+      outTail = keepTail(outTail + d);
+      if (outOverflow) return;
+      outBytes += d.length;
+      if (outBytes > maxStdoutBytes) {
+        outOverflow = true;
+        outChunks.length = 0; // release what was held; it can no longer be returned
+        return;
+      }
+      outChunks.push(d);
+    });
     child.stderr.on("data", (d) => (err = keepTail(err + d)));
 
     let timedOut = false;
@@ -251,7 +283,7 @@ export function runCommand(
     );
 
     child.on("close", (status) => {
-      const captured = boundOutput(redact(out + err));
+      const captured = boundOutput(redact(outTail + err));
       if (timedOut) {
         return settle({
           ok: false,
@@ -270,6 +302,19 @@ export function runCommand(
           message: `\`${shown}\` failed (exit ${status}).\n\n${captured}`,
         });
       }
+      if (outOverflow) {
+        return settle({
+          ok: false,
+          code: "STDOUT_TOO_LARGE",
+          command: shown,
+          timedOut: false,
+          // Exit 0 is stated: for a mutating command the remote change may
+          // have happened even though its output cannot be returned.
+          message: `\`${shown}\` exited 0 but wrote more than ${maxStdoutBytes} bytes to stdout; ` +
+            `its output is not returned rather than returned truncated.\n\n${captured}`,
+        });
+      }
+      const out = Buffer.concat(outChunks).toString("utf8");
       settle({ ok: true, stdout: redact(out).trim(), captured });
     });
   });

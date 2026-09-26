@@ -28,6 +28,7 @@ import {
   resolveNpmRuntime,
   resolveFirebaseCli,
   MAX_OUTPUT_BYTES,
+  MAX_STDOUT_BYTES,
 } from "./deployRunner.mjs";
 import {
   acquireLock,
@@ -35,7 +36,7 @@ import {
   releaseOwnLock,
   releaseLockManually,
 } from "./deployLock.mjs";
-import { concludeRelease } from "./deployChecks.mjs";
+import { concludeRelease, parseJsonOrRefuse } from "./deployChecks.mjs";
 import { isolatedEnv } from "../tools/deploy/bin/firebase-emulators.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -283,6 +284,72 @@ describe("REQ-B-02 — a command that fails returns a verdict, never throws", ()
     const bounded = boundOutput(huge);
     assert.ok(bounded.length < huge.length);
     assert.match(bounded, /bytes omitted/);
+  });
+});
+
+// The 2026-09-26 staging expand died here: `functions:list --json` printed
+// 86,016 characters, the runner kept only the last 16,000, and the inventory
+// parser was handed the middle of a JSON document.
+describe("REQ-B-OUT-01 — stdout is returned whole or refused, never truncated", () => {
+  // Multibyte padding: a chunk boundary inside "é" must not corrupt the text.
+  const bigJson = [
+    "-e",
+    "const result = Array.from({ length: 3000 }, (_, i) => ({ id: 'fn' + i, region: 'europe-west1', pad: 'é'.repeat(20) }));" +
+      "process.stdout.write(JSON.stringify({ status: 'success', result }, null, 2));",
+  ];
+
+  test("a JSON document larger than the staging inventory parses whole", async () => {
+    const r = await runCommand(process.execPath, bigJson);
+    assert.equal(r.ok, true, r.message);
+    assert.ok(r.stdout.length > 86_016, `stdout is only ${r.stdout.length} characters`);
+    const parsed = parseJsonOrRefuse(r.stdout, "large inventory");
+    assert.equal(parsed.ok, true, parsed.message);
+    assert.equal(parsed.value.result.length, 3000);
+    assert.equal(parsed.value.result[2999].id, "fn2999");
+    // With 64 KiB pipe chunks one boundary falls inside an "é" (measured:
+    // element 2672). Decoding chunk by chunk would leave U+FFFD there while
+    // JSON.parse still succeeds — so every element is checked, not a sample.
+    assert.equal(r.stdout.includes("�"), false, "a UTF-8 character was split at a chunk boundary");
+    assert.ok(parsed.value.result.every((row) => row.pad === "é".repeat(20)));
+  });
+
+  test("stdout beyond the limit is refused by name, without returning a fragment", async () => {
+    const r = await runCommand(process.execPath, ["-e", "process.stdout.write('x'.repeat(5000))"],
+      { maxStdoutBytes: 1000 });
+    assert.equal(r.ok, false);
+    assert.equal(r.code, "STDOUT_TOO_LARGE");
+    assert.match(r.message, /1000 bytes/);
+    assert.match(r.message, /exited 0/);
+    assert.match(r.message, /x{100}/, "the bounded tail is shown for diagnosis");
+    assert.equal(r.stdout, undefined);
+  });
+
+  test("stdout exactly at the limit is accepted", async () => {
+    const r = await runCommand(process.execPath, ["-e", "process.stdout.write('y'.repeat(1000))"],
+      { maxStdoutBytes: 1000 });
+    assert.equal(r.ok, true, r.message);
+    assert.equal(r.stdout, "y".repeat(1000));
+  });
+
+  test("the limit counts bytes, not characters", async () => {
+    // 600 × "é" = 600 characters but 1200 UTF-8 bytes.
+    const r = await runCommand(process.execPath, ["-e", "process.stdout.write('é'.repeat(600))"],
+      { maxStdoutBytes: 1000 });
+    assert.equal(r.code, "STDOUT_TOO_LARGE");
+  });
+
+  test("a failing command still surfaces only a bounded tail", async () => {
+    const r = await runCommand(process.execPath, [
+      "-e", "process.stdout.write('z'.repeat(200000) + 'TAIL'); process.exit(2)",
+    ]);
+    assert.equal(r.code, "COMMAND_FAILED");
+    assert.match(r.message, /TAIL/);
+    assert.ok(r.message.length < MAX_OUTPUT_BYTES + 500, `message is ${r.message.length} characters`);
+  });
+
+  test("the default limit is explicit and comfortably above the staging inventory", () => {
+    assert.ok(MAX_STDOUT_BYTES >= 1024 * 1024);
+    assert.ok(MAX_STDOUT_BYTES <= 64 * 1024 * 1024);
   });
 });
 
