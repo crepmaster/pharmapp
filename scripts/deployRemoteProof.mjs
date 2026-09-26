@@ -90,6 +90,22 @@ export function compareHostingFiles(local, remote) {
   return { fileCount: wanted.length, hash: `sha256:${sha(wanted.map((name) => `${name}\0${local[name]}`).join("\n"))}` };
 }
 
+/** Use the source of the successful build; a configured generation of 0 means latest. */
+export function resolvedFunctionSource(buildConfig) {
+  const configured = buildConfig?.source?.storageSource;
+  const provenance = buildConfig?.sourceProvenance?.resolvedStorageSource;
+  if (provenance && configured &&
+      (provenance.bucket !== configured.bucket || provenance.object !== configured.object)) {
+    throw new Error("Function source provenance differs from configured source");
+  }
+  const source = provenance ?? configured;
+  if (!source?.bucket || !source?.object ||
+      !/^[1-9]\d*$/.test(String(source?.generation ?? ""))) {
+    throw new Error("Function has no immutable source generation");
+  }
+  return { bucket: source.bucket, object: source.object, generation: String(source.generation) };
+}
+
 export function remoteClient(credential) {
   async function request(url, { json = true } = {}) {
     const token = await credential.getAccessToken();
@@ -102,10 +118,9 @@ export function remoteClient(credential) {
     async functionSource(name) {
       if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(name)) throw new Error("Invalid Function name");
       const fn = await request(`https://cloudfunctions.googleapis.com/v2/projects/${PROJECT}/locations/${REGION}/functions/${name}`);
-      const source = fn.buildConfig?.source?.storageSource;
+      const source = resolvedFunctionSource(fn.buildConfig);
       if (fn.name !== `projects/${PROJECT}/locations/${REGION}/functions/${name}` ||
           fn.state !== "ACTIVE" || fn.buildConfig?.runtime !== "nodejs22" ||
-          !source?.bucket || !source?.object || !source?.generation ||
           !fn.serviceConfig?.revision || !/^https:\/\//.test(fn.serviceConfig?.uri ?? "")) {
         throw new Error(`Function ${name} has no verifiable source revision`);
       }

@@ -554,6 +554,7 @@ export function checkDemoRecette({ receipt, verifiedAt, saleProposal, saleDelive
       exchangeDelivery?.sandboxJourney?.outboundPhase !== "delivered" ||
       exchangeDelivery?.sandboxJourney?.returnPhase !== "return_delivered" ||
       exchangeDelivery?.sandboxJourney?.updatedBy !== exchangeDelivery.courierId ||
+      !Number.isFinite(millis(exchangeDelivery?.sandboxJourney?.updatedAt)) ||
       millis(exchangeDelivery?.sandboxJourney?.updatedAt) < started) {
     return refuse("EXCHANGE_RECETTE_INCOMPLETE", "Exchange must have a courier and two physical receipts after expand.");
   }

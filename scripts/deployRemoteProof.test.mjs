@@ -5,7 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { deflateRawSync } from "node:zlib";
-import { hashSourceZip, localHostingFiles, compareHostingFiles, compareFunctionRevisions } from "./deployRemoteProof.mjs";
+import { hashSourceZip, localHostingFiles, compareHostingFiles, compareFunctionRevisions,
+  resolvedFunctionSource } from "./deployRemoteProof.mjs";
 
 const sha = (value) => createHash("sha256").update(value).digest("hex");
 
@@ -76,4 +77,15 @@ test("contract refuses changed Function revision or source generation", () => {
   assert.throws(() => compareFunctionRevisions(original, [{ ...original[0], revision: "rev-2" }]), /revision changed/);
   assert.throws(() => compareFunctionRevisions(original, [{ ...original[0], source: { ...original[0].source, generation: "2" } }]), /revision changed/);
   assert.throws(() => compareFunctionRevisions(original, [{ ...original[0], sandboxEnabled: "false" }]), /revision changed/);
+});
+
+test("Function source attestation resolves generation 0 from successful build provenance", () => {
+  const configured = { bucket: "source-bucket", object: "health.zip", generation: "0" };
+  assert.deepEqual(resolvedFunctionSource({ source: { storageSource: configured },
+    sourceProvenance: { resolvedStorageSource: { ...configured, generation: "123" } } }),
+  { ...configured, generation: "123" });
+  assert.throws(() => resolvedFunctionSource({ source: { storageSource: configured } }), /immutable source generation/);
+  assert.throws(() => resolvedFunctionSource({ source: { storageSource: configured },
+    sourceProvenance: { resolvedStorageSource: { ...configured, bucket: "other", generation: "123" } } }),
+  /provenance differs/);
 });

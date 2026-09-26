@@ -465,6 +465,9 @@ describe("demo recette before restrictive Rules", () => {
     assert.equal(checkDemoRecette({ ...base, exchangeLedger: exchangeLedger.map((row) =>
       row.type === "courier_fee" ? { ...row, amountMinor: 200 } : row) }).code,
       "EXCHANGE_LEDGER_INCOMPLETE");
+    assert.equal(checkDemoRecette({ ...base, exchangeDelivery: { ...exchangeDelivery,
+      sandboxJourney: { ...exchangeDelivery.sandboxJourney, updatedAt: undefined } } }).code,
+      "EXCHANGE_RECETTE_INCOMPLETE");
   });
 });
 
