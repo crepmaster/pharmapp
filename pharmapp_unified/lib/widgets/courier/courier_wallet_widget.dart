@@ -37,8 +37,7 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
   Map<String, dynamic>? _walletData;
   bool _loading = true;
   String? _error;
-  String _currency = 'XAF';
-  String? _countryCode;
+  String? _currency;
   int _minWithdrawal = 1000;
 
   // --- Multi-country withdrawal context (loaded from MasterData + user doc) ---
@@ -58,15 +57,6 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
   ///    returns a non-null [WithdrawalResult]).
   ///  - Preserved on cancel, network error, timeout → next retry reuses it.
   String? _clientRequestId;
-
-  static const Map<String, String> _countryCurrency = {
-    'CM': 'XAF',
-    'GH': 'GHS',
-    'KE': 'KES',
-    'NG': 'NGN',
-    'TZ': 'TZS',
-    'UG': 'UGX',
-  };
 
   /// Legacy compatibility fallback for the per-currency minimum withdrawal
   /// (major units). Sprint 3.2c-α: PRIMARY source of truth is now
@@ -126,13 +116,15 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
   /// earnings and caused off-by-100 display bugs. Format the raw value with
   /// locale-style grouping and currency-appropriate decimals.
   String _fmt(num value) {
+    final currency = _currency;
+    if (currency == null) return 'Devise du pays indisponible';
     final double major = value.toDouble();
-    final int decimals = _decimalsForCurrency(_currency);
+    final int decimals = _decimalsForCurrency(currency);
     final formatted = major.toStringAsFixed(decimals).replaceAllMapped(
           RegExp(r'(\d)(?=(\d{3})+(?:\.|\$))'),
           (m) => '${m[1]},',
         );
-    return '$formatted $_currency';
+    return '$formatted $currency';
   }
 
   @override
@@ -157,7 +149,7 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
 
       final courierData = doc.data();
       final cc = courierData?['countryCode'] as String?;
-      final currency = cc == null ? null : _countryCurrency[cc];
+      String? currency;
 
       // Load MasterData snapshot (cached session-wide after first call).
       List<MasterDataProvider> providers = const [];
@@ -167,20 +159,25 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
       if (cc != null) {
         try {
           loadedSnapshot = await MasterDataService.load();
-          providers = loadedSnapshot
-              .getEnabledProviders(cc)
-              .where((p) => p.supportsPayouts)
-              .toList();
+          final configured = loadedSnapshot.getDefaultCurrencyForCountry(cc);
+          if (configured != null &&
+              loadedSnapshot.getCurrency(configured)?.enabled == true) {
+            currency = configured;
+            providers = loadedSnapshot
+                .getEnabledProviders(cc)
+                .where((p) => p.supportsPayouts && p.currencyCode == configured)
+                .toList();
+          }
           dialCode = loadedSnapshot.countries[cc]?.dialCode ?? '';
-          final currencyCodeForDecimals = currency ?? 'XAF';
           // Prefer snapshot's MasterDataCurrency.decimals if populated;
           // otherwise fall back to the local table via _decimalsForCurrency.
           // Note: _masterData is set in the final setState below, so we
           // resolve decimals explicitly here instead of calling the helper.
-          final fromSnapshot =
-              loadedSnapshot.getCurrency(currencyCodeForDecimals)?.decimals;
-          decimals = fromSnapshot ??
-              (_currencyDecimalsFallback[currencyCodeForDecimals] ?? 2);
+          if (currency != null) {
+            final fromSnapshot = loadedSnapshot.getCurrency(currency)?.decimals;
+            decimals =
+                fromSnapshot ?? (_currencyDecimalsFallback[currency] ?? 2);
+          }
         } catch (_) {
           // Snapshot unavailable → withdrawal button disabled by empty
           // provider list. Don't crash.
@@ -212,11 +209,10 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
 
       if (!mounted) return;
       setState(() {
-        _countryCode = cc;
         // Assign _masterData first so the resolver below can read it.
         _masterData = loadedSnapshot;
+        _currency = currency;
         if (currency != null) {
-          _currency = currency;
           // Sprint 3.2c-α: primary source is shared snapshot; helper
           // transparently falls back to legacy table when absent.
           _minWithdrawal = _minWithdrawalMajorForCurrency(currency);
@@ -264,6 +260,8 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
   }
 
   Future<void> _onWithdrawPressed() async {
+    final currency = _currency;
+    if (currency == null) return;
     // CRITICAL: lazy-generate ONCE. Every subsequent reopen (after a cancel,
     // timeout, or error) reuses the same UUID so the backend idempotency
     // check returns the existing request instead of double-debiting.
@@ -277,7 +275,7 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
         clientRequestId: _clientRequestId!,
         eligibleProviders: _eligibleProviders,
         preselectedProviderId: _preselectedProviderId,
-        currencyCode: _currency,
+        currencyCode: currency,
         currencyDecimals: _currencyDecimals,
         walletBalanceMajor: (_walletData?['available'] ?? 0) as num,
         formattedBalance: _fmt((_walletData?['available'] ?? 0) as num),
@@ -341,6 +339,8 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
 
     final available = _walletData?['available'] ?? 0;
     final held = _walletData?['held'] ?? 0;
+    final storedCurrency = _walletData?['currency'] as String?;
+    final currencyMismatch = _currency != null && storedCurrency != _currency;
     // Withdraw eligibility is computed locally from the courier's
     // country-specific minimum (see `_minWithdrawalByCurrency`). The
     // previous hardcoded 1000 XAF floor baked into UnifiedWalletService
@@ -351,11 +351,12 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
     // courier's country supports payouts. Country gating by hardcoded CM
     // has been removed — multi-country support is driven entirely by
     // system_config/main.mobileMoneyProviders.
-    final bool payoutsSupported = _eligibleProviders.isNotEmpty;
+    final bool payoutsSupported =
+        _currency != null && !currencyMismatch && _eligibleProviders.isNotEmpty;
     final bool withdrawButtonEnabled = meetsMinimum && payoutsSupported;
 
-    final String payoutsUnavailableMsg = _countryCode == null
-        ? 'Informations pays indisponibles. Réessayez plus tard.'
+    final String payoutsUnavailableMsg = _currency == null || currencyMismatch
+        ? 'Devise du portefeuille indisponible. Réessayez plus tard.'
         : 'Retraits non disponibles dans votre pays pour le moment.';
 
     return Card(
@@ -413,7 +414,9 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    _fmt(available),
+                    currencyMismatch
+                        ? 'Devise du portefeuille incompatible'
+                        : _fmt(available),
                     style: const TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
@@ -423,7 +426,9 @@ class _CourierWalletWidgetState extends State<CourierWalletWidget> {
                   if (held > 0) ...[
                     const SizedBox(height: 8),
                     Text(
-                      'Held: ${_fmt(held)}',
+                      currencyMismatch
+                          ? 'Held: devise incompatible'
+                          : 'Held: ${_fmt(held)}',
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.grey[600],
@@ -534,7 +539,7 @@ Widget debugBuildWithdrawalDialog({
   required String clientRequestId,
   required List<MasterDataProvider> eligibleProviders,
   String? preselectedProviderId,
-  String currencyCode = 'XAF',
+  required String currencyCode,
   int currencyDecimals = 0,
   num walletBalanceMajor = 0,
   String? formattedBalance,
@@ -548,8 +553,7 @@ Widget debugBuildWithdrawalDialog({
     currencyCode: currencyCode,
     currencyDecimals: currencyDecimals,
     walletBalanceMajor: walletBalanceMajor,
-    formattedBalance:
-        formattedBalance ?? '$walletBalanceMajor $currencyCode',
+    formattedBalance: formattedBalance ?? '$walletBalanceMajor $currencyCode',
     dialCode: dialCode,
     minWithdrawalMajor: minWithdrawalMajor,
   );

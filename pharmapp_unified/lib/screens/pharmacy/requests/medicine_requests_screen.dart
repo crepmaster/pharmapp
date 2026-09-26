@@ -41,41 +41,32 @@ class _MedicineRequestsScreenState extends State<MedicineRequestsScreen>
 
   Future<void> _loadProfile() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-    final doc = await FirebaseFirestore.instance
-        .collection('pharmacies')
-        .doc(uid)
-        .get();
-    if (!mounted || !doc.exists) return;
-    final data = doc.data()!;
-    final cc = data['countryCode'] as String? ?? '';
-
-    String currency = 'XAF';
-    if (cc.isNotEmpty) {
-      try {
-        final configDoc = await FirebaseFirestore.instance
-            .collection('system_config')
-            .doc('main')
-            .get();
-        if (configDoc.exists) {
-          final countries =
-              configDoc.data()?['countries'] as Map<String, dynamic>? ?? {};
-          final country = countries[cc] as Map<String, dynamic>?;
-          if (country != null && country['defaultCurrencyCode'] != null) {
-            currency = country['defaultCurrencyCode'] as String;
-          }
-        }
-      } catch (_) {}
+    if (uid == null) {
+      if (mounted) setState(() => _profileLoaded = true);
+      return;
     }
-
-    if (!mounted) return;
-    setState(() {
-      _pharmacyId = uid;
-      _countryCode = cc;
-      _cityCode = data['cityCode'] as String? ?? '';
-      _currencyCode = currency;
-      _profileLoaded = true;
-    });
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('pharmacies').doc(uid).get();
+      if (!doc.exists) return;
+      final data = doc.data()!;
+      final cc = data['countryCode'] as String? ?? '';
+      final snapshot = await MasterDataService.load();
+      final currency = snapshot.getDefaultCurrencyForCountry(cc);
+      if (!mounted) return;
+      setState(() {
+        _pharmacyId = uid;
+        _countryCode = cc;
+        _cityCode = data['cityCode'] as String? ?? '';
+        _currencyCode = currency != null &&
+                snapshot.getCurrency(currency)?.enabled == true
+            ? currency : null;
+      });
+    } catch (_) {
+      // Keep monetary request creation blocked on failed configuration reads.
+    } finally {
+      if (mounted) setState(() => _profileLoaded = true);
+    }
   }
 
   @override
@@ -105,6 +96,17 @@ class _MedicineRequestsScreenState extends State<MedicineRequestsScreen>
       ),
       body: !_profileLoaded
           ? const Center(child: CircularProgressIndicator())
+          : _currencyCode == null || _pharmacyId == null ||
+                  _countryCode == null || _cityCode == null
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Devise du pays indisponible. Impossible de créer une demande.'),
+                      TextButton(onPressed: _loadProfile, child: const Text('Réessayer')),
+                    ],
+                  ),
+                )
           : TabBarView(
               controller: _tabController,
               children: [

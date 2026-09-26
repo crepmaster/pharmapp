@@ -320,7 +320,10 @@ class ExchangeStatusScreen extends StatelessWidget {
                                   .last),
                           if (proposal.deliveryInfo!.deliveryFee != null)
                             _buildDetailRow('Delivery Fee',
-                                '${proposal.deliveryInfo!.deliveryFee} XAF'),
+                                MoneyFormatter.formatMajor(
+                                  proposal.deliveryInfo!.deliveryFee!,
+                                  currencyCode: proposal.details.currency,
+                                )),
                           if (proposal.deliveryInfo!.estimatedDelivery != null)
                             _buildDetailRow(
                                 'Estimated Delivery',

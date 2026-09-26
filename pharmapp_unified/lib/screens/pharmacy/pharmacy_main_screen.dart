@@ -44,9 +44,9 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
   // hard-coded country → currency map that used to live here was drifting
   // with each new country onboarding — see memory
   // `project_currency_derived_from_country.md`.
-  String _resolvedCurrency = 'XAF';
+  String? _resolvedCurrency;
 
-  String get _walletCurrency => _resolvedCurrency;
+  String? get _walletCurrency => _resolvedCurrency;
 
   @override
   void initState() {
@@ -75,11 +75,12 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
     try {
       final snapshot = await MasterDataService.load();
       final resolved = snapshot.getDefaultCurrencyForCountry(countryCode);
-      if (resolved != null && mounted) {
+      if (resolved != null &&
+          snapshot.getCurrency(resolved)?.enabled == true && mounted) {
         setState(() => _resolvedCurrency = resolved);
       }
     } catch (_) {
-      // Non-fatal: keep the loading-placeholder 'XAF'. UI stays functional.
+      // Monetary operations remain unavailable until the country currency resolves.
     }
   }
 
@@ -377,6 +378,9 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
                               final wallet = snapshot.data ?? {};
                               final available = wallet['available'] ?? 0;
                               final held = wallet['held'] ?? 0;
+                              final storedCurrency = wallet['currency'] as String?;
+                              final currencyMismatch = _walletCurrency != null &&
+                                  storedCurrency != _walletCurrency;
 
                               return Column(
                                 children: [
@@ -428,7 +432,8 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
                                         ],
                                       ),
                                       TextButton.icon(
-                                        onPressed: () => _showTopUpDialog(context),
+                                        onPressed: _walletCurrency == null || currencyMismatch
+                                            ? null : () => _showTopUpDialog(context),
                                         icon: const Icon(Icons.add),
                                         label: const Text('Top Up'),
                                         style: TextButton.styleFrom(
@@ -455,10 +460,12 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
                                             // Wallet.available is stored in
                                             // major-unit cents (÷100) legacy
                                             // convention.
-                                            MoneyFormatter.formatMajor(
-                                              available / 100,
-                                              currencyCode: _walletCurrency,
-                                            ),
+                                            _walletCurrency == null || currencyMismatch
+                                                ? 'Devise du portefeuille indisponible'
+                                                : MoneyFormatter.formatMajor(
+                                                    available / 100,
+                                                    currencyCode: _walletCurrency!,
+                                                  ),
                                             style: const TextStyle(fontWeight: FontWeight.bold),
                                           ),
                                         ],
@@ -469,10 +476,12 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
                                           Text('Held',
                                                style: TextStyle(color: Colors.grey[600], fontSize: 12)),
                                           Text(
-                                            MoneyFormatter.formatMajor(
-                                              held / 100,
-                                              currencyCode: _walletCurrency,
-                                            ),
+                                            _walletCurrency == null || currencyMismatch
+                                                ? '—'
+                                                : MoneyFormatter.formatMajor(
+                                                    held / 100,
+                                                    currencyCode: _walletCurrency!,
+                                                  ),
                                             style: TextStyle(color: Colors.orange[700],
                                                              fontWeight: FontWeight.bold),
                                           ),
@@ -658,12 +667,14 @@ class _PharmacyMainScreenState extends State<PharmacyMainScreen> {
     );
   }
 
-  void _showTopUpDialog(BuildContext context) async {
+  void _showTopUpDialog(BuildContext context) {
+    final currencyCode = _walletCurrency;
+    if (currencyCode == null) return;
     showDialog(
       context: context,
       builder: (BuildContext context) => _TopUpWalletDialog(
         onTopUpSuccess: _startWalletPolling,
-        currencyCode: _walletCurrency,
+        currencyCode: currencyCode,
       ),
     );
   }
@@ -674,7 +685,7 @@ class _TopUpWalletDialog extends StatefulWidget {
   final VoidCallback? onTopUpSuccess;
   final String currencyCode;
 
-  const _TopUpWalletDialog({this.onTopUpSuccess, this.currencyCode = 'XAF'});
+  const _TopUpWalletDialog({this.onTopUpSuccess, required this.currencyCode});
 
   @override
   State<_TopUpWalletDialog> createState() => _TopUpWalletDialogState();
@@ -686,7 +697,7 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
   final _amountController = TextEditingController();
   final _phoneController = TextEditingController();
 
-  String _selectedMethod = 'mtn';
+  String _selectedMethod = 'paystack';
   bool _isLoading = false;
   PaymentPreferences? _savedPreferences;
 
@@ -701,8 +712,7 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
   };
 
   List<int> get _quickAmounts =>
-      _quickAmountsByCurrency[_walletCurrency] ??
-      _quickAmountsByCurrency['XAF']!;
+      _quickAmountsByCurrency[_walletCurrency] ?? const [];
 
   @override
   void initState() {
@@ -785,12 +795,12 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
               final preferences = PaymentPreferences.fromMap(prefData);
               _savedPreferences = preferences;
               final method = preferences.defaultMethod.toLowerCase();
-              if (method.contains('mtn')) {
+              if (_walletCurrency == 'XAF' && method.contains('mtn')) {
                 _selectedMethod = 'mtn';
-              } else if (method.contains('orange')) {
+              } else if (_walletCurrency == 'XAF' && method.contains('orange')) {
                 _selectedMethod = 'orange';
               } else {
-                _selectedMethod = 'mtn';
+                _selectedMethod = 'paystack';
               }
             }
           });
@@ -910,13 +920,15 @@ class _TopUpWalletDialogState extends State<_TopUpWalletDialog> {
                   prefixIcon: Icon(Icons.payment),
                   border: OutlineInputBorder(),
                 ),
-                items: const [
-                  DropdownMenuItem(
+                items: [
+                  const DropdownMenuItem(
                     value: 'paystack',
                     child: Text('Paystack (cards + mobile money)'),
                   ),
-                  DropdownMenuItem(value: 'mtn', child: Text('MTN Mobile Money (direct)')),
-                  DropdownMenuItem(value: 'orange', child: Text('Orange Money')),
+                  if (_walletCurrency == 'XAF') ...const [
+                    DropdownMenuItem(value: 'mtn', child: Text('MTN Mobile Money (direct)')),
+                    DropdownMenuItem(value: 'orange', child: Text('Orange Money')),
+                  ],
                 ],
                 onChanged: (value) {
                   // Keep the prefilled phone — switching from MTN to Orange

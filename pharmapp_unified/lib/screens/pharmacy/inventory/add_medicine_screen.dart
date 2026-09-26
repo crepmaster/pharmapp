@@ -90,10 +90,7 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
           children: [
             Text('You need an active subscription to add medicines to your inventory.'),
             SizedBox(height: 16),
-            Text('Available Plans:', style: TextStyle(fontWeight: FontWeight.bold)),
-            Text('• Basic (6,000 XAF/month) - Up to 100 medicines'),
-            Text('• Professional (15,000 XAF/month) - Unlimited'),
-            Text('• Enterprise (30,000 XAF/month) - Multi-location'),
+            Text('Subscription plans and prices are shown in your country currency.'),
           ],
         ),
         actions: [

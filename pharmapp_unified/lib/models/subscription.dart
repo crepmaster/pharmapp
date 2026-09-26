@@ -139,7 +139,7 @@ class Subscription extends Equatable {
 
   /// Plan prices per currency, per month.
   /// Mirrors the defaults seeded by `SystemConfigService.createDefaultPlans()`.
-  /// When a currency is missing from the table, XAF values are used as fallback.
+  /// A missing currency has no valid local tariff and must be configured.
   static const Map<String, Map<SubscriptionPlan, double>> _planPriceByCurrency = {
     'XAF': {
       SubscriptionPlan.basic: 6000,
@@ -169,11 +169,15 @@ class Subscription extends Equatable {
   };
 
   /// Get plan price per month for the given currency.
-  /// Defaults to XAF pricing if the currency is unknown.
-  static double getPlanPrice(SubscriptionPlan plan, {String currencyCode = 'XAF'}) {
-    final table = _planPriceByCurrency[currencyCode] ??
-        _planPriceByCurrency['XAF']!;
-    return table[plan] ?? 0;
+  static bool hasPlanPrices(String currencyCode) =>
+      _planPriceByCurrency.containsKey(currencyCode);
+
+  static double getPlanPrice(SubscriptionPlan plan, {required String currencyCode}) {
+    final table = _planPriceByCurrency[currencyCode];
+    if (table == null || !table.containsKey(plan)) {
+      throw StateError('No subscription price configured for $currencyCode');
+    }
+    return table[plan]!;
   }
 
   /// Get plan features

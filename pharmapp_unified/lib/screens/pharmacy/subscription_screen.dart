@@ -23,8 +23,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   // symbol now come from MasterData (system_config/main.countries[cc]
   // .defaultCurrencyCode → currencies[currencyCode].symbol). Adding a
   // new country becomes pure sysconfig work, no code touch here.
-  String _currencySymbol = 'FCFA';
-  String _currencyCode = 'XAF';
+  String? _currencyCode;
 
   /// Sprint 3 — flat-field subscription status read from
   /// `pharmacies/{uid}.subscriptionStatus`. This is the canonical
@@ -61,33 +60,25 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         }
         final isoCode = data['countryCode'] as String?;
         if (isoCode != null && isoCode.isNotEmpty) {
-          // Resolve currency + symbol from MasterData — single source of
-          // truth. Falls back to XAF/FCFA if master data lookup fails.
+          // The country config is the only source for a new payment.
           try {
             final snapshot = await MasterDataService.load();
             final code = snapshot.getDefaultCurrencyForCountry(isoCode);
-            if (code != null) {
+            if (code != null &&
+                snapshot.getCurrency(code)?.enabled == true &&
+                Subscription.hasPlanPrices(code)) {
               _currencyCode = code;
-              _currencySymbol = snapshot.getCurrency(code)?.symbol ?? code;
             }
           } catch (_) {
-            // Non-fatal — keep the loading-placeholder XAF/FCFA.
-          }
-        } else if (data.containsKey('country')) {
-          final countryStr = data['country'] as String;
-          final country = Country.values.firstWhere(
-            (c) => c.toString().split('.').last == countryStr,
-            orElse: () => Country.cameroon,
-          );
-          final countryConfig = Countries.getByCountry(country);
-          if (countryConfig != null) {
-            _currencySymbol = countryConfig.currencySymbol;
+            // Payment stays unavailable until configuration can be loaded.
           }
         }
       }
     }
 
-    final subscription = await SubscriptionService.getCurrentSubscription(user.uid);
+    final subscription =
+        await SubscriptionService.getCurrentSubscription(user.uid);
+    if (!mounted) return;
     setState(() {
       _currentSubscription = subscription;
       _isLoading = false;
@@ -108,8 +99,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (_pharmacySubscriptionStatus ==
-                      'trial_pending_license')
+                  if (_pharmacySubscriptionStatus == 'trial_pending_license')
                     _buildTrialPendingLicenseBanner(),
                   _buildCurrentStatusCard(),
                   const SizedBox(height: 24),
@@ -120,6 +110,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                         ),
                   ),
                   const SizedBox(height: 16),
+                  if (_currencyCode == null)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 12),
+                      child: Text(
+                          'Devise ou tarif du pays indisponible. Réessayez plus tard.'),
+                    ),
                   _buildPlanCard(SubscriptionPlan.basic),
                   _buildPlanCard(SubscriptionPlan.professional),
                   _buildPlanCard(SubscriptionPlan.enterprise),
@@ -130,7 +126,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: _handleUpgrade,
+                        onPressed:
+                            _currencyCode == null ? null : _handleUpgrade,
                         style: ElevatedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           backgroundColor: Colors.blue,
@@ -337,7 +334,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   Widget _buildPlanCard(SubscriptionPlan plan) {
     final isSelected = _selectedPlan == plan;
-    final price = Subscription.getPlanPrice(plan, currencyCode: _currencyCode);
+    final currencyCode = _currencyCode;
+    final price = currencyCode == null
+        ? null
+        : Subscription.getPlanPrice(plan, currencyCode: currencyCode);
     final features = Subscription.getPlanFeatures(plan);
 
     return Card(
@@ -380,7 +380,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                           ),
                         ),
                         Text(
-                          '$_currencySymbol ${price.toStringAsFixed(0)}/month',
+                          price == null
+                              ? 'Tarif indisponible'
+                              : '${MoneyFormatter.formatMajor(price, currencyCode: currencyCode!)}/month',
                           style: const TextStyle(
                             fontSize: 16,
                             color: Colors.blue,
@@ -479,6 +481,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   }
 
   Future<void> _handleUpgrade() async {
+    final currencyCode = _currencyCode;
+    if (currencyCode == null) return;
     // Show sandbox payment dialog for testing
     showDialog(
       context: context,
@@ -490,7 +494,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           children: [
             Text('Selected Plan: ${_getPlanDisplayName(_selectedPlan)}'),
             const SizedBox(height: 8),
-            Text('Amount: ${Subscription.getPlanPrice(_selectedPlan, currencyCode: _currencyCode).toStringAsFixed(0)} $_currencySymbol/month'),
+            Text(
+                'Amount: ${MoneyFormatter.formatMajor(Subscription.getPlanPrice(_selectedPlan, currencyCode: currencyCode), currencyCode: currencyCode)}/month'),
             const SizedBox(height: 16),
             const Text(
               'This is a sandbox environment. Payment will be simulated.',
