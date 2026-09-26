@@ -1,6 +1,13 @@
 import { onRequest } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { UnifiedAuthService } from "../shared/auth/unified-auth-service.js";
+import { resolveProjectId } from "../lib/sandboxGate.js";
+
+function retireTerritorylessRegistrationOnStaging(res: any): boolean {
+  if (resolveProjectId() !== 'mediexchange-staging') return false;
+  res.status(410).json({ success: false, error: 'ENDPOINT_RETIRED' });
+  return true;
+}
 
 /**
  * Sprint 2a F-LICENSE — Computes the initial `licenseStatus` for a freshly
@@ -69,6 +76,10 @@ export const createPharmacyUser = onRequest({ region: 'europe-west1' }, async (r
     res.status(204).send('');
     return;
   }
+
+  // This old path creates no country anchor and defaults the wallet to XAF.
+  // The current web app uses createPharmacyRegistration instead.
+  if (retireTerritorylessRegistrationOnStaging(res)) return;
 
   if (req.method !== 'POST') {
     res.status(405).json({
@@ -231,6 +242,9 @@ export const createCourierUser = onRequest({ region: 'europe-west1' }, async (re
     res.status(204).send('');
     return;
   }
+
+  // The canonical registration validates the courier country and wallet.
+  if (retireTerritorylessRegistrationOnStaging(res)) return;
 
   if (req.method !== 'POST') {
     res.status(405).json({

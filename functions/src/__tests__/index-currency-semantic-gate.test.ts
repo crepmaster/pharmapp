@@ -79,7 +79,7 @@ jest.mock("firebase-admin/auth", () => ({
   })),
 }));
 
-import { topupIntent, createExchangeHold, exchangeCapture, momoWebhook, orangeWebhook } from "../index.js";
+import { topupIntent, createExchangeHold, exchangeCapture, momoWebhook, orangeWebhook, createPharmacyUser, createCourierUser } from "../index.js";
 
 const SYSCONFIG = {
   currencies: {
@@ -110,6 +110,7 @@ function mockRes() {
     headers[k] = v;
     return res;
   });
+  res.set = jest.fn(() => res);
   res.removeHeader = jest.fn((k: string) => {
     delete headers[k];
     return res;
@@ -161,11 +162,11 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
-test("staging retires all five legacy money routes before any write", async () => {
+test("staging retires legacy money and territoryless registration routes before any write", async () => {
   const previous = process.env.GCLOUD_PROJECT;
   process.env.GCLOUD_PROJECT = "mediexchange-staging";
   try {
-    for (const endpoint of [topupIntent, createExchangeHold, exchangeCapture, momoWebhook, orangeWebhook]) {
+    for (const endpoint of [topupIntent, createExchangeHold, exchangeCapture, momoWebhook, orangeWebhook, createPharmacyUser, createCourierUser]) {
       const res = mockRes();
       await (endpoint as never as (q: unknown, s: unknown) => Promise<void>)(mockReq({}), res);
       expect(res.statusCode).toBe(410);
