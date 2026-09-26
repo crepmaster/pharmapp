@@ -1,7 +1,7 @@
 import 'package:equatable/equatable.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
-import 'package:intl/intl.dart';
+import 'package:pharmapp_shared/pharmapp_shared.dart';
 
 /// Delivery status enum
 enum DeliveryStatus {
@@ -191,11 +191,9 @@ class Delivery extends Equatable {
     }
   }
 
-  /// Formats a monetary amount with thousands separator and currency.
-  /// Example: formatAmount(2400, 'XAF') → '2,400 XAF'
+  /// Formats a major-unit amount with the currency's correct decimal scale.
   static String formatAmount(double amount, String currency) {
-    final formatter = NumberFormat('#,##0', 'en_US');
-    return '${formatter.format(amount.round())} $currency';
+    return MoneyFormatter.formatMajor(amount, currencyCode: currency);
   }
 
   /// Convenience: format this delivery's courier fee

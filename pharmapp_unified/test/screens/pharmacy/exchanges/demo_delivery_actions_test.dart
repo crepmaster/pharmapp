@@ -66,11 +66,15 @@ void main() {
     String status = 'pending',
     Map<String, dynamic>? journey,
     Future<void> Function(String action)? runner,
+    bool readOnly = false,
+    bool allowReset = true,
   }) =>
       DemoDeliveryActions(
         deliveryId: 'd-1',
         currentStatus: status,
         journey: journey,
+        readOnly: readOnly,
+        allowReset: allowReset,
         actionRunner: runner ?? (_) async {},
       );
 
@@ -130,6 +134,26 @@ void main() {
       await tester.pumpWidget(host(widget(status: 'failed')));
       expect(find.text('Reset delivery'), findsOneWidget);
       expect(find.byKey(const Key('demo-next-action')), findsNothing);
+    });
+
+    testWidgets('assigned courier leaves pharmacy with read-only progress',
+        (tester) async {
+      await tester.pumpWidget(host(widget(
+        status: 'picked_up',
+        journey: {'outboundPhase': 'en_route_to_dropoff'},
+        readOnly: true,
+        allowReset: false,
+      )));
+      expect(find.text('Step: On the way to drop-off'), findsOneWidget);
+      expect(find.textContaining('courier session'), findsOneWidget);
+      expect(find.byKey(const Key('demo-next-action')), findsNothing);
+    });
+
+    testWidgets('cancelled proposal cannot offer legacy reset',
+        (tester) async {
+      await tester.pumpWidget(host(widget(status: 'cancelled', allowReset: false)));
+      expect(find.text('Reset delivery'), findsNothing);
+      expect(find.textContaining('cannot be reset'), findsOneWidget);
     });
 
     testWidgets('button shows inline spinner and is disabled during the call',

@@ -402,6 +402,9 @@ class ExchangeStatusScreen extends StatelessWidget {
                                       currentStatus: status,
                                       journey: deliveryData['sandboxJourney']
                                           as Map<String, dynamic>?,
+                                      readOnly: (courierId != null && courierId.isNotEmpty) ||
+                                          (deliveryData['stockTransit'] as Map<String, dynamic>?)?['version'] == 1,
+                                      allowReset: false,
                                     ),
                                   ],
                                 ],
@@ -598,6 +601,8 @@ class DemoDeliveryActions extends StatefulWidget {
   final String deliveryId;
   final String currentStatus;
   final Map<String, dynamic>? journey;
+  final bool readOnly;
+  final bool allowReset;
 
   /// Test seam: when provided, actions call this instead of the real
   /// `sandboxDeliveryAdvance` callable. Lets widget tests exercise the
@@ -609,6 +614,8 @@ class DemoDeliveryActions extends StatefulWidget {
     required this.deliveryId,
     required this.currentStatus,
     this.journey,
+    this.readOnly = false,
+    this.allowReset = true,
     this.actionRunner,
   });
 
@@ -706,10 +713,11 @@ class DemoDeliveryActionsState extends State<DemoDeliveryActions> {
   Widget build(BuildContext context) {
     final status = widget.currentStatus;
 
-    // Failed / cancelled → offer reset (legacy contract), regardless of journey.
-    final bool resettable = status == 'failed' || status == 'cancelled';
+    // Proposal deliveries cannot be reset after backend compensation.
+    final bool terminalFailure = status == 'failed' || status == 'cancelled';
+    final bool resettable = widget.allowReset && terminalFailure;
 
-    final String? next = resettable
+    final String? next = resettable || terminalFailure || widget.readOnly
         ? null
         : nextJourneyAction(
             outboundPhase: _outboundPhase,
@@ -737,7 +745,7 @@ class DemoDeliveryActionsState extends State<DemoDeliveryActions> {
                   size: 16, color: Colors.deepPurple.shade700),
               const SizedBox(width: 6),
               Text(
-                'Demo delivery controls',
+                widget.readOnly ? 'Delivery progress' : 'Demo delivery controls',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -754,7 +762,21 @@ class DemoDeliveryActionsState extends State<DemoDeliveryActions> {
               style: TextStyle(fontSize: 12, color: Colors.deepPurple.shade500),
             ),
           const SizedBox(height: 8),
-          if (resettable)
+          if (widget.readOnly)
+            Text(
+              terminalFailure
+                  ? 'This delivery is closed. The courier journey cannot be restarted.'
+                  : status == 'delivered'
+                      ? 'Delivery completed.'
+                      : 'Delivery steps are controlled from the courier session.',
+              style: TextStyle(fontSize: 12, color: Colors.deepPurple.shade700),
+            )
+          else if (terminalFailure && !resettable)
+            Text(
+              'This delivery is closed and cannot be reset.',
+              style: TextStyle(fontSize: 12, color: Colors.orange.shade800),
+            )
+          else if (resettable)
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [

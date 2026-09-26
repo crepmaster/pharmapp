@@ -739,7 +739,7 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
                           if (_estimatedDeliveryFee != null && selectedCurrency.isNotEmpty) ...[
                             const SizedBox(height: 8),
                             Text(
-                              '• Estimated delivery fee: ${MoneyFormatter.formatMajor(_estimatedDeliveryFee!, currencyCode: selectedCurrency, master: _masterData)} (set by courier at acceptance)',
+                              '• Estimated delivery fee: ${MoneyFormatter.formatMajor(_estimatedDeliveryFee!, currencyCode: selectedCurrency, master: _masterData)} (confirmed when the pharmacy accepts)',
                               style: TextStyle(
                                 color: Colors.blue.shade700,
                                 fontSize: 13,
