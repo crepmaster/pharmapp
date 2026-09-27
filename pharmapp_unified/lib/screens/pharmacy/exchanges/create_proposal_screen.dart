@@ -166,14 +166,9 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
         debugPrint('  Item $i: ${item.medicine?.name ?? 'Unknown'} | Available: ${item.availableQuantity} | Expired: ${item.isExpired}');
       }
 
-      // FIX: Show ALL inventory items for exchange proposals (not filtered by availableForExchange)
-      // User can offer ANY medicine they have, even if not publicly listed
-      // This enables flexibility in exchange negotiations
-      final availableItems = items.where((item) =>
-        !item.isExpired &&
-        item.availableQuantity > 0
-        // NOTE: Removed availableForExchange filter - user can offer any inventory
-      ).toList();
+      final availableItems = items
+          .where((item) => !item.isExpired && item.availableQuantity > 0)
+          .toList();
 
       debugPrint('✅ Filtered available items: ${availableItems.length}');
 
@@ -184,7 +179,7 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
         });
 
         if (availableItems.isEmpty) {
-          debugPrint('⚠️ No available inventory for exchange (all items expired or zero quantity)');
+          debugPrint('⚠️ No available inventory for exchange');
         } else {
           debugPrint('✅ Inventory loaded successfully for dropdown');
         }
@@ -440,30 +435,47 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
                             ),
                             const SizedBox(height: 16),
 
+                            if (proposalType == ProposalType.exchange) ...[
+                              Text(
+                                'You receive ${medicine?.name ?? 'the marketplace medicine'} from this listing. '
+                                'Offer a medicine from your own inventory in return.',
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+
                             // Exchange-Specific Fields
                             if (proposalType == ProposalType.exchange) ...[
-                              // Select Medicine to Trade
+                              // The offered lot may be private inventory; only the
+                              // requested lot must be listed on the marketplace.
                               DropdownButtonFormField<PharmacyInventoryItem>(
                                 value: selectedMyInventory,
-                                decoration: const InputDecoration(
-                                  labelText: 'Medicine to Trade *',
-                                  hintText: 'Select from your inventory',
-                                  border: OutlineInputBorder(),
-                                  prefixIcon: Icon(Icons.swap_horiz),
+                                decoration: InputDecoration(
+                                  labelText:
+                                      'Medicine from your inventory to offer *',
+                                  hintText:
+                                      'Select a medicine from your inventory',
+                                  helperText: myInventoryList.isEmpty &&
+                                          !isLoading
+                                      ? 'Add a medicine to your inventory first.'
+                                      : 'Your offered medicine does not need to be published.',
+                                  border: const OutlineInputBorder(),
+                                  prefixIcon: const Icon(Icons.swap_horiz),
                                 ),
                                 items: myInventoryList.map((item) {
                                   return DropdownMenuItem(
                                     value: item,
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
                                         Text(
                                           item.medicine?.name ?? 'Unknown',
-                                          style: const TextStyle(fontWeight: FontWeight.w600),
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w600),
                                         ),
                                         Text(
-                                          '${item.availableQuantity} ${item.packaging} • ${item.medicine?.strength ?? ''}',
+                                          '${item.availableQuantity} ${item.packaging} available • ${item.medicine?.strength ?? ''}',
                                           style: TextStyle(
                                             fontSize: 12,
                                             color: Colors.grey[600],
@@ -476,11 +488,15 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
                                 onChanged: (value) {
                                   setState(() {
                                     selectedMyInventory = value;
+                                    exchangeQuantityController.clear();
                                   });
                                 },
+                                autovalidateMode:
+                                    AutovalidateMode.onUserInteraction,
                                 validator: (value) {
-                                  if (proposalType == ProposalType.exchange && value == null) {
-                                    return 'Please select a medicine to trade';
+                                  if (proposalType == ProposalType.exchange &&
+                                      value == null) {
+                                    return 'Select a medicine from your inventory to offer';
                                   }
                                   return null;
                                 },
@@ -492,16 +508,20 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
                               TextFormField(
                                 controller: exchangeQuantityController,
                                 decoration: InputDecoration(
-                                  labelText: 'Quantity to Trade *',
+                                  labelText: 'Quantity you offer *',
                                   hintText: selectedMyInventory != null
-                                      ? 'Max: ${selectedMyInventory!.availableQuantity}'
-                                      : 'Select medicine first',
+                                      ? 'Max available: ${selectedMyInventory!.availableQuantity}'
+                                      : 'Select your medicine first',
                                   border: const OutlineInputBorder(),
-                                  suffixText: selectedMyInventory?.packaging ?? 'units',
+                                  suffixText:
+                                      selectedMyInventory?.packaging ?? 'units',
                                   prefixIcon: const Icon(Icons.inventory_2),
                                 ),
                                 keyboardType: TextInputType.number,
                                 enabled: selectedMyInventory != null,
+                                autovalidateMode:
+                                    AutovalidateMode.onUserInteraction,
+                                onChanged: (_) => setState(() {}),
                                 validator: (value) {
                                   if (proposalType == ProposalType.exchange) {
                                     if (value == null || value.isEmpty) {
@@ -512,64 +532,15 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
                                       return 'Enter a valid quantity';
                                     }
                                     if (selectedMyInventory != null &&
-                                        quantity > selectedMyInventory!.availableQuantity) {
-                                      return 'Cannot exceed ${selectedMyInventory!.availableQuantity} units';
+                                        quantity >
+                                            selectedMyInventory!
+                                                .availableQuantity) {
+                                      return 'Cannot exceed ${selectedMyInventory!.availableQuantity} available units';
                                     }
                                   }
                                   return null;
                                 },
                               ),
-
-                              const SizedBox(height: 16),
-
-                              // Exchange Summary
-                              if (selectedMyInventory != null && exchangeQuantityController.text.isNotEmpty)
-                                Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF1976D2).withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: const Color(0xFF1976D2)),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      const Text(
-                                        'Exchange Summary:',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Row(
-                                        children: [
-                                          const Icon(Icons.arrow_forward, size: 16, color: Color(0xFF1976D2)),
-                                          const SizedBox(width: 8),
-                                          Expanded(
-                                            child: Text(
-                                              'You give: ${exchangeQuantityController.text} ${selectedMyInventory!.packaging} of ${selectedMyInventory!.medicine?.name ?? 'Unknown'}',
-                                              style: const TextStyle(fontSize: 13),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Row(
-                                        children: [
-                                          const Icon(Icons.arrow_back, size: 16, color: Color(0xFF1976D2)),
-                                          const SizedBox(width: 8),
-                                          Expanded(
-                                            child: Text(
-                                              'You receive: ${quantityController.text.isEmpty ? "?" : quantityController.text} ${widget.inventoryItem.packaging} of ${widget.inventoryItem.medicine?.name ?? 'Unknown'}',
-                                              style: const TextStyle(fontSize: 13),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ),
 
                               const SizedBox(height: 16),
                             ],
@@ -579,9 +550,10 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
                               controller: quantityController,
                               decoration: InputDecoration(
                                 labelText: proposalType == ProposalType.exchange
-                                    ? 'Quantity Requested *'
+                                    ? 'Quantity you receive *'
                                     : 'Quantity to Purchase *',
-                                hintText: 'Max: ${widget.inventoryItem.offeredQuantity}',
+                                hintText:
+                                    'Max: ${widget.inventoryItem.offeredQuantity}',
                                 border: const OutlineInputBorder(),
                                 suffixText: widget.inventoryItem.packaging,
                                 prefixIcon: Icon(
@@ -591,6 +563,9 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
                                 ),
                               ),
                               keyboardType: TextInputType.number,
+                              autovalidateMode:
+                                  AutovalidateMode.onUserInteraction,
+                              onChanged: (_) => setState(() {}),
                               validator: (value) {
                                 if (value == null || value.isEmpty) {
                                   return 'Quantity is required';
@@ -599,7 +574,8 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
                                 if (quantity == null || quantity <= 0) {
                                   return 'Enter a valid quantity';
                                 }
-                                if (quantity > widget.inventoryItem.offeredQuantity) {
+                                if (quantity >
+                                    widget.inventoryItem.offeredQuantity) {
                                   return 'Cannot exceed ${widget.inventoryItem.offeredQuantity} units';
                                 }
                                 return null;
@@ -607,6 +583,47 @@ class _CreateProposalScreenState extends State<CreateProposalScreen> {
                             ),
 
                             const SizedBox(height: 16),
+
+                            if (proposalType == ProposalType.exchange &&
+                                selectedMyInventory != null &&
+                                (int.tryParse(exchangeQuantityController.text) ?? 0) > 0 &&
+                                (int.tryParse(exchangeQuantityController.text) ?? 0) <=
+                                    selectedMyInventory!.availableQuantity &&
+                                (int.tryParse(quantityController.text) ?? 0) > 0 &&
+                                (int.tryParse(quantityController.text) ?? 0) <=
+                                    widget.inventoryItem.offeredQuantity)
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF1976D2)
+                                      .withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                      color: const Color(0xFF1976D2)),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Exchange Summary:',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'You give: ${exchangeQuantityController.text} ${selectedMyInventory!.packaging} of ${selectedMyInventory!.medicine?.name ?? 'Unknown'}',
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'You receive: ${quantityController.text} ${widget.inventoryItem.packaging} of ${widget.inventoryItem.medicine?.name ?? 'Unknown'}',
+                                    ),
+                                  ],
+                                ),
+                              ),
+
+                            if (proposalType == ProposalType.exchange)
+                              const SizedBox(height: 16),
 
                             // Price Offer (only for purchase). Round-4
                             // optimize — currency is server-derived from

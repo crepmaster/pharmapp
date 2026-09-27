@@ -19,7 +19,18 @@ import {
   assertFails,
   assertSucceeds,
 } from "@firebase/rules-unit-testing";
-import { deleteDoc, doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import {
+  collection,
+  deleteDoc,
+  deleteField,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  setDoc,
+  updateDoc,
+  where,
+} from "firebase/firestore";
 
 let testEnv: RulesTestEnvironment;
 
@@ -28,6 +39,7 @@ const OTHER_COURIER_UID = "other-courier-lot2";
 const SUPER_ADMIN_UID = "superadmin-lot2";
 const BUYER_UID = "buyer-lot2";
 const SELLER_UID = "seller-lot2";
+const UNRELATED_PHARMACY_UID = "unrelated-pharmacy-lot2";
 const DELIVERY_ID = "delivery-lot2";
 const PROPOSAL_ID = "proposal-lot2";
 
@@ -68,9 +80,16 @@ beforeEach(async () => {
     );
     await setDoc(doc(ctx.firestore(), `couriers/${COURIER_UID}`), {
       email: "c@example.test",
+      fullName: "Test Courier",
+      phoneNumber: "+233200000000",
+      vehicleType: "motorbike",
+      licensePlate: "TEST-1",
       role: "courier",
+      isActive: true,
       countryCode: "GH",
+      cityCode: "accra",
       operatingCity: "Accra",
+      city: "Accra",
     });
     // A REAL super_admin, so the admin branch of the rules is exercised by
     // an authenticated client context rather than by disabling the rules.
@@ -83,7 +102,7 @@ beforeEach(async () => {
     // granted them an unrestricted update, so the tests below must fail for
     // the RIGHT reason (writes are now backend-only), not because the
     // subscription predicate happened to be false.
-    for (const uid of [BUYER_UID, SELLER_UID]) {
+    for (const uid of [BUYER_UID, SELLER_UID, UNRELATED_PHARMACY_UID]) {
       await setDoc(doc(ctx.firestore(), `pharmacies/${uid}`), {
         email: `${uid}@example.test`,
         role: "pharmacy",
@@ -109,6 +128,103 @@ function asCourier() {
     `deliveries/${DELIVERY_ID}`
   );
 }
+
+describe("REQ-PRIVATE-LOT — pending delivery visibility", () => {
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), `deliveries/${DELIVERY_ID}`), {
+        status: "pending",
+        courierId: null,
+        city: "Accra",
+        stockTransit: { returnLeg: { medicineName: "Private lot" } },
+      });
+    });
+  });
+
+  test("active courier can read and query pending deliveries", async () => {
+    const courierDb = testEnv.authenticatedContext(COURIER_UID).firestore();
+    await assertSucceeds(getDoc(doc(courierDb, `deliveries/${DELIVERY_ID}`)));
+    await assertSucceeds(getDocs(query(
+      collection(courierDb, "deliveries"),
+      where("status", "==", "pending"),
+      where("city", "==", "Accra")
+    )));
+  });
+
+  test("active courier cannot read a pending delivery in another city", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "deliveries/other-city-lot2"), {
+        ...ASSIGNED_DELIVERY,
+        status: "pending",
+        courierId: null,
+        city: "Kumasi",
+        stockTransit: { returnLeg: { medicineName: "Private lot" } },
+      });
+    });
+    const courierDb = testEnv.authenticatedContext(COURIER_UID).firestore();
+    await assertFails(getDoc(doc(courierDb, "deliveries/other-city-lot2")));
+    await assertFails(getDocs(query(
+      collection(courierDb, "deliveries"),
+      where("status", "==", "pending"),
+      where("city", "==", "Kumasi")
+    )));
+  });
+
+  test("unrelated pharmacy cannot read or query private pending deliveries", async () => {
+    const pharmacyDb = testEnv.authenticatedContext(UNRELATED_PHARMACY_UID).firestore();
+    await assertFails(getDoc(doc(pharmacyDb, `deliveries/${DELIVERY_ID}`)));
+    await assertFails(getDocs(query(
+      collection(pharmacyDb, "deliveries"),
+      where("status", "==", "pending")
+    )));
+  });
+
+  test("both trade parties can read their pending delivery", async () => {
+    for (const uid of [BUYER_UID, SELLER_UID]) {
+      const partyDb = testEnv.authenticatedContext(uid).firestore();
+      await assertSucceeds(getDoc(doc(partyDb, `deliveries/${DELIVERY_ID}`)));
+    }
+  });
+
+  test("inactive courier cannot browse pending deliveries", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), `couriers/${COURIER_UID}`), {
+        isActive: false,
+      });
+    });
+    await assertFails(getDoc(asCourier()));
+  });
+});
+
+describe("REQ-PRIVATE-LOT — courier territory is backend-owned", () => {
+  function ownCourier() {
+    return doc(
+      testEnv.authenticatedContext(COURIER_UID).firestore(),
+      `couriers/${COURIER_UID}`
+    );
+  }
+
+  test("courier cannot switch operating city or change city identifiers", async () => {
+    await assertFails(updateDoc(ownCourier(), { operatingCity: "Kumasi" }));
+    await assertFails(updateDoc(ownCourier(), { city: "Kumasi" }));
+    await assertFails(updateDoc(ownCourier(), { cityCode: "kumasi" }));
+  });
+
+  test("courier can update a non-territory availability field", async () => {
+    await assertSucceeds(updateDoc(ownCourier(), { isAvailable: true }));
+  });
+
+  test("legacy missing optional city fields remain absent on client update", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), `couriers/${COURIER_UID}`), {
+        city: deleteField(),
+        cityCode: deleteField(),
+      });
+    });
+    await assertSucceeds(updateDoc(ownCourier(), { isAvailable: true }));
+    await assertFails(updateDoc(ownCourier(), { city: "Kumasi" }));
+  });
+});
 
 describe("REQ-LOT2 — assigned courier cannot write a TERMINAL status", () => {
   test("REQ-LOT2-001: status → 'delivered' DENIED (settlement is backend-only)", async () => {
@@ -302,8 +418,43 @@ describe("REQ-LOT2 — exchange_proposals is backend-only", () => {
   });
 
   test("REQ-LOT2-020: reading a proposal is still allowed", async () => {
-    // The lock is on writes only — the UI must keep displaying proposals.
+    // Both trade parties still need their history and proposal detail views.
     await assertSucceeds(getDoc(asParty(BUYER_UID)));
+    await assertSucceeds(getDoc(asParty(SELLER_UID)));
+  });
+
+  test("REQ-LOT2-022: an unrelated pharmacy cannot read a private proposal", async () => {
+    await assertFails(getDoc(asParty(UNRELATED_PHARMACY_UID)));
+  });
+
+  test("REQ-LOT2-023: an unrelated pharmacy cannot list proposals", async () => {
+    const db = testEnv.authenticatedContext(UNRELATED_PHARMACY_UID).firestore();
+    await assertFails(getDocs(collection(db, "exchange_proposals")));
+    await assertFails(getDocs(query(
+      collection(db, "exchange_proposals"),
+      where("status", "==", "accepted")
+    )));
+  });
+
+  test("REQ-LOT2-024: parties can query only their own proposal side", async () => {
+    const buyerDb = testEnv.authenticatedContext(BUYER_UID).firestore();
+    const sellerDb = testEnv.authenticatedContext(SELLER_UID).firestore();
+    await assertSucceeds(getDocs(query(
+      collection(buyerDb, "exchange_proposals"),
+      where("fromPharmacyId", "==", BUYER_UID)
+    )));
+    await assertSucceeds(getDocs(query(
+      collection(sellerDb, "exchange_proposals"),
+      where("toPharmacyId", "==", SELLER_UID)
+    )));
+  });
+
+  test("REQ-LOT2-025: super admin can read proposal detail", async () => {
+    const adminDoc = doc(
+      testEnv.authenticatedContext(SUPER_ADMIN_UID).firestore(),
+      `exchange_proposals/${PROPOSAL_ID}`
+    );
+    await assertSucceeds(getDoc(adminDoc));
   });
 
   test("REQ-LOT2-021: the Admin SDK still writes proposals (callable path)", async () => {

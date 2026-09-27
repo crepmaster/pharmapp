@@ -160,26 +160,26 @@ describe("C1 — couriers.countryCode is immutable client-side", () => {
     );
   });
 
-  test("REQ-C1-008: the legacy cityCode self-migration still works", async () => {
-    // delivery_service.dart:38 writes {cityCode} on the courier document.
-    // A partial update must keep passing: request.resource.data is the
-    // merged doc, so countryCode is unchanged and the guard is satisfied.
+  test("REQ-C1-008: the removed client cityCode migration stays denied", async () => {
+    // DeliveryService no longer backfills cityCode from a mutable display
+    // name. Only backend registration or a controlled backend backfill may
+    // introduce territory fields on legacy profiles.
     await seedCourier();
     const courier = testEnv.authenticatedContext(COURIER_UID);
-    await assertSucceeds(
+    await assertFails(
       updateDoc(doc(courier.firestore(), `couriers/${COURIER_UID}`), {
         cityCode: "accra",
       })
     );
   });
 
-  test("REQ-C1-009: re-sending the SAME countryCode → ALLOWED", async () => {
+  test("REQ-C1-009: re-sending the SAME country and city → ALLOWED", async () => {
     await seedCourier();
     const courier = testEnv.authenticatedContext(COURIER_UID);
     await assertSucceeds(
       updateDoc(doc(courier.firestore(), `couriers/${COURIER_UID}`), {
         countryCode: "GH",
-        operatingCity: "Kumasi",
+        operatingCity: "Accra",
       })
     );
   });

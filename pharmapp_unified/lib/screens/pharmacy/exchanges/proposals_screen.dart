@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:pharmapp_shared/pharmapp_shared.dart';
 import '../../../data/essential_medicines.dart';
@@ -18,11 +19,23 @@ class _ProposalsScreenState extends State<ProposalsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+  late final Stream<QuerySnapshot>? _activeSentStream;
+  late final Stream<QuerySnapshot>? _activeReceivedStream;
+  final Set<String> _cancellingProposalIds = {};
+  final Set<String> _cancelledProposalIds = {};
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    final userId = currentUserId;
+    final proposals = FirebaseFirestore.instance.collection('exchange_proposals');
+    _activeSentStream = userId == null
+        ? null
+        : proposals.where('fromPharmacyId', isEqualTo: userId).snapshots();
+    _activeReceivedStream = userId == null
+        ? null
+        : proposals.where('toPharmacyId', isEqualTo: userId).snapshots();
   }
 
   @override
@@ -154,40 +167,47 @@ class _ProposalsScreenState extends State<ProposalsScreen>
       return const Center(child: Text('Please log in to view exchanges'));
     }
 
+    // Rules permit participant-scoped queries, not a global accepted-status
+    // query followed by a client-side participant filter.
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('exchange_proposals')
-          .where('status', isEqualTo: 'accepted')
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+      stream: _activeSentStream,
+      builder: (context, sentSnapshot) {
+        if (sentSnapshot.hasError) {
+          return Center(child: Text('Error: ${sentSnapshot.error}'));
         }
+        return StreamBuilder<QuerySnapshot>(
+          stream: _activeReceivedStream,
+          builder: (context, receivedSnapshot) {
+            if (receivedSnapshot.hasError) {
+              return Center(child: Text('Error: ${receivedSnapshot.error}'));
+            }
+            if (!sentSnapshot.hasData || !receivedSnapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
 
-        if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
-        }
+            final byId = <String, ExchangeProposal>{};
+            for (final doc in [...sentSnapshot.data!.docs, ...receivedSnapshot.data!.docs]) {
+              final proposal = ExchangeProposal.fromFirestore(doc);
+              if (proposal.status == ProposalStatus.accepted) {
+                byId[proposal.id] = proposal;
+              }
+            }
+            final active = byId.values.toList()
+              ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-        final proposals = snapshot.data?.docs.map((doc) {
-          return ExchangeProposal.fromFirestore(doc);
-        }).where((proposal) =>
-            proposal.fromPharmacyId == currentUserId ||
-            proposal.toPharmacyId == currentUserId).toList() ?? [];
+            if (active.isEmpty) {
+              return _buildEmptyState(
+                'No active exchanges',
+                'Accepted proposals will show delivery progress here',
+                Icons.local_shipping,
+              );
+            }
 
-        if (proposals.isEmpty) {
-          return _buildEmptyState(
-            'No active exchanges',
-            'Accepted proposals will show delivery progress here',
-            Icons.local_shipping,
-          );
-        }
-
-        return ListView.builder(
-          padding: const EdgeInsets.all(16.0),
-          itemCount: proposals.length,
-          itemBuilder: (context, index) {
-            final proposal = proposals[index];
-            return _buildActiveExchangeCard(proposal);
+            return ListView.builder(
+              padding: const EdgeInsets.all(16.0),
+              itemCount: active.length,
+              itemBuilder: (context, index) => _buildActiveExchangeCard(active[index]),
+            );
           },
         );
       },
@@ -403,6 +423,37 @@ class _ProposalsScreenState extends State<ProposalsScreen>
                           color: Colors.red.shade700,
                           fontSize: 12,
                         ),
+                      ),
+                    ),
+                  ],
+                  if (proposal.status == ProposalStatus.cancelled &&
+                      proposal.cancelledReason != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Reason: ${proposal.cancelledReason}',
+                      style: TextStyle(color: Colors.grey[700], fontSize: 12),
+                    ),
+                  ],
+                  if (proposal.status == ProposalStatus.pending &&
+                      proposal.fromPharmacyId == currentUserId) ...[
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: OutlinedButton.icon(
+                        onPressed:
+                            _cancellingProposalIds.contains(proposal.id) ||
+                                    _cancelledProposalIds.contains(proposal.id)
+                                ? null
+                                : () => _cancelSentProposal(proposal),
+                        icon: _cancellingProposalIds.contains(proposal.id)
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.cancel_outlined),
+                        label: const Text('Cancel proposal'),
                       ),
                     ),
                   ],
@@ -739,6 +790,72 @@ class _ProposalsScreenState extends State<ProposalsScreen>
           ),
         );
       }
+    }
+  }
+
+  Future<void> _cancelSentProposal(ExchangeProposal proposal) async {
+    if (proposal.status != ProposalStatus.pending ||
+        proposal.fromPharmacyId != currentUserId ||
+        _cancellingProposalIds.contains(proposal.id) ||
+        _cancelledProposalIds.contains(proposal.id)) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cancel proposal?'),
+        content: const Text(
+          'This pending proposal will be cancelled. Reserved funds or '
+          'medicine will be released, and the proposal will remain in your history.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Keep proposal'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Cancel proposal'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true ||
+        !mounted ||
+        _cancellingProposalIds.contains(proposal.id) ||
+        _cancelledProposalIds.contains(proposal.id)) {
+      return;
+    }
+
+    setState(() => _cancellingProposalIds.add(proposal.id));
+    try {
+      await proposal.cancelProposal('Cancelled by proposing pharmacy');
+      if (!mounted) return;
+      setState(() => _cancelledProposalIds.add(proposal.id));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Proposal cancelled. Reservation released.')),
+      );
+    } on FirebaseFunctionsException catch (error) {
+      if (!mounted) return;
+      final message = error.code == 'failed-precondition' ||
+              error.code == 'not-found'
+          ? 'This proposal is no longer pending. Refresh its status before taking another action.'
+          : 'Unable to cancel the proposal: ${error.message ?? error.code}';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to cancel the proposal: $error'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _cancellingProposalIds.remove(proposal.id));
     }
   }
 

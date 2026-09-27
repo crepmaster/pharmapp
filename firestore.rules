@@ -89,6 +89,13 @@ service cloud.firestore {
              get(/databases/$(db)/documents/admins/$(userId)).data.role == 'super_admin';
     }
 
+    function isActiveCourierForCity(userId, city) {
+      return exists(/databases/$(db)/documents/couriers/$(userId)) &&
+             get(/databases/$(db)/documents/couriers/$(userId)).data.role == 'courier' &&
+             get(/databases/$(db)/documents/couriers/$(userId)).data.isActive == true &&
+             get(/databases/$(db)/documents/couriers/$(userId)).data.operatingCity == city;
+    }
+
     // Helper: user exists in admins/ collection and isActive == true.
     // Does NOT check role — use with role/permission helpers below.
     function isActiveAdmin(userId) {
@@ -312,22 +319,23 @@ service cloud.firestore {
     // Courier registration is backend-owned by createCourierRegistration,
     // which validates the country and derives the wallet currency. Clients
     // may update an existing profile, but cannot create or delete one.
-    // countryCode remains mandatory, shaped, and immutable on client updates.
+    // Country and city assignment are backend-owned. A client profile update
+    // cannot change, add, or remove territory fields, including on legacy
+    // records where an optional city field is absent.
     match /couriers/{userId} {
       allow read: if isAuthenticated(); // Pharmacies can read courier profiles
       allow create, delete: if false;
       allow update: if isOwner(userId)
                     && isValidCourierData(request.resource.data)
-                    && courierCountryCodeUnchanged(resource.data, request.resource.data);
+                    && courierTerritoryFieldUnchanged(resource.data, request.resource.data, 'countryCode')
+                    && courierTerritoryFieldUnchanged(resource.data, request.resource.data, 'operatingCity')
+                    && courierTerritoryFieldUnchanged(resource.data, request.resource.data, 'city')
+                    && courierTerritoryFieldUnchanged(resource.data, request.resource.data, 'cityCode');
     }
 
-    // Currency sprint (C1) — countryCode may never change or disappear via a
-    // client write. Deleting the field is caught by the key-presence
-    // comparison, not just the value comparison.
-    function courierCountryCodeUnchanged(before, after) {
-      return (before.keys().hasAny(['countryCode']) == after.keys().hasAny(['countryCode']))
-          && (!before.keys().hasAny(['countryCode'])
-              || before.countryCode == after.countryCode);
+    function courierTerritoryFieldUnchanged(before, after, field) {
+      return (before.keys().hasAny([field]) == after.keys().hasAny([field]))
+          && (!before.keys().hasAny([field]) || before[field] == after[field]);
     }
 
     // Courier data validation function
@@ -386,7 +394,14 @@ service cloud.firestore {
     }
 
     match /exchange_proposals/{id} {
-      allow read: if isAuthenticated(); // All authenticated users can read proposals
+      // Proposals can contain a snapshot of the proposer's private return lot.
+      // Only the two trading pharmacies and a super admin may read it.
+      // Client queries must constrain fromPharmacyId or toPharmacyId so that
+      // Firestore can prove every returned document satisfies this rule.
+      allow read: if isAuthenticated() &&
+        (resource.data.fromPharmacyId == request.auth.uid ||
+         resource.data.toPharmacyId == request.auth.uid ||
+         isSuperAdmin(request.auth.uid));
 
       // 🔒 Lot 2 — BACKEND-ONLY WRITES.
       //
@@ -410,10 +425,10 @@ service cloud.firestore {
 
     match /deliveries/{id} {
       allow read: if isAuthenticated() && (
-        // Pending deliveries readable by all authenticated users;
-        // city filtering enforced client-side via query filter.
-        // Security for accepting is enforced on the update rule below.
-        resource.data.status == 'pending' ||
+        // Pending deliveries can contain private return-lot details.
+        // Active couriers need them for dispatch; unrelated pharmacies do not.
+        (resource.data.status == 'pending' &&
+         isActiveCourierForCity(request.auth.uid, resource.data.city)) ||
         resource.data.courierId == request.auth.uid ||           // Courier can read assigned deliveries
         resource.data.fromPharmacyId == request.auth.uid ||      // Source pharmacy can read
         resource.data.toPharmacyId == request.auth.uid ||        // Destination pharmacy can read

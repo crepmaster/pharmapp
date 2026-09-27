@@ -96,6 +96,11 @@ export const cancelExchangeProposal = onCall<CancelProposalData>(
           "You are not authorized to cancel this proposal"
         );
       }
+      if ((action && action !== "cancel" && action !== "reject") ||
+          (action === "cancel" && !isCreator) ||
+          (action === "reject" && !isTarget)) {
+        throw new HttpsError("permission-denied", "Only the proposer may cancel and only the recipient may reject.");
+      }
 
       // Verify proposal can be cancelled (must be pending)
       if (proposal?.status !== "pending") {
@@ -108,6 +113,8 @@ export const cancelExchangeProposal = onCall<CancelProposalData>(
           `Cannot cancel proposal with status: ${proposal?.status}. Only pending proposals can be cancelled.`
         );
       }
+      const isCancelled = action === "cancel" || (!action && isCreator);
+      const newStatus = isCancelled ? "cancelled" : "rejected";
 
       // ===== PHASE 3: RELEASE RESERVATIONS =====
 
@@ -129,6 +136,19 @@ export const cancelExchangeProposal = onCall<CancelProposalData>(
           available: FieldValue.increment(reservedWalletUnits),
           held: FieldValue.increment(-reservedWalletUnits),
           updatedAt: FieldValue.serverTimestamp(),
+        });
+        const currency = [proposal.currencyCode, proposal.details?.currency]
+          .find((value): value is string => typeof value === "string" && value.length > 0) ?? null;
+        transaction.set(db.collection("ledger").doc(), {
+          type: "proposal_wallet_hold_released",
+          proposalId,
+          userId: proposal.fromPharmacyId,
+          amount: proposal.reservations.walletReserved,
+          currency,
+          from: "held",
+          to: "available",
+          reason: isCancelled ? "manual_cancel" : "rejected",
+          createdAt: FieldValue.serverTimestamp(),
         });
 
         logger.info(
@@ -171,10 +191,6 @@ export const cancelExchangeProposal = onCall<CancelProposalData>(
 
       // ===== PHASE 4: UPDATE PROPOSAL STATUS =====
 
-      const isCancelled = action === "cancel" || isCreator;
-      const _isRejected = action === "reject" || isTarget;
-
-      const newStatus = isCancelled ? "cancelled" : "rejected";
       const actionBy = userId;
       const actionReason = reason || (isCancelled ? "Cancelled by creator" : "Rejected by target");
 

@@ -263,7 +263,11 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
           if (
             !details.exchangeMedicineId ||
             !details.exchangeInventoryItemId ||
-            !details.exchangeQuantity
+            typeof details.exchangeQuantity !== "number" ||
+            !Number.isSafeInteger(details.exchangeQuantity) ||
+            details.exchangeQuantity <= 0 ||
+            !Number.isSafeInteger(details.quantity) ||
+            details.quantity <= 0
           ) {
             throw new HttpsError(
               "invalid-argument",
@@ -296,8 +300,12 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
           );
         }
 
-        // Validate target inventory is published (availableForExchange)
-        if (inventoryData?.availabilitySettings?.availableForExchange === false) {
+        // The requested lot must be on the marketplace for an exchange.
+        // The offered return lot may come from the proposer's private stock.
+        // Preserve the legacy purchase contract for older target documents
+        // where the publication flag is absent.
+        const targetPublished = inventoryData?.availabilitySettings?.availableForExchange;
+        if (details.type === "exchange" ? targetPublished !== true : targetPublished === false) {
           throw new HttpsError(
             "failed-precondition",
             "Target inventory item is not available for exchange"
@@ -505,6 +513,14 @@ export const createExchangeProposal = onCall<ExchangeProposalData>(
         );
 
         transaction.set(proposalRef, proposalData);
+
+        // Serialize proposal creation with accepting another offer on this
+        // seller lot. Both flows read and write this document in their
+        // transaction; a concurrent commit retries. Proposals committed
+        // after acceptance remain valid new offers on the same published lot.
+        transaction.update(inventoryRef, {
+          proposalActivityAt: FieldValue.serverTimestamp(),
+        });
 
         // Ledger: record the wallet hold event (after proposalRef is available).
         // Currency is the server-derived `currencyCode` (Phase 2), never the

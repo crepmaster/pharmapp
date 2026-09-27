@@ -10,7 +10,7 @@ import 'package:flutter/foundation.dart';
 // 1. Pharmacy A lists: "Amoxicillin, 50 boxes, expires Dec 31" (NO PRICE)
 // 2. Pharmacy B proposes: "I'll pay $20/box for 10 boxes"
 // 3. Pharmacy C proposes: "I'll pay $18/box for 20 boxes" 
-// 4. Pharmacy A sees ALL proposals and accepts best one(s)
+// 4. Pharmacy A sees all proposals and accepts one; competing pending proposals are cancelled
 // 5. Delivery arranged automatically
 //
 // Usage Example:
@@ -32,6 +32,7 @@ class ExchangeProposal extends Equatable {
   final ProposalDetails details;
   final ProposalStatus status;
   final String? rejectionReason;
+  final String? cancelledReason;
   final DeliveryInfo? deliveryInfo; // Set when accepted
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -49,6 +50,7 @@ class ExchangeProposal extends Equatable {
     required this.details,
     required this.status,
     this.rejectionReason,
+    this.cancelledReason,
     this.deliveryInfo,
     required this.createdAt,
     required this.updatedAt,
@@ -66,6 +68,7 @@ class ExchangeProposal extends Equatable {
         details,
         status,
         rejectionReason,
+        cancelledReason,
         deliveryInfo,
         createdAt,
         updatedAt,
@@ -94,6 +97,7 @@ class ExchangeProposal extends Equatable {
         orElse: () => ProposalStatus.pending,
       ),
       rejectionReason: data['rejectionReason'],
+      cancelledReason: data['cancelledReason'] as String?,
       deliveryInfo: data['deliveryInfo'] != null 
           ? DeliveryInfo.fromMap(data['deliveryInfo']) 
           : null,
@@ -113,6 +117,7 @@ class ExchangeProposal extends Equatable {
       'details': details.toMap(),
       'status': status.toString().split('.').last,
       if (rejectionReason != null) 'rejectionReason': rejectionReason,
+      if (cancelledReason != null) 'cancelledReason': cancelledReason,
       if (deliveryInfo != null) 'deliveryInfo': deliveryInfo!.toMap(),
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
@@ -129,6 +134,7 @@ class ExchangeProposal extends Equatable {
     ProposalDetails? details,
     ProposalStatus? status,
     String? rejectionReason,
+    String? cancelledReason,
     DeliveryInfo? deliveryInfo,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -143,6 +149,7 @@ class ExchangeProposal extends Equatable {
       details: details ?? this.details,
       status: status ?? this.status,
       rejectionReason: rejectionReason ?? this.rejectionReason,
+      cancelledReason: cancelledReason ?? this.cancelledReason,
       deliveryInfo: deliveryInfo ?? this.deliveryInfo,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,

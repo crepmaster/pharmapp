@@ -441,50 +441,9 @@ export const createAdminUser = onRequest({ region: 'europe-west1' }, async (req,
 });
 
 /**
- * 🧹 Enhanced Cleanup Test User (using unified service)
- * 
- * Updated cleanup function using the unified auth service
+ * Retired destructive test utility. Keep the export so an existing remote
+ * Function is replaced in place rather than removed during deployment.
  */
-export const cleanupTestUserUnified = onRequest({ region: 'europe-west1' }, async (req, res) => {
-  // Enable CORS
-  res.set('Access-Control-Allow-Origin', '*');
-  res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    res.status(204).send('');
-    return;
-  }
-
-  try {
-    // Get email from query parameter or request body
-    const email = (req.query.email as string) || req.body?.email;
-
-    if (!email) {
-      res.status(400).json({
-        success: false,
-        error: 'Email parameter is required',
-      });
-      return;
-    }
-
-    console.log(`🧹 Starting cleanup for: ${email}`);
-
-    // Use unified auth service cleanup
-    const result = await UnifiedAuthService.cleanupOrphanUser(email);
-
-    res.status(200).json({
-      ...result,
-      email,
-      timestamp: new Date().toISOString(),
-    });
-
-  } catch (error: any) {
-    console.error(`❌ Cleanup error: ${error.message}`);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      timestamp: new Date().toISOString(),
-    });
-  }
+export const cleanupTestUserUnified = onRequest({ region: 'europe-west1' }, (_req, res) => {
+  res.status(410).json({ success: false, error: 'ENDPOINT_RETIRED' });
 });

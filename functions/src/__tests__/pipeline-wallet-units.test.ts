@@ -31,6 +31,14 @@ let autoId: number;
 
 const makeRef = (path: string) => ({ __path: path, id: path.split("/").pop() });
 const pathOfRef = (ref: unknown) => (ref as { __path?: string })?.__path ?? "?";
+const makeQuery = (col: string, filters: Array<[string, unknown]> = [], max = Infinity) => ({
+  __query: col,
+  filters,
+  where: (field: string, _operator: string, value: unknown) =>
+    makeQuery(col, [...filters, [field, value]], max),
+  limit: (count: number) => makeQuery(col, filters, count),
+  max,
+});
 
 jest.mock("firebase-admin/app", () => ({
   getApps: jest.fn(() => []),
@@ -40,6 +48,8 @@ jest.mock("firebase-admin/app", () => ({
 jest.mock("firebase-admin/firestore", () => ({
   getFirestore: jest.fn(() => ({
     collection: (col: string) => ({
+      where: (field: string, _operator: string, value: unknown) =>
+        makeQuery(col, [[field, value]]),
       doc: (docId?: string) => {
         const id = docId ?? `auto-${col}-${autoId++}`;
         const path = `${col}/${id}`;
@@ -56,6 +66,16 @@ jest.mock("firebase-admin/firestore", () => ({
     runTransaction: async (fn: any) => {
       const tx = {
         get: (ref: unknown) => {
+          const query = ref as ReturnType<typeof makeQuery>;
+          if (query.__query) {
+            const found = [...docs.entries()]
+              .filter(([path, value]) => path.startsWith(`${query.__query}/`) &&
+                path.split("/").length === 2 && value.exists &&
+                query.filters.every(([field, expected]) => value.data?.[field] === expected))
+              .slice(0, query.max)
+              .map(([path, value]) => ({ id: path.split("/").pop(), data: () => value.data }));
+            return Promise.resolve({ docs: found, size: found.length });
+          }
           const path = pathOfRef(ref);
           const d = docs.get(path) ?? { exists: false };
           return Promise.resolve({ ...d, data: () => d.data, ref: makeRef(path) });
@@ -188,6 +208,27 @@ describe("cancelExchangeProposal — release in legacy pharmacy units", () => {
     await callCancel();
     expect(incrementFor(`wallets/${BUYER}`, "held")).toBe(-RESERVED * X);
   });
+
+  test("manual cancellation records one major-unit wallet release in the ledger", async () => {
+    await callCancel();
+    const releases = txWrites.filter((w) => w.path.startsWith("ledger/") &&
+      w.payload.type === "proposal_wallet_hold_released");
+    expect(releases).toHaveLength(1);
+    expect(releases[0].payload).toMatchObject({
+      proposalId: PROPOSAL_ID, userId: BUYER, amount: RESERVED,
+      currency: "GHS", from: "held", to: "available", reason: "manual_cancel",
+    });
+  });
+
+  test("recipient cannot send cancel action and proposer cannot send reject action", async () => {
+    await expect(wrappedCancel({ data: { proposalId: PROPOSAL_ID, action: "cancel" },
+      auth: { uid: SELLER, token: {} } } as never))
+      .rejects.toMatchObject({ code: "permission-denied" });
+    await expect(wrappedCancel({ data: { proposalId: PROPOSAL_ID, action: "reject" },
+      auth: { uid: BUYER, token: {} } } as never))
+      .rejects.toMatchObject({ code: "permission-denied" });
+    expect(txWrites).toHaveLength(0);
+  });
 });
 
 describe("legacy proposal (no currency snapshot) — accept refused, cancel still works", () => {
@@ -238,6 +279,78 @@ describe("acceptExchangeProposal — held → deducted in legacy pharmacy units"
   test("deducted is credited walletReserved × 100", async () => {
     await callAccept();
     expect(incrementFor(`wallets/${BUYER}`, "deducted")).toBe(RESERVED * X);
+  });
+
+  test("accepting purchase cancels competing purchases and exchanges with one aggregated release per resource", async () => {
+    docs.set("wallets/other-buyer", { exists: true,
+      data: { available: 0, held: 3000, deducted: 0, currency: "GHS" } });
+    docs.set("pharmacy_inventory/other-return", { exists: true,
+      data: { pharmacyId: "other-buyer", availableQuantity: 2, reservedQuantity: 5 } });
+    for (const [id, amount] of [["loser-p1", 10], ["loser-p2", 20]] as const) {
+      docs.set(`exchange_proposals/${id}`, { exists: true, data: {
+        status: "pending", inventoryItemId: INVENTORY_ID,
+        fromPharmacyId: "other-buyer", toPharmacyId: SELLER, currencyCode: "GHS",
+        details: { type: "purchase" },
+        reservations: { walletReserved: amount, inventoryReserved: null },
+      } });
+    }
+    for (const id of ["loser-e1", "loser-e2"]) {
+      docs.set(`exchange_proposals/${id}`, { exists: true, data: {
+        status: "pending", inventoryItemId: INVENTORY_ID,
+        fromPharmacyId: "other-buyer", toPharmacyId: SELLER, currencyCode: "GHS",
+        details: { type: "exchange", exchangeInventoryItemId: "other-return" },
+        reservations: { walletReserved: null, inventoryReserved: id.endsWith("1") ? 2 : 3 },
+      } });
+    }
+    const result = await callAccept();
+    expect(result.automaticallyCancelledProposalCount).toBe(4);
+    expect(txWrites.filter((w) => w.op === "update" && w.path === "wallets/other-buyer"))
+      .toHaveLength(1);
+    expect(incrementFor("wallets/other-buyer", "available")).toBe(3000);
+    expect(incrementFor("wallets/other-buyer", "held")).toBe(-3000);
+    expect(txWrites.filter((w) => w.op === "update" && w.path === "pharmacy_inventory/other-return"))
+      .toHaveLength(1);
+    expect(incrementFor("pharmacy_inventory/other-return", "availableQuantity")).toBe(5);
+    expect(incrementFor("pharmacy_inventory/other-return", "reservedQuantity")).toBe(-5);
+    expect(txWrites.filter((w) => w.path.startsWith("exchange_proposals/loser-") &&
+      w.payload.status === "cancelled")).toHaveLength(4);
+    expect(txWrites.filter((w) => w.path.startsWith("ledger/") &&
+      w.payload.type === "proposal_wallet_hold_released")).toHaveLength(2);
+    expect(txWrites.some((w) => w.path === `pharmacy_inventory/${INVENTORY_ID}` &&
+      w.op === "update" && w.payload.proposalActivityAt === "ts" &&
+      w.payload.updatedAt === undefined)).toBe(true);
+  });
+
+  test("invalid competing hold fails before any transaction write", async () => {
+    docs.set("exchange_proposals/loser", { exists: true, data: {
+      status: "pending", inventoryItemId: INVENTORY_ID,
+      fromPharmacyId: "other-buyer", toPharmacyId: SELLER, currencyCode: "GHS",
+      details: { type: "purchase" },
+      reservations: { walletReserved: 10, inventoryReserved: null },
+    } });
+    docs.set("wallets/other-buyer", { exists: true,
+      data: { available: 0, held: 0, deducted: 0, currency: "GHS" } });
+    await expect(callAccept()).rejects.toMatchObject({ code: "failed-precondition" });
+    expect(txWrites).toHaveLength(0);
+  });
+
+  test("legacy rival without currency snapshot is compensated in its wallet's raw units", async () => {
+    docs.set("exchange_proposals/legacy-loser", { exists: true, data: {
+      status: "pending", inventoryItemId: INVENTORY_ID,
+      fromPharmacyId: "legacy-buyer", toPharmacyId: SELLER,
+      details: { type: "purchase" },
+      reservations: { walletReserved: 7, inventoryReserved: null },
+    } });
+    docs.set("wallets/legacy-buyer", { exists: true,
+      data: { available: 0, held: 700, deducted: 0, currency: "XAF" } });
+    await callAccept();
+    expect(incrementFor("wallets/legacy-buyer", "available")).toBe(700);
+    expect(incrementFor("wallets/legacy-buyer", "held")).toBe(-700);
+    expect(txWrites.find((w) => w.path === "exchange_proposals/legacy-loser")?.payload.status)
+      .toBe("cancelled");
+    const release = txWrites.find((w) => w.path.startsWith("ledger/") &&
+      w.payload.type === "proposal_wallet_hold_released");
+    expect(release?.payload.currency).toBe("XAF");
   });
 });
 
@@ -329,6 +442,22 @@ describe("acceptExchangeProposal — reserve both physical exchange lots", () =>
       [BUYER, 30, "GHS"],
       [SELLER, 30, "GHS"],
     ]);
+  });
+
+  test("winning return lot shared with loser needs both reservations", async () => {
+    seedExchange(5);
+    docs.set("exchange_proposals/loser", { exists: true, data: {
+      status: "pending", inventoryItemId: INVENTORY_ID,
+      fromPharmacyId: BUYER, toPharmacyId: SELLER, currencyCode: "GHS",
+      details: { type: "exchange", exchangeInventoryItemId: "return-inv" },
+      reservations: { walletReserved: null, inventoryReserved: 2 },
+    } });
+    // Winner alone needs 3, loser 2; fixture only has 3 reserved.
+    await expect(callAccept()).rejects.toMatchObject({ code: "failed-precondition" });
+    expect(txWrites).toHaveLength(0);
+    docs.get("pharmacy_inventory/return-inv")!.data!.reservedQuantity = 5;
+    await callAccept();
+    expect(incrementFor("pharmacy_inventory/return-inv", "reservedQuantity")).toBe(-2);
   });
 
   test("exchange fee cannot be committed against an unfunded pharmacy", async () => {
@@ -481,6 +610,95 @@ describe("createExchangeProposal — purchase reserve wallet-unit lock", () => {
     expect(proposalWrite).toBeDefined();
     const reservations = (proposalWrite!.payload.reservations as { walletReserved?: number });
     expect(reservations?.walletReserved).toBe(RESERVE_MAJOR);
+  });
+
+  test("proposal creation writes only a concurrency marker on the seller lot", async () => {
+    seedReserve(RESERVE_WU);
+    await callReserve();
+    const sellerLotWrites = txWrites.filter((w) => w.path === `pharmacy_inventory/${RESV_INV_ID}`);
+    expect(sellerLotWrites).toEqual([{ op: "update", path: `pharmacy_inventory/${RESV_INV_ID}`,
+      payload: { proposalActivityAt: "ts" } }]);
+  });
+});
+
+describe("createExchangeProposal — published target and privately offered stock", () => {
+  const RETURN_ID = "buyer-return-lot";
+
+  function seedExchangeLots() {
+    seedReserve(0);
+    docs.set(`pharmacy_inventory/${RETURN_ID}`, {
+      exists: true,
+      data: {
+        pharmacyId: BUYER,
+        medicineId: "ibuprofen",
+        medicineName: "Ibuprofen",
+        availableQuantity: 40,
+        reservedQuantity: 0,
+        batch: { lotNumber: "RETURN-1", expirationDate: null },
+        availabilitySettings: { availableForExchange: false },
+      },
+    });
+  }
+
+  function callExchange(exchangeQuantity = 4, quantity = 3) {
+    return wrappedReserve({
+      data: {
+        inventoryItemId: RESV_INV_ID,
+        fromPharmacyId: BUYER,
+        toPharmacyId: SELLER,
+        details: {
+          type: "exchange", quantity, exchangeMedicineId: "ibuprofen",
+          exchangeInventoryItemId: RETURN_ID, exchangeQuantity,
+        },
+      },
+      auth: { uid: BUYER, token: {} },
+    } as never);
+  }
+
+  test("published target and private offered lot reserve the offered quantity", async () => {
+    seedExchangeLots();
+    await callExchange();
+    expect(incrementFor(`pharmacy_inventory/${RETURN_ID}`, "availableQuantity")).toBe(-4);
+    expect(incrementFor(`pharmacy_inventory/${RETURN_ID}`, "reservedQuantity")).toBe(4);
+    expect(txWrites.some((write) => write.path.startsWith("exchange_proposals/") && write.op === "set")).toBe(true);
+  });
+
+  test.each([false, undefined])("private or legacy-unmarked target (%s) is refused without mutation", async (published) => {
+    seedExchangeLots();
+    docs.get(`pharmacy_inventory/${RESV_INV_ID}`)!.data!.availabilitySettings =
+      published === undefined ? {} : { availableForExchange: published };
+    await expect(callExchange()).rejects.toMatchObject({ code: "failed-precondition" });
+    expect(txWrites).toHaveLength(0);
+  });
+
+  test.each([false, undefined])("private or legacy-unmarked offered lot (%s) is allowed", async (published) => {
+    seedExchangeLots();
+    docs.get(`pharmacy_inventory/${RETURN_ID}`)!.data!.availabilitySettings =
+      published === undefined ? {} : { availableForExchange: published };
+    await callExchange();
+    expect(incrementFor(`pharmacy_inventory/${RETURN_ID}`, "reservedQuantity")).toBe(4);
+  });
+
+  test("private offered lot still needs enough available stock", async () => {
+    seedExchangeLots();
+    docs.get(`pharmacy_inventory/${RETURN_ID}`)!.data!.availableQuantity = 3;
+    await expect(callExchange(4)).rejects.toMatchObject({ code: "failed-precondition" });
+    expect(txWrites).toHaveLength(0);
+  });
+
+  test("private offered lot must belong to the proposer", async () => {
+    seedExchangeLots();
+    docs.get(`pharmacy_inventory/${RETURN_ID}`)!.data!.pharmacyId = SELLER;
+    await expect(callExchange()).rejects.toMatchObject({ code: "permission-denied" });
+    expect(txWrites).toHaveLength(0);
+  });
+
+  test("purchase keeps its legacy target publication behavior", async () => {
+    seedExchangeLots();
+    docs.get(`pharmacy_inventory/${RESV_INV_ID}`)!.data!.availabilitySettings = {};
+    docs.get(`wallets/${BUYER}`)!.data!.available = RESERVE_WU;
+    await callReserve();
+    expect(incrementFor(`wallets/${BUYER}`, "held")).toBe(RESERVE_WU);
   });
 });
 

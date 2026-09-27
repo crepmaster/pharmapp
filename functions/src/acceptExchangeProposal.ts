@@ -26,6 +26,7 @@ import { assertLicenseAllowsMarketplace } from "./lib/licenseGate.js";
 import { resolveCourierFee } from "./lib/exchangePipeline.js";
 import { fromMinor, majorToWalletUnits, resolveDecimals, toMinor } from "./lib/moneyUnits.js";
 import { assertMatchesSnapshot } from "./lib/tradeCurrencyGuard.js";
+import { planCompetingProposalReleases, MAX_COMPETING_PROPOSALS } from "./lib/competingProposalReleases.js";
 
 const db = getFirestore();
 
@@ -289,6 +290,67 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
           "An exchange courier fee must be configured for this city."
         );
       }
+
+      // Acceptance closes every other proposal already pending for this lot
+      // in this transaction snapshot. Later new proposals remain possible.
+      // Firestore can merge automatic single-field
+      // indexes for these two equality filters, so no new index build gates
+      // the staging rollout.
+      const competingQuery = db.collection("exchange_proposals")
+        .where("inventoryItemId", "==", proposal.inventoryItemId)
+        .where("status", "==", "pending")
+        .limit(MAX_COMPETING_PROPOSALS + 2);
+      const competingSnapshot = await transaction.get(competingQuery);
+      const releasePlan = planCompetingProposalReleases(
+        competingSnapshot.docs.map((doc) => ({ id: doc.id, data: doc.data() })),
+        proposalId,
+        proposal.inventoryItemId,
+        userId
+      );
+      if (!competingSnapshot.docs.some((doc) => doc.id === proposalId)) {
+        throw new HttpsError("failed-precondition", "Pending proposal inventory is inconsistent; acceptance was not applied.");
+      }
+      // Releasing an old hold is compensation, not a new cross-currency
+      // trade. The accepted proposal still has the strict currency guard;
+      // legacy rivals may lack a snapshot or have since drifted.
+      const loserWalletCurrencies = new Map<string, string | null>();
+      const loserInventorySnapshots = new Map<string, FirebaseFirestore.DocumentSnapshot>();
+      for (const [id, units] of releasePlan.walletUnits) {
+        const snap = await transaction.get(db.collection("wallets").doc(id));
+        if (!snap.exists || !Number.isFinite(snap.data()?.held) || snap.data()!.held < units) {
+          throw new HttpsError("failed-precondition", "A competing wallet hold cannot be released safely.");
+        }
+        const currency = snap.data()?.currency;
+        loserWalletCurrencies.set(id, typeof currency === "string" && currency ? currency : null);
+      }
+      for (const [id, units] of releasePlan.inventoryUnits) {
+        const snap = await transaction.get(db.collection("pharmacy_inventory").doc(id));
+        if (!snap.exists || !Number.isSafeInteger(snap.data()?.reservedQuantity) ||
+            snap.data()!.reservedQuantity < units) {
+          throw new HttpsError("failed-precondition", "A competing return-lot hold cannot be released safely.");
+        }
+        loserInventorySnapshots.set(id, snap);
+      }
+      for (const loser of releasePlan.proposals) {
+        const data = loser.data;
+        const details = data.details as Record<string, unknown>;
+        if (details.type === "exchange") {
+          const heldLot = loserInventorySnapshots.get(details.exchangeInventoryItemId as string);
+          if (heldLot?.data()?.pharmacyId !== data.fromPharmacyId) {
+            throw new HttpsError("failed-precondition", "A competing return lot has changed owner.");
+          }
+        }
+      }
+      if (isPhysicalExchange) {
+        const sharedReturnLotId = proposal.details.exchangeInventoryItemId as string;
+        const otherHeld = releasePlan.inventoryUnits.get(sharedReturnLotId) ?? 0;
+        const returnLotSnapshot = loserInventorySnapshots.get(sharedReturnLotId);
+        if (otherHeld > 0 &&
+            (!returnLotSnapshot ||
+             Number(returnLotSnapshot.data()?.reservedQuantity) < returnQuantity + otherHeld)) {
+          throw new HttpsError("failed-precondition", "Shared return-lot reservations cannot be released safely.");
+        }
+      }
       logger.info("acceptExchangeProposal: resolved courier fee", {
         proposalType,
         deliveryCountry,
@@ -310,8 +372,12 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
         }
         exchangeFeeBuyer = fromMinor(Math.floor(feeMinor / 2), decimals);
         exchangeFeeSeller = fromMinor(feeMinor - Math.floor(feeMinor / 2), decimals);
-        const buyerAvailable = Number(fromWalletSnapshot.data()?.available ?? 0);
-        const sellerAvailable = Number(toWalletSnapshot.data()?.available ?? 0);
+        // Closing a competing purchase by the same party releases its held
+        // funds in this very transaction; those funds can cover this fee.
+        const buyerAvailable = Number(fromWalletSnapshot.data()?.available ?? 0) +
+          (releasePlan.walletUnits.get(proposal.fromPharmacyId) ?? 0);
+        const sellerAvailable = Number(toWalletSnapshot.data()?.available ?? 0) +
+          (releasePlan.walletUnits.get(proposal.toPharmacyId) ?? 0);
         if (
           !Number.isFinite(buyerAvailable) ||
           buyerAvailable < majorToWalletUnits(exchangeFeeBuyer, "pharmacy") ||
@@ -382,6 +448,37 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
         if (!resolvedMedicineName) resolvedMedicineName = "Unknown Medicine";
       }
 
+      // Fold every wallet/lot delta into one write per document. Several
+      // competing proposals may reserve the same buyer wallet or return lot.
+      const walletChanges = new Map<string, { available: number; held: number; deducted: number }>();
+      const inventoryChanges = new Map<string, { available: number; reserved: number }>();
+      const walletDelta = (id: string, available: number, held: number, deducted = 0) => {
+        const change = walletChanges.get(id) ?? { available: 0, held: 0, deducted: 0 };
+        change.available += available;
+        change.held += held;
+        change.deducted += deducted;
+        walletChanges.set(id, change);
+      };
+      const inventoryDelta = (id: string, available: number, reserved: number) => {
+        const change = inventoryChanges.get(id) ?? { available: 0, reserved: 0 };
+        change.available += available;
+        change.reserved += reserved;
+        inventoryChanges.set(id, change);
+      };
+      for (const [id, units] of releasePlan.walletUnits) walletDelta(id, units, -units);
+      for (const [id, units] of releasePlan.inventoryUnits) inventoryDelta(id, units, -units);
+
+      if (proposal.details?.type === "purchase") {
+        const acceptedHold = Number(proposal.reservations?.walletReserved);
+        const totalHeld = majorToWalletUnits(acceptedHold, "pharmacy") +
+          (releasePlan.walletUnits.get(proposal.fromPharmacyId) ?? 0);
+        if (!Number.isSafeInteger(totalHeld) || totalHeld <= 0 ||
+            !Number.isFinite(fromWalletSnapshot.data()?.held) ||
+            fromWalletSnapshot.data()!.held < totalHeld) {
+          throw new HttpsError("failed-precondition", "Buyer wallet holds cannot be committed and released safely.");
+        }
+      }
+
       // ===== PHASE 4: UPDATE WALLET BALANCE (held → deducted) =====
 
       // Only for purchase proposals (exchange proposals don't involve money transfer)
@@ -398,11 +495,7 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
           proposal.reservations.walletReserved,
           "pharmacy"
         );
-        transaction.update(walletRef, {
-          held: FieldValue.increment(-reservedWalletUnits),
-          deducted: FieldValue.increment(reservedWalletUnits),
-          updatedAt: FieldValue.serverTimestamp(),
-        });
+        walletDelta(walletRef.id, 0, -reservedWalletUnits, reservedWalletUnits);
 
         logger.info(
           `acceptExchangeProposal: Moved ${proposal.reservations.walletReserved} ${resolvedDeliveryCurrency} from held → deducted`,
@@ -551,17 +644,10 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
       };
 
       if (isPhysicalExchange) {
-        transaction.update(inventoryRef, {
-          availableQuantity: FieldValue.increment(-ownerQuantity),
-          reservedQuantity: FieldValue.increment(ownerQuantity),
-          updatedAt: FieldValue.serverTimestamp(),
-        });
+        inventoryDelta(inventoryRef.id, -ownerQuantity, ownerQuantity);
         if (exchangeFeeBuyer > 0) {
-          transaction.update(db.collection("wallets").doc(proposal.fromPharmacyId), {
-            available: FieldValue.increment(-majorToWalletUnits(exchangeFeeBuyer, "pharmacy")),
-            held: FieldValue.increment(majorToWalletUnits(exchangeFeeBuyer, "pharmacy")),
-            updatedAt: FieldValue.serverTimestamp(),
-          });
+          const units = majorToWalletUnits(exchangeFeeBuyer, "pharmacy");
+          walletDelta(proposal.fromPharmacyId, -units, units);
           transaction.set(db.collection("ledger").doc(), {
             type: "courier_fee_hold_created",
             proposalId,
@@ -575,11 +661,8 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
           });
         }
         if (exchangeFeeSeller > 0) {
-          transaction.update(db.collection("wallets").doc(proposal.toPharmacyId), {
-            available: FieldValue.increment(-majorToWalletUnits(exchangeFeeSeller, "pharmacy")),
-            held: FieldValue.increment(majorToWalletUnits(exchangeFeeSeller, "pharmacy")),
-            updatedAt: FieldValue.serverTimestamp(),
-          });
+          const units = majorToWalletUnits(exchangeFeeSeller, "pharmacy");
+          walletDelta(proposal.toPharmacyId, -units, units);
           transaction.set(db.collection("ledger").doc(), {
             type: "courier_fee_hold_created",
             proposalId,
@@ -589,6 +672,54 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
             currency: resolvedDeliveryCurrency,
             from: "available",
             to: "held",
+            createdAt: FieldValue.serverTimestamp(),
+          });
+        }
+      }
+      // Purchase acceptance also writes the seller lot, so proposal creation
+      // and acceptance on that lot cannot silently cross at commit time.
+      if (!inventoryChanges.has(inventoryRef.id)) inventoryDelta(inventoryRef.id, 0, 0);
+      for (const [id, change] of walletChanges) {
+        const fields: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
+        if (change.available) fields.available = FieldValue.increment(change.available);
+        if (change.held) fields.held = FieldValue.increment(change.held);
+        if (change.deducted) fields.deducted = FieldValue.increment(change.deducted);
+        transaction.update(db.collection("wallets").doc(id), fields);
+      }
+      for (const [id, change] of inventoryChanges) {
+        const fields: Record<string, unknown> = { proposalActivityAt: FieldValue.serverTimestamp() };
+        if (change.available || change.reserved) fields.updatedAt = FieldValue.serverTimestamp();
+        if (change.available) fields.availableQuantity = FieldValue.increment(change.available);
+        if (change.reserved) fields.reservedQuantity = FieldValue.increment(change.reserved);
+        transaction.update(db.collection("pharmacy_inventory").doc(id), fields);
+      }
+      for (const loser of releasePlan.proposals) {
+        const loserData = loser.data;
+        const reservations = loserData.reservations as Record<string, unknown>;
+        transaction.update(db.collection("exchange_proposals").doc(loser.id), {
+          status: "cancelled",
+          cancelledBy: userId,
+          cancelledAt: FieldValue.serverTimestamp(),
+          cancelledReason: "Another proposal for this lot was accepted",
+          autoCancelledByProposalId: proposalId,
+          updatedAt: FieldValue.serverTimestamp(),
+          reservations: { walletReserved: null, inventoryReserved: null },
+        });
+        if (reservations.walletReserved) {
+          const details = loserData.details as Record<string, unknown>;
+          const currency = [loserData.currencyCode, details.currency,
+            loserWalletCurrencies.get(loserData.fromPharmacyId as string)]
+            .find((value): value is string => typeof value === "string" && value.length > 0) ?? null;
+          transaction.set(db.collection("ledger").doc(), {
+            type: "proposal_wallet_hold_released",
+            proposalId: loser.id,
+            acceptedProposalId: proposalId,
+            userId: loserData.fromPharmacyId,
+            amount: reservations.walletReserved,
+            currency,
+            from: "held",
+            to: "available",
+            reason: "another_proposal_accepted",
             createdAt: FieldValue.serverTimestamp(),
           });
         }
@@ -636,6 +767,7 @@ export const acceptExchangeProposal = onCall<AcceptProposalData>(
         success: true,
         proposalId,
         deliveryId: deliveryRef.id,
+        automaticallyCancelledProposalCount: releasePlan.proposals.length,
         status: "accepted",
         delivery: {
           id: deliveryRef.id,
